@@ -28,7 +28,7 @@ from deerflow.persistence.scheduled_task_runs.model import ScheduledTaskRunRow
 from deerflow.persistence.scheduled_tasks.model import ScheduledTaskRow
 from deerflow.persistence.thread_meta.model import ThreadMetaRow
 from deerflow.persistence.user.model import UserRow
-from deerflow.persistence.rigor.model import RigorShowRow
+from deerflow.persistence.rigor.model import RigorDocumentRow, RigorShowRow
 
 __all__ = [
     "AgentRow",
@@ -43,10 +43,14 @@ __all__ = [
     "ScheduledTaskRunRow",
     "ThreadMetaRow",
     "UserRow",
+    "RigorDocumentRow",
     "RigorShowRow",
 
 
+
 ]
+
+
 
 
 
