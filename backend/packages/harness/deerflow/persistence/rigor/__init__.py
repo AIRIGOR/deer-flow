@@ -1,3 +1,11 @@
-from deerflow.persistence.rigor.model import RigorDocumentRow, RigorShowRow
+from deerflow.persistence.rigor.model import (
+    RigorDocumentRow,
+    RigorRequirementRow,
+    RigorShowRow,
+)
 
-__all__ = ["RigorDocumentRow", "RigorShowRow"]
+__all__ = [
+    "RigorDocumentRow",
+    "RigorRequirementRow",
+    "RigorShowRow",
+]

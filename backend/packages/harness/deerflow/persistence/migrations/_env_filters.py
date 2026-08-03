@@ -17,6 +17,9 @@ LANGGRAPH_OWNED_TABLES: frozenset[str] = frozenset(
         "checkpoint_blobs",
         "checkpoint_writes",
         "checkpoint_migrations",
+        "writes",
+        "store",
+        "store_migrations",
     }
 )
 

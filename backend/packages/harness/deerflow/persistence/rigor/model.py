@@ -162,3 +162,78 @@ class RigorDocumentRow(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+
+class RigorRequirementRow(Base):
+    __tablename__ = "rigor_requirements"
+
+    requirement_id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+    )
+    show_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+    document_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+
+    department: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+    requirement_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    requirement_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    normalized_value: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    unit: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    source_page: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    source_excerpt: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    confidence_score: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    requirement_status: Mapped[str] = mapped_column(
+        String(32),
+        default="EXTRACTED",
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
