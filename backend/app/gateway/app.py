@@ -28,6 +28,7 @@ from app.gateway.routers import (
     mcp,
     memory,
     models,
+    rigor,
     runs,
     scheduled_tasks,
     skills,
@@ -530,6 +531,9 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
 
     # Scheduled tasks API is mounted at /api/scheduled-tasks
     app.include_router(scheduled_tasks.router)
+
+    # RIGOR production API is mounted at /api/rigor
+    app.include_router(rigor.router)
 
     # Agents API is mounted at /api/agents
     app.include_router(agents.router)
