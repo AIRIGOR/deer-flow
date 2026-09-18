@@ -78,7 +78,8 @@ async function reportPdf(state: ProductionState, department: string | null) {
 
 export default async (request: Request, context: Context) => {
   try {
-    const url = new URL(request.url); const path = url.pathname;
+    const url = new URL(request.url);
+    const path = url.pathname.replace(/^\/\.netlify\/functions\/rigor-api/, "") || "/";
     if (path === "/api/health" && request.method === "GET") return json({ status: "ok", service: "rigor-netlify-beta" });
     if (path === "/api/start" && request.method === "POST") {
       const data = await body(request); const displayName = String(data.display_name ?? "").trim(); const role = String(data.role ?? "");
