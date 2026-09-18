@@ -69,3 +69,9 @@ config.yaml.bak
 
 # Monocle agent-observability trace output (local file exporter)
 .monocle/
+
+# Local Netlify folder
+.netlify
+rigor_beta/node_modules/
+rigor_beta/netlify/functions/*.zip
+rigor_beta/netlify/functions/manifest.json

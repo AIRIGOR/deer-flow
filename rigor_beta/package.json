@@ -1,0 +1,23 @@
+{
+  "name": "rigor-netlify-beta",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.0.10",
+    "@netlify/functions": "^4.2.5",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pdf-parse": "^1.1.5",
+    "netlify-cli": "^23.6.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

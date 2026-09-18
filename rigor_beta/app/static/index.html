@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="RIGOR private beta — operational intelligence for live production." />
+    <title>RIGOR Private Beta</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div class="boot"><div class="brand-mark">R</div><p>Loading RIGOR…</p></div>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <dialog id="evidence-dialog" class="evidence-dialog">
+      <button class="dialog-close" aria-label="Close" onclick="document.getElementById('evidence-dialog').close()">×</button>
+      <div id="evidence-content"></div>
+    </dialog>
+    <dialog id="production-dialog" class="evidence-dialog production-dialog">
+      <button class="dialog-close" aria-label="Close" onclick="document.getElementById('production-dialog').close()">×</button>
+      <div class="eyebrow">New demo production</div>
+      <h2 style="margin:8px 0 6px">Build another show</h2>
+      <p class="muted">Each production gets its own documents, decisions, readiness score, incidents, and reports.</p>
+      <form id="production-form" class="start-form">
+        <div class="field"><label>Production name</label><input name="show_name" required minlength="2" maxlength="100" placeholder="World Tour · Chicago" /></div>
+        <div class="grid two"><div class="field"><label>Artist / client</label><input name="artist" required minlength="2" maxlength="100" placeholder="Artist or client" /></div><div class="field"><label>Show date</label><input name="show_date" type="date" required /></div></div>
+        <div class="grid two"><div class="field"><label>Venue</label><input name="venue" required minlength="2" maxlength="120" placeholder="Venue name" /></div><div class="field"><label>City</label><input name="city" required minlength="2" maxlength="100" placeholder="City, state" /></div></div>
+        <button class="btn primary" type="submit">Create production →</button>
+      </form>
+    </dialog>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>
