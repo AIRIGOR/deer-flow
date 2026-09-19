@@ -133,11 +133,32 @@ export function createWorkspace(displayName: string, role: string): WorkspaceSta
   };
 }
 
+function migrateDemoRecords(production: ProductionState) {
+  const demoDocumentIds = new Set(
+    production.documents.filter((item) => item.source_kind === "DEMO").map((item) => item.document_id),
+  );
+  const hadDemoRecords = demoDocumentIds.size > 0 || production.requirements.some((item) => item.source_kind === "DEMO");
+  if (!hadDemoRecords) return;
+
+  production.documents = production.documents.filter((item) => item.source_kind !== "DEMO");
+  production.requirements = production.requirements.filter((item) => item.source_kind !== "DEMO");
+  production.conflicts = production.conflicts.filter((item) => Boolean(item.signature));
+  rebuildConflicts(production);
+  production.events.push({
+    event_id: newId("event"),
+    type: "DEMO_DATA_REMOVED",
+    created_at: now(),
+    payload: { preserved_uploaded_documents: production.documents.length, preserved_uploaded_requirements: production.requirements.length },
+  });
+}
+
 export function normalizeWorkspace(raw: any): WorkspaceState {
   if (Array.isArray(raw.productions)) {
     raw.workspace.production_limit = PRODUCTION_LIMIT;
     if (!raw.workspace.active_production_id && raw.productions[0]) raw.workspace.active_production_id = raw.productions[0].production.production_id;
-    return raw as WorkspaceState;
+    const state = raw as WorkspaceState;
+    state.productions.forEach(migrateDemoRecords);
+    return state;
   }
 
   const legacyProductionId = raw.show?.show_id || newId("production");
