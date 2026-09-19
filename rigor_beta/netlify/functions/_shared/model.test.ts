@@ -5,6 +5,7 @@ import {
   createWorkspace,
   departmentSummary,
   extractRequirements,
+  normalizeWorkspace,
   progress,
   readiness,
   snapshot,
@@ -93,6 +94,28 @@ describe("RIGOR beta model", () => {
     production.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
     expect(progress(state).sessions["3"].complete).toBe(true);
     expect(readiness(state).status).toBe("SHOW_READY");
+  });
+
+  it("migrates old demo records without removing uploaded tester intelligence", () => {
+    const state = createWorkspace("Existing Tester", "PM");
+    const production = activeProduction(state);
+    production.documents.push(
+      { document_id: "demo-doc", source_kind: "DEMO", name: "Demo Rider" },
+      { document_id: "real-doc", source_kind: "TESTER", name: "Real Venue Pack" },
+    );
+    production.requirements.push(
+      { requirement_id: "demo-req", source_kind: "DEMO", document_name: "Demo Rider", department: "Power", status: "EXTRACTED" },
+      { requirement_id: "real-req", source_kind: "TESTER", document_name: "Real Venue Pack", department: "Video", status: "NEEDS_CONFIRMATION" },
+    );
+    production.conflicts.push({ conflict_id: "demo-conflict", status: "OPEN" });
+
+    const migrated = normalizeWorkspace(state);
+    const active = activeProduction(migrated);
+
+    expect(active.documents.map((item) => item.document_id)).toEqual(["real-doc"]);
+    expect(active.requirements.map((item) => item.requirement_id)).toEqual(["real-req"]);
+    expect(active.conflicts).toEqual([]);
+    expect(active.events.some((item) => item.type === "DEMO_DATA_REMOVED")).toBe(true);
   });
 
   it("keeps multiple productions operationally isolated", () => {
