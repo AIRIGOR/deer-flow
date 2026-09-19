@@ -1,0 +1,39 @@
+name: RIGOR Virtual Production
+
+on:
+  push:
+    branches:
+      - feat/rigor-netlify-beta-v1
+    paths:
+      - "rigor_beta/scripts/virtual-production-runner.ts"
+      - ".github/workflows/rigor-virtual-production.yml"
+      - "rigor_beta/netlify/functions/_shared/model.ts"
+      - "rigor_beta/netlify/functions/_shared/seed.ts"
+  workflow_dispatch:
+
+jobs:
+  virtual-production:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rigor_beta
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: rigor_beta/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run AI employee virtual production
+        run: node --experimental-strip-types scripts/virtual-production-runner.ts
+      - name: Upload full run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rigor-virtual-production-001
+          path: rigor_beta/.artifacts/virtual-production/
+          if-no-files-found: error
+          retention-days: 30
