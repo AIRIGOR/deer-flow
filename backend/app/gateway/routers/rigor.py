@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable
+import hmac
+import os
 from datetime import date, datetime
 from typing import TypeVar
 
@@ -144,9 +146,17 @@ class AnalyzeDocumentRequest(BaseModel):
 
 
 @router.post("/analyze")
-@require_permission("threads", "write")
 async def analyze_document(request: Request, body: AnalyzeDocumentRequest):
-    del request
+    configured_token = os.getenv("RIGOR_SERVICE_TOKEN", "").strip()
+    provided_token = request.headers.get("x-rigor-service-token", "").strip()
+    if not configured_token:
+        raise HTTPException(
+            status_code=503,
+            detail="RIGOR service authentication is not configured",
+        )
+    if not provided_token or not hmac.compare_digest(provided_token, configured_token):
+        raise HTTPException(status_code=401, detail="Invalid RIGOR service token")
+
     total_chars = sum(len(page) for page in body.pages)
     if total_chars > 600_000:
         raise HTTPException(
