@@ -1,5 +1,6 @@
 """RIGOR application service."""
 
+from .analyzer import AnalyzedRequirement, RigorAnalysisError, RigorAnalysisResult, RigorDocumentAnalyzer
 from .manager import (
     RigorConflictError,
     RigorManager,
@@ -15,6 +16,10 @@ from .schemas import (
 )
 
 __all__ = [
+    "AnalyzedRequirement",
+    "RigorAnalysisError",
+    "RigorAnalysisResult",
+    "RigorDocumentAnalyzer",
     "DocumentProcessingStatus",
     "DocumentType",
     "RequirementOriginType",
