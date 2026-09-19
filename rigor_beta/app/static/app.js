@@ -82,7 +82,7 @@ function renderProductionSwitcher() {
   for (let index = state.productions.length; index < state.workspace.production_limit; index += 1) {
     cards.push(`<button class="production-card empty" onclick="openProductionDialog()"><span class="production-slot">Production ${index + 1} · Available</span><strong>+ Build another show</strong><span class="muted small">Start a separate end-to-end production.</span></button>`);
   }
-  return `<section class="wrap production-workspace"><div class="production-heading"><div><div class="eyebrow">Demo production workspace</div><h2>Your shows</h2></div><div class="stage-badge">${state.workspace.production_count} of ${state.workspace.production_limit} productions in use</div></div><div class="production-grid">${cards.join("")}</div></section>`;
+  return `<section class="wrap production-workspace"><div class="production-heading"><div><div class="eyebrow">RIGOR production workspace</div><h2>Your shows</h2></div><div class="stage-badge">${state.workspace.production_count} of ${state.workspace.production_limit} productions in use</div></div><div class="production-grid">${cards.join("")}</div></section>`;
 }
 
 function renderStart() {
@@ -101,7 +101,7 @@ function renderStart() {
         </div>
       </section>
       <section class="card start-card">
-        <div class="eyebrow">Create your isolated demo</div>
+        <div class="eyebrow">Create your RIGOR workspace</div>
         <h2 style="margin:8px 0 6px">Start your first production</h2>
         <p class="muted">Your decisions and progress are saved in this browser.</p>
         <form id="start-form" class="start-form">
@@ -146,7 +146,7 @@ function renderWorkspace() {
         <div><div class="eyebrow">${escapeHtml(s.artist)} · ${escapeHtml(s.show_date)}</div><h1>${escapeHtml(s.venue)}</h1><p class="lead">${escapeHtml(s.city)} · ${escapeHtml(s.show_name)}</p></div>
         <div class="score-card"><div class="score-ring" style="--score:${r.score}"><span>${r.score}%</span></div><div><div class="label">Live show readiness</div><div class="status">${escapeHtml(r.status.replaceAll("_", " "))}</div><div class="muted small">${r.open_conflicts} open conflicts · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</div></div></div>
       </div></section>
-      <nav class="wrap sessions" aria-label="Demo sessions">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
+      <nav class="wrap sessions" aria-label="RIGOR sessions">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
       <section class="wrap stage">${renderSession()}</section>
     </main>
     <footer class="footer"><div class="wrap">RIGOR private beta · Three complete productions per evaluator · Every show workspace is isolated.</div></footer>
@@ -162,11 +162,11 @@ function renderSession() {
 
 function renderSessionOne() {
   const info = state.progress.sessions["1"];
-  return `<div class="stage-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Inspect the source documents, verify the extracted requirements, and correct the intelligence before it reaches department heads.</p></div><div class="stage-badge">Goal: verify 6 requirements</div></div>
+  return `<div class="stage-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Inspect the source documents, verify the extracted requirements, and correct the intelligence before it reaches department heads.</p></div><div class="stage-badge">${info.total ? `Review target: ${info.total} requirement${info.total === 1 ? "" : "s"}` : "Upload documents to begin"}</div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">Confirm or reject at least six extracted requirements. Open “Source evidence” whenever you need to verify what RIGOR saw.</div>`}
     <div class="grid two">
       <div class="card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge("PROCESSED")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages</div></div>${badge(doc.status)}</div>`).join("")}</div></div>
-      <div class="card"><h3>Test with another document</h3><p class="muted small">Upload a PDF or TXT. RIGOR will extract requirement candidates and preserve the document and page as evidence.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
+      <div class="card"><h3>Test with another document</h3><p class="muted small">Upload a PDF or TXT. RIGOR will extract structured requirement candidates, preserve source evidence, and compare compatible requirements across documents for conflicts.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
     </div>
     <div class="card" style="margin-top:16px"><div class="card-header"><div><h3>Requirement review</h3><div class="muted small">${info.done} verified · ${state.requirements.length - info.done} still open</div></div><div class="actions"><select id="requirement-filter" aria-label="Filter department"><option value="ALL">All departments</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div></div><div id="requirements-list" class="stack" style="margin-top:14px">${renderRequirements(state.requirements)}</div></div>
     ${renderFeedback(1)}`;
@@ -183,7 +183,7 @@ function renderSessionTwo() {
   const info = state.progress.sessions["2"];
   const unlocked = state.progress.sessions["1"].complete;
   if (!unlocked) return lockedSession(2, "Complete the preproduction review to unlock Technical Advance.");
-  return `<div class="stage-head"><div><div class="eyebrow">Session 2 · Technical advance</div><h2>Resolve the contradictions before they reach the dock.</h2><p>Make an operational decision for every conflict, assign ownership, and watch the readiness picture recalculate across departments.</p></div><div class="stage-badge">Goal: 4 resolutions + 4 owners</div></div>
+  return `<div class="stage-head"><div><div class="eyebrow">Session 2 · Technical advance</div><h2>Resolve the contradictions before they reach the dock.</h2><p>Make an operational decision for every conflict, assign ownership, and watch the readiness picture recalculate across departments.</p></div><div class="stage-badge">${state.conflicts.length} detected conflict${state.conflicts.length === 1 ? "" : "s"} · ${Math.min(4, state.requirements.length)} owner target</div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 2 complete.</strong> Show Day is now unlocked.</div>` : `<div class="callout warning" style="margin-bottom:16px">RIGOR found ${state.readiness.open_conflicts} unresolved conflicts. A report can be generated now, but the show remains blocked.</div>`}
     <div class="metric-row" style="margin-bottom:16px"><div class="metric"><div class="n">${state.conflicts.filter(c => c.status === "RESOLVED").length}/${state.conflicts.length}</div><div class="l">Conflicts resolved</div></div><div class="metric"><div class="n">${state.requirements.filter(r => r.owner).length}</div><div class="l">Owners assigned</div></div><div class="metric"><div class="n">${state.departments.filter(d => d.status === "READY").length}</div><div class="l">Departments ready</div></div><div class="metric"><div class="n">${state.readiness.score}%</div><div class="l">Readiness</div></div></div>
     <div class="card"><div class="card-header"><div><h3>Conflict desk</h3><div class="muted small">Evidence from multiple sources, one recorded decision.</div></div></div><div class="stack" style="margin-top:14px">${state.conflicts.map(renderConflict).join("")}</div></div>
@@ -203,7 +203,7 @@ function renderSessionThree() {
   if (!unlocked) return lockedSession(3, "Resolve the advance conflicts and assign owners to unlock Show Day.");
   const info = state.progress.sessions["3"];
   return `<div class="stage-head"><div><div class="eyebrow">Session 3 · Show day</div><h2>Carry the advance into live execution.</h2><p>Run the critical checkpoints in sequence, capture day-of changes, and finish with one source-backed operational record.</p></div><div class="stage-badge">Goal: complete 8 checkpoints</div></div>
-    ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>The demo show is SHOW READY.</strong> Export the Master or a department-specific Advance Report below.</div>` : `<div class="callout" style="margin-bottom:16px">Advance decisions are complete. Verify each show-day checkpoint to move the show to SHOW READY.</div>`}
+    ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>The production is SHOW READY.</strong> Export the Master or a department-specific Advance Report below.</div>` : `<div class="callout" style="margin-bottom:16px">Advance decisions are complete. Verify each show-day checkpoint to move the show to SHOW READY.</div>`}
     <div class="grid two">
       <div class="card"><div class="card-header"><div><h3>Show-day checkpoints</h3><div class="muted small">${info.done}/${info.total} complete</div></div>${badge(state.readiness.status)}</div><div class="stack" style="margin-top:14px">${state.checkpoints.map(item => `<label class="checkpoint-row ${item.status === "COMPLETE" ? "complete" : ""}"><input type="checkbox" data-checkpoint="${item.checkpoint_id}" ${item.status === "COMPLETE" ? "checked" : ""} /><span class="checkpoint-copy"><strong>${escapeHtml(item.label)}</strong><span class="muted small">${escapeHtml(item.department)}</span></span>${badge(item.status)}</label>`).join("")}</div></div>
       <div class="grid">
@@ -251,7 +251,7 @@ function selectSession(number) {
 }
 
 function openProductionDialog() {
-  if (state.workspace.production_count >= state.workspace.production_limit) return showToast("All three demo production slots are in use.", true);
+  if (state.workspace.production_count >= state.workspace.production_limit) return showToast("All three production slots are in use.", true);
   const dialog = document.getElementById("production-dialog");
   const form = document.getElementById("production-form");
   form.reset();
