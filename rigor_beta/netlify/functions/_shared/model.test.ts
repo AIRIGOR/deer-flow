@@ -1,53 +1,115 @@
 import { describe, expect, it } from "vitest";
-import { activeProduction, createProduction, createWorkspace, departmentSummary, extractRequirements, progress, readiness, snapshot } from "./model.js";
+import {
+  activeProduction,
+  createProduction,
+  createWorkspace,
+  departmentSummary,
+  extractRequirements,
+  progress,
+  readiness,
+  snapshot,
+} from "./model.js";
 
 describe("RIGOR beta model", () => {
-  it("creates an isolated production with a three-stage workflow", () => {
+  it("starts new productions from uploaded source data instead of seeded intelligence", () => {
     const state = createWorkspace("Test PM", "PM");
     const view = snapshot(state);
-    expect(view.requirements).toHaveLength(18);
-    expect(view.conflicts).toHaveLength(4);
+
+    expect(view.documents).toHaveLength(0);
+    expect(view.requirements).toHaveLength(0);
+    expect(view.conflicts).toHaveLength(0);
     expect(view.checkpoints).toHaveLength(8);
     expect(view.progress.current_session).toBe(1);
-    expect(view.readiness.status).toBe("BLOCKED");
+    expect(view.progress.sessions["1"].complete).toBe(false);
+    expect(view.readiness.status).toBe("DOCUMENTS_PENDING");
+    expect(view.intelligence).toMatchObject({
+      seeded: false,
+      source_of_truth: "UPLOADED_DOCUMENTS",
+    });
   });
 
-  it("unlocks all three sessions through real workflow decisions", () => {
+  it("extracts normalized source-backed requirement candidates", () => {
+    const state = createWorkspace("Video Lead", "Video");
+    const created = extractRequirements(state, "venue-tech-pack.txt", [
+      "Venue must provide two tactical fiber paths from FOH to video world.",
+    ]);
+
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({
+      department: "Video",
+      category: "VIDEO_TRANSPORT",
+      normalized_value: "FIBER",
+      document_name: "venue-tech-pack.txt",
+      page_number: 1,
+      origin_type: "SOURCE_DOCUMENT",
+      source_kind: "TESTER",
+      status: "NEEDS_CONFIRMATION",
+    });
+    expect(created[0].confidence).toBeGreaterThan(0.8);
+  });
+
+  it("detects cross-document contradictions from normalized production requirements", () => {
+    const state = createWorkspace("Production Manager", "PM");
+
+    extractRequirements(state, "tour-rider.txt", [
+      "Tour requires 400A show power service at stage right.",
+    ]);
+    extractRequirements(state, "venue-tech-pack.txt", [
+      "Venue power service is limited to 200A at stage right.",
+    ]);
+
+    const production = activeProduction(state);
+    expect(production.requirements).toHaveLength(2);
+    expect(production.conflicts).toHaveLength(1);
+    expect(production.conflicts[0]).toMatchObject({
+      department: "Power",
+      category: "POWER_CAPACITY",
+      severity: "CRITICAL",
+      status: "OPEN",
+    });
+    expect(new Set([production.conflicts[0].left_value, production.conflicts[0].right_value])).toEqual(
+      new Set(["400A", "200A"]),
+    );
+    expect(production.conflicts[0].left_source).toContain("tour-rider.txt");
+    expect(production.conflicts[0].right_source).toContain("venue-tech-pack.txt");
+  });
+
+  it("uses dynamic review targets and unlocks the workflow from real extracted records", () => {
     const state = createWorkspace("Test TM", "TM");
     const production = activeProduction(state);
-    production.requirements.slice(0, 6).forEach((item) => { item.status = "CONFIRMED"; });
+
+    extractRequirements(state, "production-notes.txt", [
+      "Venue must provide 200A show power service.",
+      "Production shall confirm dock access opens at 07:00.",
+    ]);
+
+    expect(progress(state).sessions["1"].total).toBe(2);
+    production.requirements.forEach((item) => { item.status = "CONFIRMED"; });
     expect(progress(state).sessions["1"].complete).toBe(true);
-    production.conflicts.forEach((item) => { item.status = "RESOLVED"; item.resolution = "Approved alternate supplied onsite"; item.owner = "Production Manager"; });
-    production.requirements.slice(0, 4).forEach((item) => { item.owner = "Department Lead"; });
+
+    production.requirements.forEach((item) => { item.owner = "Department Lead"; });
     expect(progress(state).sessions["2"].complete).toBe(true);
+
     production.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
     expect(progress(state).sessions["3"].complete).toBe(true);
     expect(readiness(state).status).toBe("SHOW_READY");
   });
 
-  it("extracts source-backed requirement candidates", () => {
-    const state = createWorkspace("Video Lead", "Video");
-    const created = extractRequirements(state, "camera-notes.txt", ["Venue must provide two tactical fiber paths from FOH to video world."]);
-    expect(created).toHaveLength(1);
-    expect(created[0].department).toBe("Video");
-    expect(created[0].document_name).toBe("camera-notes.txt");
-  });
-
-  it("keeps three demo productions operationally isolated", () => {
+  it("keeps multiple productions operationally isolated", () => {
     const state = createWorkspace("Portfolio PM", "PM");
-    const second = createProduction(state.workspace.workspace_id, { show_name: "Show Two", artist: "Client Two", venue: "Venue Two", city: "Chicago, IL", show_date: "2026-11-08" }, 2);
-    const third = createProduction(state.workspace.workspace_id, { show_name: "Show Three", artist: "Client Three", venue: "Venue Three", city: "New York, NY", show_date: "2026-11-15" }, 3);
-    state.productions.push(second, third);
-    activeProduction(state).requirements[0].status = "CONFIRMED";
-    state.workspace.active_production_id = second.production.production_id;
-    expect(activeProduction(state).requirements[0].status).not.toBe("CONFIRMED");
-    expect(snapshot(state).productions).toHaveLength(3);
-  });
+    const second = createProduction(
+      state.workspace.workspace_id,
+      { show_name: "Show Two", artist: "Client Two", venue: "Venue Two", city: "Chicago, IL", show_date: "2026-11-08" },
+      2,
+    );
+    state.productions.push(second);
 
-  it("calculates department isolation", () => {
-    const state = createWorkspace("Audio Lead", "Audio");
-    const departments = departmentSummary(state);
-    expect(departments.find((item) => item.department === "Power")?.status).toBe("BLOCKED");
-    expect(departments.find((item) => item.department === "Audio")?.total).toBe(1);
+    extractRequirements(state, "show-one.txt", ["Tour requires 400A show power service."]);
+    expect(activeProduction(state).requirements).toHaveLength(1);
+
+    state.workspace.active_production_id = second.production.production_id;
+    expect(activeProduction(state).requirements).toHaveLength(0);
+    expect(departmentSummary(state)).toEqual([]);
+    expect(snapshot(state).productions).toHaveLength(2);
   });
 });
