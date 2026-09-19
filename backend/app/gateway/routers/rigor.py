@@ -16,7 +16,9 @@ from deerflow.rigor import (
     DocumentType,
     RequirementOriginType,
     RequirementStatus,
+    RigorAnalysisError,
     RigorConflictError,
+    RigorDocumentAnalyzer,
     RigorNotFoundError,
     ShowStatus,
 )
@@ -134,6 +136,31 @@ class RequirementUpdateRequest(BaseModel):
     requirement_status: RequirementStatus | None = None
     owner: str | None = None
     due_at: datetime | None = None
+
+
+class AnalyzeDocumentRequest(BaseModel):
+    document_name: str = Field(min_length=1, max_length=255)
+    pages: list[str] = Field(min_length=1, max_length=120)
+
+
+@router.post("/analyze")
+@require_permission("threads", "write")
+async def analyze_document(request: Request, body: AnalyzeDocumentRequest):
+    del request
+    total_chars = sum(len(page) for page in body.pages)
+    if total_chars > 600_000:
+        raise HTTPException(
+            status_code=413,
+            detail="RIGOR analysis input exceeds the 600,000 character limit",
+        )
+    try:
+        result = await RigorDocumentAnalyzer().analyze(
+            document_name=body.document_name,
+            pages=body.pages,
+        )
+    except RigorAnalysisError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return result.model_dump()
 
 
 @router.get("/shows")
