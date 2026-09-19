@@ -59,11 +59,11 @@ type DeerFlowRequirement = {
 };
 
 async function analyzeWithDeerFlow(documentName: string, pages: string[]) {
-  const baseUrl = process.env.RIGOR_DEERFLOW_URL?.trim();
+  const baseUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
   if (!baseUrl) return null;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const token = process.env.RIGOR_DEERFLOW_TOKEN?.trim();
+  const token = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
