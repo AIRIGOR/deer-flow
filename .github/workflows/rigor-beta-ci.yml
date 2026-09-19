@@ -1,0 +1,38 @@
+name: RIGOR Beta CI
+
+on:
+  push:
+    branches:
+      - feat/rigor-netlify-beta-v1
+    paths:
+      - "rigor_beta/**"
+      - ".github/workflows/rigor-beta-ci.yml"
+  pull_request:
+    paths:
+      - "rigor_beta/**"
+
+jobs:
+  rigor-beta:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rigor_beta
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: rigor_beta/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Test
+        run: npm test
