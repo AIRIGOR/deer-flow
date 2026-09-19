@@ -1,4 +1,4 @@
-import { CHECKPOINTS, CONFLICTS, DEPARTMENTS, DOCUMENTS, KEYWORDS, REQUIREMENTS } from "./seed.js";
+import { CHECKPOINTS, DEPARTMENTS, KEYWORDS } from "./seed.js";
 
 export type RecordMap = Record<string, any>;
 export type ProductionState = {
@@ -31,24 +31,93 @@ type ProductionDetails = {
   show_date?: string;
 };
 
+const CATEGORY_RULES: Array<[string, RegExp]> = [
+  ["POWER_CAPACITY", /\b(?:\d{2,4}\s*a(?:mps?|mperes?)?|company switch|show power|service)\b/i],
+  ["POWER_VOLTAGE", /\b(?:120|208|240|277|480)\s*v(?:olts?)?\b/i],
+  ["RIGGING_TRIM", /\b(?:trim|clear height|working height).{0,40}\b\d{1,3}(?:\.\d+)?\s*(?:ft|feet|foot|'|′)\b/i],
+  ["RIGGING_LOAD", /\b(?:point load|distributed load|rigging load|lbs?|pounds?|kg)\b/i],
+  ["VIDEO_TRANSPORT", /\b(?:fiber|tactical fiber|cat\s*6|copper tie|smpte|video transport)\b/i],
+  ["VIDEO_SCREEN", /\b(?:led wall|video wall|projection screen|screen size)\b/i],
+  ["CAMERA_SYSTEM", /\b(?:camera|ptz|long lens|camera position|camera platform)\b/i],
+  ["AUDIO_CONSOLE", /\b(?:console|foh audio|monitor console|digico|avid|yamaha|midas)\b/i],
+  ["AUDIO_PA", /\b(?:pa system|line array|speaker system|spl)\b/i],
+  ["LIGHTING_NETWORK", /\b(?:sacn|art-?net|dmx|universe|lighting network)\b/i],
+  ["FOLLOWSPOT", /\b(?:follow\s*spots?|spotlight)\b/i],
+  ["BACKLINE_RISER", /\b(?:drum riser|rolling riser|riser)\b/i],
+  ["LABOR_CALL", /\b(?:stagehands?|labor call|crew call|hands called)\b/i],
+  ["DOCK_ACCESS", /\b(?:dock|truck staging|load[- ]?in access)\b/i],
+  ["HOSPITALITY_MEAL", /\b(?:crew meal|hot dinner|catering|meal)\b/i],
+  ["COMMUNICATIONS_RADIO", /\b(?:radios?|intercom|comms?|channels?)\b/i],
+  ["SECURITY_BARRICADE", /\b(?:barricade|bike rack|security barrier)\b/i],
+];
+
+function classifyDepartment(text: string) {
+  const lowered = ` ${text.toLowerCase()} `;
+  return Object.entries(KEYWORDS).find(([, words]) => words.some((word) => lowered.includes(word)))?.[0] ?? "Production";
+}
+
+function classifyCategory(text: string, department: string) {
+  return CATEGORY_RULES.find(([, pattern]) => pattern.test(text))?.[0] ?? `${department.toUpperCase().replaceAll(" ", "_")}_GENERAL`;
+}
+
+function normalizedValue(text: string, category: string) {
+  const compact = text.replace(/\s+/g, " ").trim();
+  const amp = compact.match(/\b(\d{2,4})\s*a(?:mps?|mperes?)?\b/i);
+  if (category === "POWER_CAPACITY" && amp) return `${Number(amp[1])}A`;
+
+  const voltage = compact.match(/\b(120|208|240|277|480)\s*v(?:olts?)?\b/i);
+  if (category === "POWER_VOLTAGE" && voltage) return `${voltage[1]}V`;
+
+  const trim = compact.match(/\b(\d{1,3}(?:\.\d+)?)\s*(?:ft|feet|foot|'|′)\b/i);
+  if (category === "RIGGING_TRIM" && trim) return `${Number(trim[1])}FT`;
+
+  const dimension = compact.match(/\b(\d{1,3}(?:\.\d+)?)\s*(?:ft|feet|'|′)?\s*[x×]\s*(\d{1,3}(?:\.\d+)?)\s*(?:ft|feet|'|′)?\b/i);
+  if (["BACKLINE_RISER", "VIDEO_SCREEN"].includes(category) && dimension) {
+    return `${Number(dimension[1])}x${Number(dimension[2])}FT`;
+  }
+
+  if (category === "VIDEO_TRANSPORT") {
+    if (/tactical\s+fiber|\bfiber\b/i.test(compact)) return "FIBER";
+    if (/cat\s*6|copper/i.test(compact)) return "COPPER";
+    if (/smpte/i.test(compact)) return "SMPTE";
+  }
+
+  const quantity = compact.match(/\b(\d{1,3})\s+(?:production\s+)?(?:radios?|stagehands?|hands|follow\s*spots?|channels?|universes?)\b/i);
+  if (quantity) return quantity[1];
+
+  return null;
+}
+
+function confidenceFor(text: string, department: string, normalized: string | null) {
+  let confidence = 0.68;
+  if (department !== "Production") confidence += 0.08;
+  if (normalized) confidence += 0.12;
+  if (/\b(?:must|required|requires|shall|minimum|maximum|provide|confirm)\b/i.test(text)) confidence += 0.08;
+  return Math.min(0.98, Number(confidence.toFixed(2)));
+}
+
 export function createProduction(workspaceId: string, details: ProductionDetails = {}, ordinal = 1): ProductionState {
   const createdAt = now();
   const productionId = newId("production");
-  const defaults = ordinal === 1
-    ? { show_name: "Northstar Arena Tour · Las Vegas", artist: "Northstar", venue: "Desert Crown Arena", city: "Las Vegas, NV", show_date: "2026-10-24" }
-    : { show_name: `Demo Production ${ordinal}`, artist: "New production", venue: "Venue to confirm", city: "City to confirm", show_date: "2026-11-01" };
+  const defaults = {
+    show_name: ordinal === 1 ? "New RIGOR Production" : `Production ${ordinal}`,
+    artist: "Artist / client to confirm",
+    venue: "Venue to confirm",
+    city: "City to confirm",
+    show_date: new Date(Date.now() + (21 + (ordinal - 1) * 7) * 86400000).toISOString().slice(0, 10),
+  };
   const show = { ...defaults, ...details };
 
   return {
     production: { production_id: productionId, workspace_id: workspaceId, current_session: 1, completed_sessions: [], created_at: createdAt, updated_at: createdAt },
-    show: { show_id: newId("show"), production_id: productionId, workspace_id: workspaceId, ...show, status: "PREPRODUCTION" },
-    documents: DOCUMENTS.map((document) => ({ document_id: newId("doc"), production_id: productionId, workspace_id: workspaceId, ...document, status: "PROCESSED", source_kind: "DEMO", created_at: createdAt })),
-    requirements: REQUIREMENTS.map(([department, title, detail, status, documentIndex, pageNumber, excerpt]) => ({ requirement_id: newId("req"), production_id: productionId, workspace_id: workspaceId, department, title, detail, status, owner: null, due_at: null, document_name: DOCUMENTS[documentIndex].name, page_number: pageNumber, excerpt, source_kind: "DEMO" })),
-    conflicts: CONFLICTS.map(([department, title, severity, leftValue, rightValue, leftSource, rightSource]) => ({ conflict_id: newId("conflict"), production_id: productionId, workspace_id: workspaceId, department, title, severity, left_value: leftValue, right_value: rightValue, left_source: leftSource, right_source: rightSource, status: "OPEN", resolution: null, owner: null, resolved_at: null })),
+    show: { show_id: newId("show"), production_id: productionId, workspace_id: workspaceId, ...show, status: "DOCUMENTS_PENDING" },
+    documents: [],
+    requirements: [],
+    conflicts: [],
     checkpoints: CHECKPOINTS.map(([label, department], sequence) => ({ checkpoint_id: newId("checkpoint"), production_id: productionId, workspace_id: workspaceId, label, department, sequence: sequence + 1, status: "PENDING", completed_at: null })),
     incidents: [],
     feedback: [],
-    events: [{ event_id: newId("event"), type: "PRODUCTION_CREATED", created_at: createdAt, payload: { ordinal } }],
+    events: [{ event_id: newId("event"), type: "PRODUCTION_CREATED", created_at: createdAt, payload: { ordinal, seeded: false } }],
   };
 }
 
@@ -93,7 +162,7 @@ export function normalizeWorkspace(raw: any): WorkspaceState {
 
 export function activeProduction(state: WorkspaceState): ProductionState {
   const production = state.productions.find((item) => item.production.production_id === state.workspace.active_production_id) || state.productions[0];
-  if (!production) throw new Error("No production exists in this demo workspace");
+  if (!production) throw new Error("No production exists in this RIGOR workspace");
   state.workspace.active_production_id = production.production.production_id;
   return production;
 }
@@ -108,10 +177,14 @@ export function progress(input: WorkspaceState | ProductionState) {
   const owned = state.requirements.filter((item) => Boolean(item.owner)).length;
   const resolved = state.conflicts.filter((item) => item.status === "RESOLVED").length;
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
+  const reviewTarget = Math.min(6, state.requirements.length);
+  const ownerTarget = Math.min(4, state.requirements.length);
+  const sessionOneComplete = state.requirements.length > 0 && reviewed >= reviewTarget;
+  const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned >= ownerTarget;
   const sessions: Record<string, RecordMap> = {
-    "1": { complete: reviewed >= 6, done: reviewed, total: 6, label: "Preproduction intake" },
-    "2": { complete: resolved === state.conflicts.length && owned >= 4, done: Math.min(resolved + owned, state.conflicts.length + 4), total: state.conflicts.length + 4, label: "Technical advance" },
-    "3": { complete: checks === state.checkpoints.length, done: checks, total: state.checkpoints.length, label: "Show day" },
+    "1": { complete: sessionOneComplete, done: reviewed, total: reviewTarget || 1, label: "Preproduction intake" },
+    "2": { complete: sessionTwoComplete, done: Math.min(resolved + owned, state.conflicts.length + ownerTarget), total: Math.max(1, state.conflicts.length + ownerTarget), label: "Technical advance" },
+    "3": { complete: sessionTwoComplete && checks === state.checkpoints.length, done: checks, total: state.checkpoints.length, label: "Show day" },
   };
   const completed = [1, 2, 3].filter((number) => sessions[String(number)].complete);
   const current = !completed.includes(1) ? 1 : !completed.includes(2) ? 2 : 3;
@@ -128,8 +201,14 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const confirmed = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
   const openConflicts = scopedConflicts.filter((item) => item.status !== "RESOLVED").length;
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
-  const score = Math.round(((confirmed / Math.max(scopedRequirements.length, 1)) * 0.45 + (1 - openConflicts / Math.max(scopedConflicts.length, 1)) * 0.35 + (checks / Math.max(state.checkpoints.length, 1)) * 0.2) * 100);
-  const status = openConflicts ? "BLOCKED" : checks === state.checkpoints.length ? "SHOW_READY" : "ADVANCE_READY";
+  if (!scopedRequirements.length) {
+    return { score: 0, status: "DOCUMENTS_PENDING", confirmed_requirements: 0, total_requirements: 0, open_conflicts: 0, completed_checkpoints: checks, total_checkpoints: state.checkpoints.length };
+  }
+  const requirementScore = confirmed / scopedRequirements.length;
+  const conflictScore = scopedConflicts.length ? 1 - openConflicts / scopedConflicts.length : 1;
+  const checkpointScore = checks / Math.max(state.checkpoints.length, 1);
+  const score = Math.round((requirementScore * 0.5 + conflictScore * 0.35 + checkpointScore * 0.15) * 100);
+  const status = openConflicts ? "BLOCKED" : confirmed < scopedRequirements.length ? "NEEDS_REVIEW" : checks === state.checkpoints.length ? "SHOW_READY" : "ADVANCE_READY";
   return { score, status, confirmed_requirements: confirmed, total_requirements: scopedRequirements.length, open_conflicts: openConflicts, completed_checkpoints: checks, total_checkpoints: state.checkpoints.length };
 }
 
@@ -162,22 +241,113 @@ export function snapshot(state: WorkspaceState) {
     progress: currentProgress,
     readiness: currentReadiness,
     departments: departmentSummary(active),
+    intelligence: {
+      mode: "STRUCTURED_EXTRACTION_V1",
+      seeded: false,
+      source_of_truth: "UPLOADED_DOCUMENTS",
+      deerflow_bridge: "PENDING_SERVICE_CONNECTION",
+    },
   };
+}
+
+function conflictSeverity(category: string) {
+  if (["POWER_CAPACITY", "RIGGING_TRIM", "RIGGING_LOAD"].includes(category)) return "CRITICAL";
+  if (["VIDEO_TRANSPORT", "VIDEO_SCREEN", "BACKLINE_RISER", "AUDIO_PA"].includes(category)) return "HIGH";
+  return "MEDIUM";
+}
+
+export function rebuildConflicts(input: WorkspaceState | ProductionState) {
+  const state = resolveProduction(input);
+  const existing = new Map(state.conflicts.map((item) => [item.signature, item]));
+  const conflicts: RecordMap[] = [];
+  const groups = new Map<string, RecordMap[]>();
+
+  for (const item of state.requirements) {
+    if (!item.normalized_value || !item.category) continue;
+    const key = `${item.department}|${item.category}`;
+    groups.set(key, [...(groups.get(key) || []), item]);
+  }
+
+  for (const items of groups.values()) {
+    for (let leftIndex = 0; leftIndex < items.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < items.length; rightIndex += 1) {
+        const left = items[leftIndex];
+        const right = items[rightIndex];
+        if (left.document_name === right.document_name || left.normalized_value === right.normalized_value) continue;
+        const ids = [left.requirement_id, right.requirement_id].sort();
+        const signature = `${left.department}|${left.category}|${ids.join("|")}`;
+        const prior = existing.get(signature);
+        conflicts.push({
+          conflict_id: prior?.conflict_id || newId("conflict"),
+          production_id: state.production.production_id,
+          workspace_id: state.production.workspace_id,
+          signature,
+          department: left.department,
+          category: left.category,
+          title: `${left.department}: conflicting ${String(left.category).toLowerCase().replaceAll("_", " ")}`,
+          severity: conflictSeverity(left.category),
+          left_value: left.normalized_value,
+          right_value: right.normalized_value,
+          left_source: `${left.document_name} · p${left.page_number || "—"}`,
+          right_source: `${right.document_name} · p${right.page_number || "—"}`,
+          left_requirement_id: left.requirement_id,
+          right_requirement_id: right.requirement_id,
+          status: prior?.status || "OPEN",
+          resolution: prior?.resolution || null,
+          owner: prior?.owner || null,
+          resolved_at: prior?.resolved_at || null,
+        });
+      }
+    }
+  }
+
+  state.conflicts = conflicts.slice(0, 30);
+  return state.conflicts;
 }
 
 export function extractRequirements(input: WorkspaceState | ProductionState, documentName: string, pages: string[]) {
   const state = resolveProduction(input);
-  const trigger = /\b(must|required|requires|provide|minimum|maximum|shall|confirm|load[- ]?in|voltage|amp(?:s|ere)?)\b/i;
+  const trigger = /\b(must|required|requires|provide|minimum|maximum|shall|confirm|available|limited|rated|load[- ]?in|voltage|amp(?:s|ere)?|capacity|only|opens?|closes?)\b/i;
   const created: RecordMap[] = [];
+  const seen = new Set(state.requirements.map((item) => `${item.document_name}|${item.excerpt}`));
+
   pages.some((page, pageIndex) => page.split(/(?<=[.!?])\s+|[\r\n]+/).some((sentence) => {
     const cleaned = sentence.replace(/\s+/g, " ").replace(/^[\s\-•]+/, "").trim();
-    if (cleaned.length < 24 || cleaned.length > 360 || !trigger.test(cleaned)) return false;
-    const lowered = ` ${cleaned.toLowerCase()} `;
-    const department = Object.entries(KEYWORDS).find(([, words]) => words.some((word) => lowered.includes(word)))?.[0] ?? "Production";
-    const item = { requirement_id: newId("req"), production_id: state.production.production_id, workspace_id: state.production.workspace_id, department, title: cleaned.slice(0, 72).replace(/[ ,.;:]+$/, ""), detail: cleaned, status: "NEEDS_CONFIRMATION", owner: null, due_at: null, document_name: documentName, page_number: pageIndex + 1, excerpt: cleaned, source_kind: "TESTER" };
-    state.requirements.push(item); created.push(item);
-    return created.length >= 40;
+    if (cleaned.length < 20 || cleaned.length > 420 || !trigger.test(cleaned)) return false;
+    const dedupeKey = `${documentName}|${cleaned}`;
+    if (seen.has(dedupeKey)) return false;
+
+    const department = classifyDepartment(cleaned);
+    const category = classifyCategory(cleaned, department);
+    const normalized = normalizedValue(cleaned, category);
+    const item = {
+      requirement_id: newId("req"),
+      production_id: state.production.production_id,
+      workspace_id: state.production.workspace_id,
+      department,
+      category,
+      title: cleaned.slice(0, 82).replace(/[ ,.;:]+$/, ""),
+      detail: cleaned,
+      normalized_value: normalized,
+      unit: normalized?.match(/[A-Z]+$/)?.[0] || null,
+      confidence: confidenceFor(cleaned, department, normalized),
+      origin_type: "SOURCE_DOCUMENT",
+      status: "NEEDS_CONFIRMATION",
+      owner: null,
+      due_at: null,
+      document_name: documentName,
+      page_number: pageIndex + 1,
+      source_location: `Page ${pageIndex + 1}`,
+      excerpt: cleaned,
+      source_kind: "TESTER",
+    };
+    state.requirements.push(item);
+    created.push(item);
+    seen.add(dedupeKey);
+    return created.length >= 60;
   }));
+
+  rebuildConflicts(state);
   return created;
 }
 
