@@ -4,7 +4,7 @@ import type { Context, Config } from "@netlify/functions";
 import pdfParse from "pdf-parse";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { DEPARTMENTS } from "./_shared/seed.js";
-import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, newId, normalizeWorkspace, now, readiness, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
+import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, newId, normalizeWorkspace, now, readiness, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
 const COOKIE = "rigor_beta_session";
 const MAX_UPLOAD = 5 * 1024 * 1024;
@@ -45,6 +45,83 @@ async function save(store: ReturnType<typeof getStore>, state: WorkspaceState) {
 
 async function body(request: Request) {
   try { return await request.json() as Record<string, any>; } catch { throw new Error("Invalid JSON request"); }
+}
+
+type DeerFlowRequirement = {
+  department?: string;
+  category?: string;
+  requirement_text?: string;
+  normalized_value?: string | null;
+  unit?: string | null;
+  source_page?: number | null;
+  source_excerpt?: string;
+  confidence?: number;
+};
+
+async function analyzeWithDeerFlow(documentName: string, pages: string[]) {
+  const baseUrl = process.env.RIGOR_DEERFLOW_URL?.trim();
+  if (!baseUrl) return null;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = process.env.RIGOR_DEERFLOW_TOKEN?.trim();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/rigor/analyze`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ document_name: documentName, pages }),
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!response.ok) {
+      console.warn("RIGOR DeerFlow analysis failed", response.status, await response.text());
+      return null;
+    }
+    const payload = await response.json() as { requirements?: DeerFlowRequirement[] };
+    return Array.isArray(payload.requirements) ? payload.requirements : null;
+  } catch (error) {
+    console.warn("RIGOR DeerFlow analysis unavailable; using local extraction", error);
+    return null;
+  }
+}
+
+function ingestDeerFlowRequirements(production: ProductionState, documentName: string, items: DeerFlowRequirement[]) {
+  const seen = new Set(production.requirements.map((item) => `${item.document_name}|${item.excerpt}`));
+  const created: Record<string, any>[] = [];
+  for (const candidate of items.slice(0, 250)) {
+    const detail = String(candidate.requirement_text || "").trim();
+    const excerpt = String(candidate.source_excerpt || detail).trim();
+    if (!detail || !excerpt) continue;
+    const dedupeKey = `${documentName}|${excerpt}`;
+    if (seen.has(dedupeKey)) continue;
+    const item = {
+      requirement_id: newId("req"),
+      production_id: production.production.production_id,
+      workspace_id: production.production.workspace_id,
+      department: validateDepartment(candidate.department) ? candidate.department : "Production",
+      category: String(candidate.category || "PRODUCTION_GENERAL").trim().toUpperCase().replace(/\s+/g, "_").slice(0, 80),
+      title: detail.slice(0, 82).replace(/[ ,.;:]+$/, ""),
+      detail,
+      normalized_value: candidate.normalized_value ? String(candidate.normalized_value).slice(0, 240) : null,
+      unit: candidate.unit ? String(candidate.unit).slice(0, 40) : null,
+      confidence: Math.max(0, Math.min(1, Number(candidate.confidence ?? 0.7))),
+      origin_type: "SOURCE_DOCUMENT",
+      status: "NEEDS_CONFIRMATION",
+      owner: null,
+      due_at: null,
+      document_name: documentName,
+      page_number: Number(candidate.source_page) > 0 ? Number(candidate.source_page) : null,
+      source_location: Number(candidate.source_page) > 0 ? `Page ${Number(candidate.source_page)}` : null,
+      excerpt,
+      source_kind: "DEERFLOW",
+      analysis_engine: "DEERFLOW",
+    };
+    production.requirements.push(item);
+    created.push(item);
+    seen.add(dedupeKey);
+  }
+  rebuildConflicts(production);
+  return created;
 }
 
 function event(state: ProductionState, type: string, payload: Record<string, unknown>) {
@@ -154,7 +231,38 @@ export default async (request: Request, context: Context) => {
       const safeName = file.name.replace(/[^A-Za-z0-9._ -]/g, "_").trim().slice(0, 120) || "uploaded-document"; const fileBuffer = await file.arrayBuffer(); const bytes = new Uint8Array(fileBuffer); let pages: string[];
       if (safeName.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") { const parsed = await pdfParse(Buffer.from(bytes)); pages = parsed.text.split(/\f/).filter(Boolean); if (!pages.length) pages = [parsed.text]; }
       else if (safeName.toLowerCase().endsWith(".txt") || file.type === "text/plain") pages = [new TextDecoder().decode(bytes)]; else return fail("Upload a PDF or TXT document");
-      const documentId = newId("doc"); await store.set(`upload/${state.workspace.workspace_id}/${production.production.production_id}/${documentId}`, fileBuffer); production.documents.push({ document_id: documentId, production_id: production.production.production_id, workspace_id: state.workspace.workspace_id, name: safeName, doc_type: "UPLOADED", status: "PROCESSED", page_count: pages.length, source_kind: "TESTER", created_at: now() }); const extracted = extractRequirements(production, safeName, pages); event(production, "DOCUMENT_PROCESSED", { document_id: documentId, requirements: extracted.length }); await save(store, state); return json({ result: { document_id: documentId, name: safeName, page_count: pages.length, requirements_added: extracted.length }, workspace: snapshot(state) });
+      const documentId = newId("doc");
+      await store.set(`upload/${state.workspace.workspace_id}/${production.production.production_id}/${documentId}`, fileBuffer);
+      const deerFlowRequirements = await analyzeWithDeerFlow(safeName, pages);
+      const analysisEngine = deerFlowRequirements ? "DEERFLOW" : "STRUCTURED_EXTRACTION_V1";
+      production.documents.push({
+        document_id: documentId,
+        production_id: production.production.production_id,
+        workspace_id: state.workspace.workspace_id,
+        name: safeName,
+        doc_type: "UPLOADED",
+        status: "PROCESSED",
+        page_count: pages.length,
+        source_kind: "TESTER",
+        analysis_engine: analysisEngine,
+        created_at: now(),
+      });
+      const extracted = deerFlowRequirements
+        ? ingestDeerFlowRequirements(production, safeName, deerFlowRequirements)
+        : extractRequirements(production, safeName, pages);
+      event(production, "DOCUMENT_PROCESSED", { document_id: documentId, requirements: extracted.length, analysis_engine: analysisEngine });
+      await save(store, state);
+      return json({
+        result: {
+          document_id: documentId,
+          name: safeName,
+          page_count: pages.length,
+          requirements_added: extracted.length,
+          conflicts_detected: production.conflicts.filter((item) => item.status !== "RESOLVED").length,
+          analysis_engine: analysisEngine,
+        },
+        workspace: snapshot(state),
+      });
     }
     if (path === "/api/reports/advance.pdf" && request.method === "GET") {
       const department = url.searchParams.get("department"); if (department && !(DEPARTMENTS as readonly string[]).includes(department)) return fail("Invalid department"); const bytes = await reportPdf(production, department); const pdfBody = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer; const filename = `RIGOR-${production.show.show_name}-${department || "Master"}-Advance-Report.pdf`.replace(/[^A-Za-z0-9.-]+/g, "-"); return new Response(pdfBody, { headers: { ...commonHeaders("application/pdf"), "Content-Disposition": `attachment; filename=\"${filename}\"` } });
