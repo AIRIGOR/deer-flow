@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: rigor-deerflow-intelligence
+    runtime: docker
+    branch: feat/rigor-netlify-beta-v1
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    dockerCommand: sh -c "cd backend && PYTHONPATH=. uv run --no-sync uvicorn app.rigor_service:app --host 0.0.0.0 --port ${PORT:-10000}"
+    healthCheckPath: /health
+    envVars:
+      - key: DEER_FLOW_CONFIG_PATH
+        value: /app/backend/config.rigor.yaml
+      - key: DEER_FLOW_PROJECT_ROOT
+        value: /app/backend
+      - key: RIGOR_SERVICE_TOKEN
+        sync: false
+      - key: RIGOR_MODEL_API_KEY
+        sync: false
+      - key: RIGOR_MODEL_BASE_URL
+        sync: false
+      - key: RIGOR_MODEL
+        sync: false
