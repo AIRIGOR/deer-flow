@@ -266,7 +266,7 @@ export function snapshot(state: WorkspaceState) {
       mode: "STRUCTURED_EXTRACTION_V1",
       seeded: false,
       source_of_truth: "UPLOADED_DOCUMENTS",
-      deerflow_bridge: "PENDING_SERVICE_CONNECTION",
+      deerflow_bridge: process.env.RIGOR_DEERFLOW_URL ? "CONFIGURED" : "PENDING_SERVICE_CONNECTION",
     },
   };
 }
