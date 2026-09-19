@@ -64,7 +64,7 @@ async function analyzeWithDeerFlow(documentName: string, pages: string[]) {
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) headers["X-RIGOR-Service-Token"] = token;
 
   try {
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/rigor/analyze`, {
