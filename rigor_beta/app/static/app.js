@@ -163,7 +163,7 @@ function renderSession() {
 
 function renderSessionOne() {
   const info = state.progress.sessions["1"];
-  return `<div class="stage-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Inspect the source documents, verify the extracted requirements, and correct the intelligence before it reaches department heads.</p></div><div class="stage-badge">${info.total ? `Review target: ${info.total} requirement${info.total === 1 ? "" : "s"}` : "Upload documents to begin"}</div></div>
+  return `<div class="stage-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Inspect the source documents, verify the extracted requirements, and correct the intelligence before it reaches department heads.</p></div><div class="stage-badge">${state.requirements.length ? `Review all ${state.requirements.length} requirement${state.requirements.length === 1 ? "" : "s"}` : "Upload documents to begin"}</div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">${state.requirements.length ? `Confirm or reject the ${info.total} requirement${info.total === 1 ? "" : "s"} in the current review target. Open “Source evidence” whenever you need to verify what RIGOR saw.` : "Upload a production document to begin extraction and source-backed review."}</div>`}
     <div class="grid two">
       <div class="card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${badge(doc.status)}</div>`).join("")}</div></div>
@@ -184,12 +184,13 @@ function renderSessionTwo() {
   const info = state.progress.sessions["2"];
   const unlocked = state.progress.sessions["1"].complete;
   if (!unlocked) return lockedSession(2, "Complete the preproduction review to unlock Technical Advance.");
-  return `<div class="stage-head"><div><div class="eyebrow">Session 2 · Technical advance</div><h2>Resolve the contradictions before they reach the dock.</h2><p>Make an operational decision for every conflict, assign ownership, and watch the readiness picture recalculate across departments.</p></div><div class="stage-badge">${state.conflicts.length} detected conflict${state.conflicts.length === 1 ? "" : "s"} · ${Math.min(4, state.requirements.length)} owner target</div></div>
+  const ownerTarget = state.requirements.filter(item => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
+  return `<div class="stage-head"><div><div class="eyebrow">Session 2 · Technical advance</div><h2>Resolve the contradictions before they reach the dock.</h2><p>Make an operational decision for every conflict, assign ownership, and watch the readiness picture recalculate across departments.</p></div><div class="stage-badge">${state.conflicts.length} detected conflict${state.conflicts.length === 1 ? "" : "s"} · ${ownerTarget} owner target</div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 2 complete.</strong> Show Day is now unlocked.</div>` : `<div class="callout warning" style="margin-bottom:16px">RIGOR found ${state.readiness.open_conflicts} unresolved conflicts. A report can be generated now, but the show remains blocked.</div>`}
     <div class="metric-row" style="margin-bottom:16px"><div class="metric"><div class="n">${state.conflicts.filter(c => c.status === "RESOLVED").length}/${state.conflicts.length}</div><div class="l">Conflicts resolved</div></div><div class="metric"><div class="n">${state.requirements.filter(r => r.owner).length}</div><div class="l">Owners assigned</div></div><div class="metric"><div class="n">${state.departments.filter(d => d.status === "READY").length}</div><div class="l">Departments ready</div></div><div class="metric"><div class="n">${state.readiness.score}%</div><div class="l">Readiness</div></div></div>
     <div class="card"><div class="card-header"><div><h3>Conflict desk</h3><div class="muted small">Evidence from multiple sources, one recorded decision.</div></div></div><div class="stack" style="margin-top:14px">${state.conflicts.length ? state.conflicts.map(renderConflict).join("") : `<div class="callout success">No incompatible normalized requirements have been detected across the uploaded source documents.</div>`}</div></div>
     <div class="grid two" style="margin-top:16px">
-      <div class="card"><h3>Assign operational owners</h3><p class="muted small">Assign named operational owners to the current review set. Ownership carries directly into the Advance Report.</p><div>${state.requirements.slice(0, 8).map(item => `<div class="owner-row"><div><strong>${escapeHtml(item.department)} · ${escapeHtml(item.title)}</strong><div class="muted small">${escapeHtml(item.status.replaceAll("_", " "))}</div></div><input id="owner-${item.requirement_id}" value="${escapeHtml(item.owner || "")}" placeholder="Owner name / role" /><button class="btn small-button" onclick="saveOwner('${item.requirement_id}')">Save</button></div>`).join("")}</div></div>
+      <div class="card"><h3>Assign operational owners</h3><p class="muted small">Assign an owner to every confirmed requirement. Rejected candidates are closed and do not require an owner.</p><div>${state.requirements.filter(item => ["CONFIRMED", "RESOLVED"].includes(item.status)).map(item => `<div class="owner-row"><div><strong>${escapeHtml(item.department)} · ${escapeHtml(item.title)}</strong><div class="muted small">${escapeHtml(item.status.replaceAll("_", " "))}</div></div><input id="owner-${item.requirement_id}" value="${escapeHtml(item.owner || "")}" placeholder="Owner name / role" /><button class="btn small-button" onclick="saveOwner('${item.requirement_id}')">Save</button></div>`).join("")}</div></div>
       <div class="card"><h3>Department readiness</h3><div class="stack">${state.departments.map(item => `<div class="department-row"><strong>${escapeHtml(item.department)}</strong><div class="department-bar"><span style="width:${Math.round(item.ready / Math.max(item.total, 1) * 100)}%"></span></div>${badge(item.status)}</div>`).join("")}</div></div>
     </div>
     ${renderFeedback(2)}`;
@@ -209,7 +210,7 @@ function renderSessionThree() {
       <div class="card"><div class="card-header"><div><h3>Show-day checkpoints</h3><div class="muted small">${info.done}/${info.total} complete</div></div>${badge(state.readiness.status)}</div><div class="stack" style="margin-top:14px">${state.checkpoints.map(item => `<label class="checkpoint-row ${item.status === "COMPLETE" ? "complete" : ""}"><input type="checkbox" data-checkpoint="${item.checkpoint_id}" ${item.status === "COMPLETE" ? "checked" : ""} /><span class="checkpoint-copy"><strong>${escapeHtml(item.label)}</strong><span class="muted small">${escapeHtml(item.department)}</span></span>${badge(item.status)}</label>`).join("")}</div></div>
       <div class="grid">
         <div class="card"><h3>Log a day-of change</h3><p class="muted small">Capture a problem or field adjustment without losing the final operational record.</p><form id="incident-form" class="stack"><div class="grid two"><div class="field"><label>Department</label><select name="department" required>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div><div class="field"><label>Severity</label><select name="severity" required><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select></div></div><div class="field"><label>What changed?</label><textarea name="summary" required minlength="5" placeholder="Example: House followspot 2 failed during focus."></textarea></div><div class="field"><label>Resolution / handoff</label><textarea name="resolution" placeholder="Example: Vendor swapped fixture; tested at 15:42."></textarea></div><button class="btn" type="submit">Add to show record</button></form></div>
-        <div class="card"><h3>Advance Reports</h3><p class="muted small">Master and department reports are generated from the same operational truth, including current ownership, status, conflicts, and source provenance.</p><div class="report-actions"><a class="btn primary" href="/api/reports/advance.pdf">Download Master PDF</a><select id="report-department"><option value="">Choose department</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select><button id="department-report-button" class="btn" disabled>Download department PDF</button></div></div>
+        <div class="card"><h3>Advance Reports</h3><p class="muted small">Master and department reports are generated from the same operational truth, including current ownership, status, conflicts, and source provenance.</p><div class="report-actions"><button id="master-report-button" class="btn primary" type="button">Download Master PDF</button><select id="report-department"><option value="">Choose department</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select><button id="department-report-button" class="btn" type="button" disabled>Download department PDF</button></div></div>
       </div>
     </div>
     ${state.incidents.length ? `<div class="card" style="margin-top:16px"><h3>Day-of incident log</h3><div class="stack">${state.incidents.map(item => `<div class="incident-row" style="padding:14px"><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.severity)}</div><strong>${escapeHtml(item.summary)}</strong>${item.resolution ? `<div class="muted small">Resolution: ${escapeHtml(item.resolution)}</div>` : ""}</div>`).join("")}</div></div>` : ""}
@@ -238,9 +239,39 @@ function bindSessionEvents() {
   if (incident) incident.addEventListener("submit", addIncident);
   const reportDepartment = document.getElementById("report-department");
   const reportButton = document.getElementById("department-report-button");
+  const masterReportButton = document.getElementById("master-report-button");
+  if (masterReportButton) masterReportButton.addEventListener("click", () => downloadReport(null, masterReportButton));
   if (reportDepartment && reportButton) {
     reportDepartment.addEventListener("change", () => { reportButton.disabled = !reportDepartment.value; });
-    reportButton.addEventListener("click", () => { window.location.href = `/api/reports/advance.pdf?department=${encodeURIComponent(reportDepartment.value)}`; });
+    reportButton.addEventListener("click", () => downloadReport(reportDepartment.value, reportButton));
+  }
+}
+
+async function downloadReport(department, button) {
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Generating PDF…";
+  try {
+    const path = `/api/reports/advance.pdf${department ? `?department=${encodeURIComponent(department)}` : ""}`;
+    const response = await api(path);
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const matchedName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+    const fallbackName = `RIGOR-${department || "Master"}-Advance-Report.pdf`;
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = matchedName || fallbackName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast(`${department || "Master"} Advance Report downloaded.`);
+  } catch (error) {
+    showToast(`PDF download failed: ${error.message}`, true);
+  } finally {
+    button.textContent = originalText;
+    button.disabled = Boolean(department && !document.getElementById("report-department")?.value);
   }
 }
 
