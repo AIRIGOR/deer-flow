@@ -197,13 +197,14 @@ function resolveProduction(state: WorkspaceState | ProductionState): ProductionS
 export function progress(input: WorkspaceState | ProductionState) {
   const state = resolveProduction(input);
   const reviewed = state.requirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
-  const owned = state.requirements.filter((item) => Boolean(item.owner)).length;
+  const actionable = state.requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
+  const owned = actionable.filter((item) => Boolean(item.owner)).length;
   const resolved = state.conflicts.filter((item) => item.status === "RESOLVED").length;
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
-  const reviewTarget = Math.min(6, state.requirements.length);
-  const ownerTarget = Math.min(4, state.requirements.length);
-  const sessionOneComplete = state.requirements.length > 0 && reviewed >= reviewTarget;
-  const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned >= ownerTarget;
+  const reviewTarget = state.requirements.length;
+  const ownerTarget = actionable.length;
+  const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget;
+  const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned === ownerTarget;
   const sessions: Record<string, RecordMap> = {
     "1": { complete: sessionOneComplete, done: reviewed, total: reviewTarget || 1, label: "Preproduction intake" },
     "2": { complete: sessionTwoComplete, done: Math.min(resolved + owned, state.conflicts.length + ownerTarget), total: Math.max(1, state.conflicts.length + ownerTarget), label: "Technical advance" },
@@ -221,18 +222,27 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const state = resolveProduction(input);
   const scopedRequirements = requirements || state.requirements;
   const scopedConflicts = conflicts || state.conflicts;
-  const confirmed = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
+  const reviewed = scopedRequirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
+  const actionable = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
+  const owned = actionable.filter((item) => Boolean(item.owner)).length;
   const openConflicts = scopedConflicts.filter((item) => item.status !== "RESOLVED").length;
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
   if (!scopedRequirements.length) {
     return { score: 0, status: "DOCUMENTS_PENDING", confirmed_requirements: 0, total_requirements: 0, open_conflicts: 0, completed_checkpoints: checks, total_checkpoints: state.checkpoints.length };
   }
-  const requirementScore = confirmed / scopedRequirements.length;
+  const requirementScore = reviewed / scopedRequirements.length;
+  const ownershipScore = actionable.length ? owned / actionable.length : 1;
   const conflictScore = scopedConflicts.length ? 1 - openConflicts / scopedConflicts.length : 1;
   const checkpointScore = checks / Math.max(state.checkpoints.length, 1);
-  const score = Math.round((requirementScore * 0.5 + conflictScore * 0.35 + checkpointScore * 0.15) * 100);
-  const status = openConflicts ? "BLOCKED" : confirmed < scopedRequirements.length ? "NEEDS_REVIEW" : checks === state.checkpoints.length ? "SHOW_READY" : "ADVANCE_READY";
-  return { score, status, confirmed_requirements: confirmed, total_requirements: scopedRequirements.length, open_conflicts: openConflicts, completed_checkpoints: checks, total_checkpoints: state.checkpoints.length };
+  const score = Math.round((requirementScore * 0.4 + ownershipScore * 0.2 + conflictScore * 0.25 + checkpointScore * 0.15) * 100);
+  const status = openConflicts
+    ? "BLOCKED"
+    : reviewed < scopedRequirements.length || owned < actionable.length
+      ? "NEEDS_REVIEW"
+      : checks === state.checkpoints.length
+        ? "SHOW_READY"
+        : "ADVANCE_READY";
+  return { score, status, confirmed_requirements: reviewed, total_requirements: scopedRequirements.length, open_conflicts: openConflicts, completed_checkpoints: checks, total_checkpoints: state.checkpoints.length };
 }
 
 export function departmentSummary(input: WorkspaceState | ProductionState) {
