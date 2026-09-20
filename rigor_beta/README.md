@@ -8,6 +8,8 @@ Every production advances independently through three end-to-end stages:
 2. Technical advance, conflict resolution, ownership, and department readiness.
 3. Show-day checkpoints, incident logging, and Master/department Advance Reports.
 
+Production gates are fail-closed: every extracted requirement must be confirmed or rejected, every confirmed requirement must have an owner, every detected conflict must be resolved, and every show-day checkpoint must be complete before RIGOR can declare `SHOW_READY`. Reports download through the authenticated session without navigating away from the workspace.
+
 ## Architecture
 
 - Static responsive frontend in `app/static`.
