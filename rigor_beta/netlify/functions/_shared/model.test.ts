@@ -75,7 +75,7 @@ describe("RIGOR beta model", () => {
     expect(production.conflicts[0].right_source).toContain("venue-tech-pack.txt");
   });
 
-  it("uses dynamic review targets and unlocks the workflow from real extracted records", () => {
+  it("requires every extracted requirement and owner before unlocking show day", () => {
     const state = createWorkspace("Test TM", "TM");
     const production = activeProduction(state);
 
@@ -85,14 +85,41 @@ describe("RIGOR beta model", () => {
     ]);
 
     expect(progress(state).sessions["1"].total).toBe(2);
-    production.requirements.forEach((item) => { item.status = "CONFIRMED"; });
+    production.requirements[0].status = "CONFIRMED";
+    expect(progress(state).sessions["1"].complete).toBe(false);
+    production.requirements[1].status = "CONFIRMED";
     expect(progress(state).sessions["1"].complete).toBe(true);
 
-    production.requirements.forEach((item) => { item.owner = "Department Lead"; });
+    production.requirements[0].owner = "Department Lead";
+    expect(progress(state).sessions["2"].complete).toBe(false);
+    production.requirements[1].owner = "Department Lead";
     expect(progress(state).sessions["2"].complete).toBe(true);
 
     production.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
     expect(progress(state).sessions["3"].complete).toBe(true);
+    expect(readiness(state).status).toBe("SHOW_READY");
+  });
+
+  it("never reports show ready while requirements or owners remain open", () => {
+    const state = createWorkspace("Safety PM", "PM");
+    const production = activeProduction(state);
+
+    extractRequirements(state, "large-tour.txt", [
+      "Venue must provide 400A show power service.",
+      "Production shall confirm dock access opens at 07:00.",
+      "Venue must provide two tactical fiber paths.",
+    ]);
+    production.requirements[0].status = "CONFIRMED";
+    production.requirements[0].owner = "Power Lead";
+    production.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+
+    expect(progress(state).sessions["1"].complete).toBe(false);
+    expect(progress(state).sessions["3"].complete).toBe(false);
+    expect(readiness(state).status).toBe("NEEDS_REVIEW");
+
+    production.requirements.forEach((item) => { item.status = "CONFIRMED"; });
+    expect(readiness(state).status).toBe("NEEDS_REVIEW");
+    production.requirements.forEach((item) => { item.owner = "Department Lead"; });
     expect(readiness(state).status).toBe("SHOW_READY");
   });
 
