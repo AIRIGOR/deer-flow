@@ -1,0 +1,22 @@
+name: RIGOR Preview Package
+
+on:
+  push:
+    branches:
+      - feat/rigor-netlify-beta-v1
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Package RIGOR beta source
+        uses: actions/upload-artifact@v4
+        with:
+          name: rigor-flow-preview-source
+          path: rigor_beta/
+          if-no-files-found: error
+          retention-days: 3
