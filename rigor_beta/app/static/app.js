@@ -33,7 +33,7 @@ async function api(path, options = {}) {
   if (response.status === 401) {
     state = null;
     renderStart();
-    throw new Error("Your beta session needs to be restarted.");
+    throw new Error("Your RIGOR session needs to be restarted.");
   }
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
@@ -89,7 +89,7 @@ function renderStart() {
   app.innerHTML = `<main class="start-page">
     <div class="wrap start-layout">
       <section class="start-copy">
-        <div class="brand"><div class="brand-mark">R</div><div>RIGOR</div><span class="beta-label">Private beta</span></div>
+        <div class="brand"><div class="brand-mark">R</div><div>RIGOR</div></div>
         <div style="height:42px"></div>
         <div class="eyebrow">Readiness Intelligence for Global Operations &amp; Requirements</div>
         <h1>Know the show before show day.</h1>
@@ -107,7 +107,7 @@ function renderStart() {
         <form id="start-form" class="start-form">
           <div class="field"><label for="display-name">Your name</label><input id="display-name" name="display_name" minlength="2" maxlength="60" required autocomplete="name" placeholder="First and last name" /></div>
           <div class="field"><label for="role">Your production role</label><select id="role" name="role" required><option value="">Select role</option><option>TM</option><option>PM</option><option>Video</option><option>Audio</option><option>Lighting</option><option>Rigging</option><option>Backline</option><option>Other</option></select></div>
-          <button class="btn primary" type="submit">Enter the RIGOR beta →</button>
+          <button class="btn primary" type="submit">Enter RIGOR →</button>
           <div class="privacy-note">Each evaluator receives three isolated production slots. Progress is saved automatically for 45 days.</div>
         </form>
       </section>
@@ -127,7 +127,7 @@ async function startDemo(event) {
     renderWorkspace();
   } catch (error) {
     button.disabled = false;
-    button.textContent = "Enter the RIGOR beta →";
+    button.textContent = "Enter RIGOR →";
     showToast(error.message, true);
   }
 }
