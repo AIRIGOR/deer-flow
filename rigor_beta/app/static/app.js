@@ -56,33 +56,33 @@ function badge(status) {
 
 function sessionCard(number, info) {
   const unlocked = number === 1 || state.progress.sessions[String(number - 1)].complete;
-  const percent = Math.min(100, Math.round((info.done / Math.max(info.total, 1)) * 100));
-  const classes = ["session-tab", selectedSession === number ? "active" : "", info.complete ? "complete" : ""].join(" ");
+  const active = selectedSession === number;
+  const classes = ["flow-step", active ? "active" : "", info.complete ? "complete" : "", unlocked ? "" : "locked"].join(" ");
+  const stateCopy = info.complete ? "Complete" : active ? "Now" : unlocked ? "Next" : "Locked";
   return `<button class="${classes}" ${unlocked ? "" : "disabled"} onclick="selectSession(${number})">
-    <span class="session-number">Session ${number}${info.complete ? " · Complete" : unlocked ? "" : " · Locked"}</span>
-    <span class="session-title">${escapeHtml(info.label)}</span>
-    <span class="progress-track"><span style="width:${percent}%"></span></span>
-    <span class="progress-copy">${Math.min(info.done, info.total)} of ${info.total} milestones</span>
+    <span class="flow-dot">${info.complete ? "✓" : number}</span>
+    <span class="flow-copy"><strong>${escapeHtml(info.label)}</strong><small>${stateCopy}</small></span>
   </button>`;
 }
 
 function productionCard(item, index) {
   const active = item.production_id === state.workspace.active_production_id;
-  const completed = item.progress.completed_sessions.length;
-  return `<button class="production-card ${active ? "active" : ""}" onclick="selectProduction('${item.production_id}')">
-    <span class="production-slot">Production ${index + 1}${active ? " · Active" : ""}</span>
+  return `<button class="production-pill ${active ? "active" : ""}" onclick="selectProduction('${item.production_id}')">
+    <span class="production-pill-kicker">${active ? "Active" : `Show ${index + 1}`}</span>
     <strong>${escapeHtml(item.show.show_name)}</strong>
-    <span class="muted small">${escapeHtml(item.show.venue)} · ${escapeHtml(item.show.show_date)}</span>
-    <span class="production-status">${badge(item.readiness.status)} <span>${completed}/3 stages complete</span></span>
+    <span>${escapeHtml(item.show.venue)}</span>
   </button>`;
 }
 
 function renderProductionSwitcher() {
-  const cards = state.productions.map(productionCard);
-  for (let index = state.productions.length; index < state.workspace.production_limit; index += 1) {
-    cards.push(`<button class="production-card empty" onclick="openProductionDialog()"><span class="production-slot">Production ${index + 1} · Available</span><strong>+ Build another show</strong><span class="muted small">Start a separate end-to-end production.</span></button>`);
+  const pills = state.productions.map(productionCard);
+  if (state.productions.length < state.workspace.production_limit) {
+    pills.push(`<button class="production-pill add" onclick="openProductionDialog()"><span class="production-pill-kicker">New</span><strong>+ Add production</strong><span>Separate show workspace</span></button>`);
   }
-  return `<section class="wrap production-workspace"><div class="production-heading"><div><div class="eyebrow">RIGOR production workspace</div><h2>Your shows</h2></div><div class="stage-badge">${state.workspace.production_count} of ${state.workspace.production_limit} productions in use</div></div><div class="production-grid">${cards.join("")}</div></section>`;
+  return `<section class="wrap production-switcher">
+    <div class="production-switcher-label">Productions</div>
+    <div class="production-pills">${pills.join("")}</div>
+  </section>`;
 }
 
 function renderStart() {
@@ -135,22 +135,24 @@ async function startDemo(event) {
 function renderWorkspace() {
   const r = state.readiness;
   const s = state.show;
-  const deerFlowConnected = state.intelligence?.deerflow_bridge === "CONFIGURED";
   app.innerHTML = `<div class="shell">
     <header class="topbar"><div class="wrap topbar-inner">
-      <div class="brand"><div class="brand-mark">R</div><div>RIGOR</div><span class="beta-label">Working private beta</span></div>
-      <div class="user-chip"><span><strong>${escapeHtml(state.tester.display_name)}</strong> <span class="user-role">· ${escapeHtml(state.tester.role)} · ${state.workspace.production_count}/${state.workspace.production_limit} productions</span></span><button class="link-button" onclick="logout()">Exit</button></div>
+      <div class="brand"><div class="brand-mark">R</div><div>RIGOR</div></div>
+      <div class="user-chip"><span><strong>${escapeHtml(state.tester.display_name)}</strong> <span class="user-role">· ${escapeHtml(state.tester.role)}</span></span><button class="link-button" onclick="logout()">Exit</button></div>
     </div></header>
     <main>
       ${renderProductionSwitcher()}
       <section class="hero"><div class="wrap hero-grid">
-        <div><div class="eyebrow">${escapeHtml(s.artist)} · ${escapeHtml(s.show_date)}</div><h1>${escapeHtml(s.venue)}</h1><p class="lead">${escapeHtml(s.city)} · ${escapeHtml(s.show_name)}</p></div>
-        <div class="score-card"><div class="score-ring" style="--score:${r.score}"><span>${r.score}%</span></div><div><div class="label">Live show readiness</div><div class="status">${escapeHtml(r.status.replaceAll("_", " "))}</div><div class="muted small">${r.open_conflicts} open conflicts · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</div><div style="margin-top:8px">${badge(deerFlowConnected ? "DEERFLOW_CONNECTED" : "LOCAL_EXTRACTION")}</div></div></div>
+        <div class="show-identity"><div class="eyebrow">${escapeHtml(s.artist)} · ${escapeHtml(s.show_date)}</div><h1>${escapeHtml(s.venue)}</h1><p class="lead">${escapeHtml(s.city)} · ${escapeHtml(s.show_name)}</p></div>
+        <div class="readiness-card">
+          <div><div class="readiness-label">Show readiness</div><div class="readiness-number">${r.score}%</div></div>
+          <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
+        </div>
       </div></section>
-      <nav class="wrap sessions" aria-label="RIGOR sessions">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
+      <nav class="wrap flow-path" aria-label="RIGOR production path">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
       <section class="wrap stage">${renderSession()}</section>
     </main>
-    <footer class="footer"><div class="wrap">RIGOR private beta · Three complete productions per evaluator · Every show workspace is isolated.</div></footer>
+    <footer class="footer"><div class="wrap">RIGOR · Operational intelligence for live production.</div></footer>
   </div>`;
   bindSessionEvents();
 }
