@@ -5,6 +5,7 @@ const toastNode = document.getElementById("toast");
 let state = null;
 let selectedSession = Number(sessionStorage.getItem("rigorSelectedSession") || 1);
 let toastTimer = null;
+let showAllRequirements = sessionStorage.getItem("rigorShowAllRequirements") === "1";
 
 const departments = ["Audio", "Backline", "Communications", "Hospitality", "Labor", "Lighting", "Medical", "Merchandise", "Power", "Production", "Rigging", "Security", "Stage Management", "Video"];
 
@@ -165,14 +166,30 @@ function renderSession() {
 
 function renderSessionOne() {
   const info = state.progress.sessions["1"];
-  return `<div class="stage-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Inspect the source documents, verify the extracted requirements, and correct the intelligence before it reaches department heads.</p></div><div class="stage-badge">${state.requirements.length ? `Review all ${state.requirements.length} requirement${state.requirements.length === 1 ? "" : "s"}` : "Upload documents to begin"}</div></div>
-    ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">${state.requirements.length ? `Confirm or reject the ${info.total} requirement${info.total === 1 ? "" : "s"} in the current review target. Open “Source evidence” whenever you need to verify what RIGOR saw.` : "Upload a production document to begin extraction and source-backed review."}</div>`}
-    <div class="grid two">
-      <div class="card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${badge(doc.status)}</div>`).join("")}</div></div>
-      <div class="card"><h3>Test with another document</h3><p class="muted small">Upload a PDF or TXT. RIGOR will extract structured requirement candidates, preserve source evidence, and compare compatible requirements across documents for conflicts.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
+  const openRequirements = state.requirements.filter(item => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status));
+  const nextRequirement = openRequirements[0];
+  const reviewItems = showAllRequirements ? state.requirements : (nextRequirement ? [nextRequirement] : []);
+  return `<div class="stage-head focused-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Verify what matters, resolve one decision, then move to the next.</p></div></div>
+    ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">${state.requirements.length ? "Work one requirement at a time. Open source evidence only when you need to verify what RIGOR saw." : "Upload a production document to begin extraction and source-backed review."}</div>`}
+    <div class="grid two source-grid">
+      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${badge(doc.status)}</div>`).join("")}</div></div>
+      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
     </div>
-    <div class="card" style="margin-top:16px"><div class="card-header"><div><h3>Requirement review</h3><div class="muted small">${info.done} verified · ${state.requirements.length - info.done} still open</div></div><div class="actions"><select id="requirement-filter" aria-label="Filter department"><option value="ALL">All departments</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div></div><div id="requirements-list" class="stack" style="margin-top:14px">${state.requirements.length ? renderRequirements(state.requirements) : `<div class="callout">No extracted requirements yet. Upload the venue pack, rider, schedule, labor call, or other production source documents.</div>`}</div></div>
+    <div class="card requirement-focus" style="margin-top:16px">
+      <div class="card-header requirement-focus-head">
+        <div><div class="eyebrow">Now</div><h3>Requirement review</h3><div class="muted small">${info.done} of ${state.requirements.length} verified${openRequirements.length ? ` · ${openRequirements.length} remaining` : ""}</div></div>
+        ${state.requirements.length > 1 ? `<button class="btn ghost small-button" onclick="toggleRequirementsView()">${showAllRequirements ? "Focus next" : "View all"}</button>` : ""}
+      </div>
+      ${showAllRequirements ? `<div class="requirement-tools"><select id="requirement-filter" aria-label="Filter department"><option value="ALL">All departments</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div>` : ""}
+      <div id="requirements-list" class="stack requirement-stack">${state.requirements.length ? (reviewItems.length ? renderRequirements(reviewItems) : `<div class="callout success"><strong>All requirements reviewed.</strong> Technical Advance is ready when the remaining session conditions are complete.</div>`) : `<div class="callout">No extracted requirements yet. Upload the venue pack, rider, schedule, labor call, or other production source documents.</div>`}</div>
+    </div>
     ${renderFeedback(1)}`;
+}
+
+function toggleRequirementsView() {
+  showAllRequirements = !showAllRequirements;
+  sessionStorage.setItem("rigorShowAllRequirements", showAllRequirements ? "1" : "0");
+  renderWorkspace();
 }
 
 function renderRequirements(items) {
