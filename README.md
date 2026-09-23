@@ -995,3 +995,6 @@ Your unwavering commitment and expertise have been the driving force behind Deer
 This fork includes a bounded RIGOR operating team built on DeerFlow's native subagent system. The lead agent can delegate to specialized Chief of Staff, Product/Production Intelligence, Engineering, QA/Security, Market Intelligence, and Partnerships/Capital agents. These agents are designed for internal research, analysis, implementation, and release validation; external commitments, spending, credential changes, and production promotion remain human-approved actions.
 
 See [docs/rigor-ai-company-team.md](docs/rigor-ai-company-team.md) for the operating model and approval boundary.
+
+
+RIGOR's AI company layer also includes durable company state for objectives, milestones, relationships, feedback, risks, experiments, and runway. The `rigor-company-operator` skill coordinates five specialist reports plus one Chief of Staff synthesis per operating cycle.
