@@ -111,7 +111,17 @@ function renderStart() {
         <p class="muted">Your decisions and progress are saved in this browser.</p>
         <form id="start-form" class="start-form">
           <div class="field"><label for="display-name">Your name</label><input id="display-name" name="display_name" minlength="2" maxlength="60" required autocomplete="name" placeholder="First and last name" /></div>
-          <div class="field"><label for="role">Your production role</label><select id="role" name="role" required><option value="">Select role</option><option>TM</option><option>PM</option><option>Video</option><option>Audio</option><option>Lighting</option><option>Rigging</option><option>Backline</option><option>Partner / Investor</option><option>Other</option></select></div>
+          <div class="field"><label for="role">Your production role</label><select id="role" name="role" required><option value="">Select role</option><option>TM</option><option>PM</option><option>Video</option><option>Audio</option><option>Lighting</option><option>Rigging</option><option>Backline</option><option>Partner / Investor</option><option>Other</option></select><div class="field-hint">Evaluating RIGOR? Choose Partner / Investor for the guided product path.</div></div>
+          <div id="partner-brief" class="partner-brief hidden">
+            <div class="eyebrow">60-second partner brief</div>
+            <p><strong>RIGOR converts fragmented production information into one operational source of truth.</strong></p>
+            <div class="partner-checks">
+              <div><span>1</span><div><strong>Verify</strong><small>Confirm a requirement against its source evidence.</small></div></div>
+              <div><span>2</span><div><strong>Resolve</strong><small>Clear a contradiction and watch readiness recalculate.</small></div></div>
+              <div><span>3</span><div><strong>Export</strong><small>Generate the Advance Report from the same production truth.</small></div></div>
+            </div>
+            <div class="partner-direction"><strong>Where this is going:</strong> the operational system of record for touring and venue production—from advance through show day.</div>
+          </div>
           <div class="start-actions"><button class="btn primary" type="submit" data-start-mode="sample">Explore sample production →</button><button class="btn ghost" type="submit" data-start-mode="blank">Start with my documents</button></div>
           <div class="privacy-note">The guided production is clearly labeled SAMPLE. Your own workspace remains isolated and private to this browser session.</div>
         </form>
@@ -119,6 +129,11 @@ function renderStart() {
     </div>
   </main>`;
   document.getElementById("start-form").addEventListener("submit", startDemo);
+  const roleSelect = document.getElementById("role");
+  const partnerBrief = document.getElementById("partner-brief");
+  const syncPartnerBrief = () => partnerBrief?.classList.toggle("hidden", roleSelect?.value !== "Partner / Investor");
+  roleSelect?.addEventListener("change", syncPartnerBrief);
+  syncPartnerBrief();
 }
 
 async function startDemo(event) {
