@@ -69,3 +69,12 @@ backend/.coverage
 !README.md
 !frontend/README.md
 !backend/README.md
+
+# RIGOR company operator skill must be available to the Render backend image.
+# Keep the rest of the root skills tree out of the Docker context.
+!skills/
+skills/*
+!skills/public/
+skills/public/*
+!skills/public/rigor-company-operator/
+!skills/public/rigor-company-operator/SKILL.md
