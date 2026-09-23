@@ -160,7 +160,23 @@ export function loadSampleProduction(input: WorkspaceState | ProductionState) {
     analysis_engine: "SAMPLE_DATA",
     created_at: createdAt,
   }));
-  state.requirements = REQUIREMENTS.map(([department, title, detail, status, documentIndex, pageNumber, excerpt]) => {
+  const sampleOwners: Record<string, string> = {
+    Audio: "FOH Audio Lead",
+    Backline: "Backline Lead",
+    Communications: "Comms Lead",
+    Hospitality: "Tour Coordinator",
+    Labor: "Production Manager",
+    Lighting: "Lighting Director",
+    Medical: "Venue Medical Lead",
+    Merchandise: "Merch Lead",
+    Power: "Production Electrician",
+    Production: "Production Manager",
+    Rigging: "Head Rigger",
+    Security: "Venue Security Manager",
+    "Stage Management": "Stage Manager",
+    Video: "Video Lead",
+  };
+  state.requirements = REQUIREMENTS.map(([department, title, detail, status, documentIndex, pageNumber, excerpt], requirementIndex) => {
     const category = classifyCategory(detail, department);
     const normalized = normalizedValue(detail, category);
     return {
@@ -175,8 +191,8 @@ export function loadSampleProduction(input: WorkspaceState | ProductionState) {
       unit: normalized?.match(/[A-Z]+$/)?.[0] || null,
       confidence: 0.98,
       origin_type: "SOURCE_DOCUMENT",
-      status,
-      owner: null,
+      status: requirementIndex < 6 ? status : "CONFIRMED",
+      owner: sampleOwners[department] || "Production Manager",
       due_at: null,
       document_name: DOCUMENTS[documentIndex].name,
       page_number: pageNumber,
