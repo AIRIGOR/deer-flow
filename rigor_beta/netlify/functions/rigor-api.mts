@@ -2,9 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import type { Context, Config } from "@netlify/functions";
 import pdfParse from "pdf-parse";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { DEPARTMENTS } from "./_shared/seed.js";
-import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, newId, normalizeWorkspace, now, readiness, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
+import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, newId, normalizeWorkspace, now, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
+import { reportPdf } from "./_shared/report.js";
 
 const COOKIE = "rigor_beta_session";
 const MAX_UPLOAD = 5 * 1024 * 1024;
@@ -126,31 +126,6 @@ function ingestDeerFlowRequirements(production: ProductionState, documentName: s
 
 function event(state: ProductionState, type: string, payload: Record<string, unknown>) {
   state.events.push({ event_id: newId("event"), type, created_at: now(), payload });
-}
-
-function wrap(text: string, limit = 92) {
-  const words = text.replace(/\s+/g, " ").split(" "); const lines: string[] = []; let line = "";
-  for (const word of words) { const next = line ? `${line} ${word}` : word; if (next.length > limit && line) { lines.push(line); line = word; } else line = next; }
-  if (line) lines.push(line); return lines;
-}
-
-async function reportPdf(state: ProductionState, department: string | null) {
-  const requirements = department ? state.requirements.filter((item) => item.department === department) : state.requirements;
-  const conflicts = department ? state.conflicts.filter((item) => item.department === department) : state.conflicts;
-  const pdf = await PDFDocument.create(); const regular = await pdf.embedFont(StandardFonts.Helvetica); const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  let page = pdf.addPage([612, 792]); let y = 748;
-  const draw = (text: string, size = 9, isBold = false, color = rgb(0.11, 0.16, 0.2)) => {
-    for (const line of wrap(text, size >= 16 ? 60 : 100)) { if (y < 48) { page = pdf.addPage([612, 792]); y = 748; } page.drawText(line, { x: 42, y, size, font: isBold ? bold : regular, color }); y -= size + 5; }
-  };
-  draw("RIGOR", 22, true, rgb(0.05, 0.45, 0.32)); draw(department ? `${department} Department Advance Report` : "Master Advance Report", 15, true); draw(`${state.show.show_name} · ${state.show.venue} · ${state.show.show_date}`, 10); y -= 8;
-  const score = readiness(state, requirements, conflicts); draw(`Readiness: ${score.status.replaceAll("_", " ")} · ${score.score}%`, 13, true); y -= 8;
-  draw("Requirements", 12, true);
-  for (const item of requirements) { draw(`${item.department} · ${item.title}`, 9, true); draw(`${item.status.replaceAll("_", " ")} · Owner: ${item.owner || "—"} · Source: ${item.document_name}, p${item.page_number || "—"}`, 8); y -= 4; }
-  y -= 6; draw("Conflicts", 12, true);
-  if (!conflicts.length) draw("No conflicts in this report scope.", 9);
-  for (const item of conflicts) { draw(`${item.department} · ${item.title} · ${item.status}`, 9, true); draw(item.status === "RESOLVED" ? `Decision: ${item.resolution} · Owner: ${item.owner}` : `${item.left_value} vs ${item.right_value}`, 8); y -= 4; }
-  y -= 8; draw(`Generated ${now()} · Source evidence preserved by RIGOR`, 8, false, rgb(0.35, 0.42, 0.46));
-  return pdf.save();
 }
 
 export default async (request: Request, context: Context) => {

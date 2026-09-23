@@ -229,7 +229,7 @@ function renderSessionThree() {
       <div class="card"><div class="card-header"><div><h3>Show-day checkpoints</h3><div class="muted small">${info.done}/${info.total} complete</div></div>${badge(state.readiness.status)}</div><div class="stack" style="margin-top:14px">${state.checkpoints.map(item => `<label class="checkpoint-row ${item.status === "COMPLETE" ? "complete" : ""}"><input type="checkbox" data-checkpoint="${item.checkpoint_id}" ${item.status === "COMPLETE" ? "checked" : ""} /><span class="checkpoint-copy"><strong>${escapeHtml(item.label)}</strong><span class="muted small">${escapeHtml(item.department)}</span></span>${badge(item.status)}</label>`).join("")}</div></div>
       <div class="grid">
         <div class="card"><h3>Log a day-of change</h3><p class="muted small">Capture a problem or field adjustment without losing the final operational record.</p><form id="incident-form" class="stack"><div class="grid two"><div class="field"><label>Department</label><select name="department" required>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div><div class="field"><label>Severity</label><select name="severity" required><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select></div></div><div class="field"><label>What changed?</label><textarea name="summary" required minlength="5" placeholder="Example: House followspot 2 failed during focus."></textarea></div><div class="field"><label>Resolution / handoff</label><textarea name="resolution" placeholder="Example: Vendor swapped fixture; tested at 15:42."></textarea></div><button class="btn" type="submit">Add to show record</button></form></div>
-        <div class="card"><h3>Advance Reports</h3><p class="muted small">Master and department reports are generated from the same operational truth, including current ownership, status, conflicts, and source provenance.</p><div class="report-actions"><button id="master-report-button" class="btn primary" type="button">Download Master PDF</button><select id="report-department"><option value="">Choose department</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select><button id="department-report-button" class="btn" type="button" disabled>Download department PDF</button></div></div>
+        <div class="card"><h3>Advance Reports</h3><p class="muted small">Master and department reports share one production record. On iPhone, open the PDF and use Share to save it to Files.</p><div class="report-actions"><a id="master-report-button" class="btn primary" href="/api/reports/advance.pdf" target="_blank" rel="noopener">Open Master PDF</a><select id="report-department" aria-label="Report department"><option value="">Choose department</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select><a id="department-report-button" class="btn disabled" aria-disabled="true" tabindex="-1" target="_blank" rel="noopener">Open department PDF</a></div></div>
       </div>
     </div>
     ${state.incidents.length ? `<div class="card" style="margin-top:16px"><h3>Day-of incident log</h3><div class="stack">${state.incidents.map(item => `<div class="incident-row" style="padding:14px"><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.severity)}</div><strong>${escapeHtml(item.summary)}</strong>${item.resolution ? `<div class="muted small">Resolution: ${escapeHtml(item.resolution)}</div>` : ""}</div>`).join("")}</div></div>` : ""}
@@ -258,39 +258,20 @@ function bindSessionEvents() {
   if (incident) incident.addEventListener("submit", addIncident);
   const reportDepartment = document.getElementById("report-department");
   const reportButton = document.getElementById("department-report-button");
-  const masterReportButton = document.getElementById("master-report-button");
-  if (masterReportButton) masterReportButton.addEventListener("click", () => downloadReport(null, masterReportButton));
   if (reportDepartment && reportButton) {
-    reportDepartment.addEventListener("change", () => { reportButton.disabled = !reportDepartment.value; });
-    reportButton.addEventListener("click", () => downloadReport(reportDepartment.value, reportButton));
-  }
-}
-
-async function downloadReport(department, button) {
-  const originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = "Generating PDF…";
-  try {
-    const path = `/api/reports/advance.pdf${department ? `?department=${encodeURIComponent(department)}` : ""}`;
-    const response = await api(path);
-    const blob = await response.blob();
-    const disposition = response.headers.get("content-disposition") || "";
-    const matchedName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
-    const fallbackName = `RIGOR-${department || "Master"}-Advance-Report.pdf`;
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = matchedName || fallbackName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast(`${department || "Master"} Advance Report downloaded.`);
-  } catch (error) {
-    showToast(`PDF download failed: ${error.message}`, true);
-  } finally {
-    button.textContent = originalText;
-    button.disabled = Boolean(department && !document.getElementById("report-department")?.value);
+    reportDepartment.addEventListener("change", () => {
+      if (reportDepartment.value) {
+        reportButton.href = `/api/reports/advance.pdf?department=${encodeURIComponent(reportDepartment.value)}`;
+        reportButton.removeAttribute("aria-disabled");
+        reportButton.removeAttribute("tabindex");
+        reportButton.classList.remove("disabled");
+      } else {
+        reportButton.removeAttribute("href");
+        reportButton.setAttribute("aria-disabled", "true");
+        reportButton.setAttribute("tabindex", "-1");
+        reportButton.classList.add("disabled");
+      }
+    });
   }
 }
 

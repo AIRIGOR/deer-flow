@@ -10,6 +10,7 @@
   "dependencies": {
     "@netlify/blobs": "^10.0.10",
     "@netlify/functions": "^4.2.5",
+    "@pdf-lib/fontkit": "^1.1.1",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1"
   },

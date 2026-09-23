@@ -8,7 +8,7 @@ Every production advances independently through three end-to-end stages:
 2. Technical advance, conflict resolution, ownership, and department readiness.
 3. Show-day checkpoints, incident logging, and Master/department Advance Reports.
 
-Production gates are fail-closed: every extracted requirement must be confirmed or rejected, every confirmed requirement must have an owner, every detected conflict must be resolved, and every show-day checkpoint must be complete before RIGOR can declare `SHOW_READY`. Reports download through the authenticated session without navigating away from the workspace.
+Production gates are fail-closed: every extracted requirement must be confirmed or rejected, every confirmed requirement must have an owner, every detected conflict must be resolved, and every show-day checkpoint must be complete before RIGOR can declare `SHOW_READY`. Report links open directly from the authenticated workspace in a browser tab, using the same session cookie. On iPhone, the PDF viewer's Share action can save the report to Files. A report URL opened in a different browser or without a RIGOR session returns 401.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ Production gates are fail-closed: every extracted requirement must be confirmed 
 - PDF and TXT ingestion with source provenance.
 - Structured local extraction normalizes comparable production values and detects cross-document contradictions.
 - Optional DeerFlow analysis bridge uses the model-backed `POST /api/rigor/analyze` service when configured.
-- Master and department-specific PDF exports share the same underlying state.
+- Master and department-specific PDF exports share the same underlying state. They include source documents, requirements and excerpts, owners, open actions, conflict decisions, checkpoints, incidents, and the recorded action chronology. Department exports filter each section to the selected department.
 
 ## DeerFlow intelligence bridge
 
