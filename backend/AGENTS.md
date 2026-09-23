@@ -1164,3 +1164,12 @@ production promotion, and destructive/irreversible actions.
 
 Tests: `backend/tests/test_rigor_company_subagents.py`.
 Architecture/operating policy: `docs/rigor-ai-company-team.md`.
+
+
+### RIGOR durable company state
+
+`deerflow.rigor.company` + `deerflow.persistence.rigor.company_*` implement the AI-company operating-state layer. `rigor_company_records` stores objectives, milestones, relationships, feedback, risks, experiments, and runway records. The table was introduced by Alembic revision `c8e7d9a1f203`.
+
+`skills/public/rigor-company-operator/SKILL.md` defines the bounded operating cycle: five specialist delegations followed by one `rigor-chief-of-staff` synthesis. Do not raise the subagent ceiling merely to add more roles; split work across operating cycles instead.
+
+Behavior is gated by `backend/tests/test_rigor_company_state.py` and `backend/tests/test_rigor_company_subagents.py`.
