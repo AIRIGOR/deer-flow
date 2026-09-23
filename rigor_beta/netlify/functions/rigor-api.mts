@@ -4,7 +4,7 @@ import type { Context, Config } from "@netlify/functions";
 import pdfParse from "pdf-parse";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { DEPARTMENTS } from "./_shared/seed.js";
-import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, newId, normalizeWorkspace, now, readiness, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
+import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
 const COOKIE = "rigor_beta_session";
 const MAX_UPLOAD = 5 * 1024 * 1024;
@@ -137,43 +137,149 @@ function wrap(text: string, limit = 92) {
 async function reportPdf(state: ProductionState, department: string | null) {
   const requirements = department ? state.requirements.filter((item) => item.department === department) : state.requirements;
   const conflicts = department ? state.conflicts.filter((item) => item.department === department) : state.conflicts;
-  const pdf = await PDFDocument.create(); const regular = await pdf.embedFont(StandardFonts.Helvetica); const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  let page = pdf.addPage([612, 792]); let y = 748;
+  const checkpoints = department ? state.checkpoints.filter((item) => item.department === department) : state.checkpoints;
+  const incidents = department ? state.incidents.filter((item) => item.department === department) : state.incidents;
+  const relevantRequirementIds = new Set(requirements.map((item) => item.requirement_id));
+  const relevantConflictIds = new Set(conflicts.map((item) => item.conflict_id));
+  const relevantCheckpointIds = new Set(checkpoints.map((item) => item.checkpoint_id));
+  const relevantEvents = state.events.filter((item) => {
+    if (!department) return true;
+    const payload = item.payload || {};
+    return payload.department === department
+      || relevantRequirementIds.has(payload.requirement_id)
+      || relevantConflictIds.has(payload.conflict_id)
+      || relevantCheckpointIds.has(payload.checkpoint_id);
+  });
+  const relevantDocumentNames = new Set(requirements.map((item) => item.document_name));
+  const documents = department
+    ? state.documents.filter((item) => relevantDocumentNames.has(item.name))
+    : state.documents;
+
+  const pdf = await PDFDocument.create();
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  let page = pdf.addPage([612, 792]);
+  let y = 748;
   const draw = (text: string, size = 9, isBold = false, color = rgb(0.11, 0.16, 0.2)) => {
-    for (const line of wrap(text, size >= 16 ? 60 : 100)) { if (y < 48) { page = pdf.addPage([612, 792]); y = 748; } page.drawText(line, { x: 42, y, size, font: isBold ? bold : regular, color }); y -= size + 5; }
+    for (const line of wrap(text, size >= 16 ? 60 : 100)) {
+      if (y < 48) {
+        page = pdf.addPage([612, 792]);
+        y = 748;
+      }
+      page.drawText(line, { x: 42, y, size, font: isBold ? bold : regular, color });
+      y -= size + 5;
+    }
   };
-  draw("RIGOR", 22, true, rgb(0.05, 0.45, 0.32)); draw(department ? `${department} Department Advance Report` : "Master Advance Report", 15, true); draw(`${state.show.show_name} · ${state.show.venue} · ${state.show.show_date}`, 10); y -= 8;
-  const score = readiness(state, requirements, conflicts); draw(`Readiness: ${score.status.replaceAll("_", " ")} · ${score.score}%`, 13, true); y -= 8;
-  draw("Requirements", 12, true);
-  for (const item of requirements) { draw(`${item.department} · ${item.title}`, 9, true); draw(`${item.status.replaceAll("_", " ")} · Owner: ${item.owner || "—"} · Source: ${item.document_name}, p${item.page_number || "—"}`, 8); y -= 4; }
-  y -= 6; draw("Conflicts", 12, true);
+  const section = (title: string) => {
+    y -= 8;
+    draw(title, 12, true);
+  };
+
+  draw("RIGOR", 22, true, rgb(0.05, 0.45, 0.32));
+  draw(department ? `${department} Department Advance Report` : "Master Advance Report", 15, true);
+  draw(`${state.show.show_name} · ${state.show.venue} · ${state.show.show_date}`, 10);
+  if (state.production.sample_demo) draw("SAMPLE PRODUCTION — demonstration data, not a real show", 8, true, rgb(0.55, 0.36, 0.08));
+
+  const score = readiness(state, requirements, conflicts);
+  section("Executive readiness");
+  draw(`Status: ${score.status.replaceAll("_", " ")} · Readiness: ${score.score}%`, 13, true);
+  draw(`${score.confirmed_requirements}/${score.total_requirements} requirements reviewed · ${score.open_conflicts} open conflicts · ${score.open_incidents || 0} open incidents · ${score.completed_checkpoints}/${score.total_checkpoints} checkpoints complete`, 8);
+
+  section("Open items / assumptions");
+  const openRequirements = requirements.filter((item) => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status));
+  const ownerGaps = requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status) && !item.owner);
+  const openConflicts = conflicts.filter((item) => item.status !== "RESOLVED");
+  const openIncidents = incidents.filter((item) => !String(item.resolution || "").trim());
+  if (!openRequirements.length && !ownerGaps.length && !openConflicts.length && !openIncidents.length) {
+    draw("No open items in this report scope.", 9);
+  } else {
+    for (const item of openRequirements) draw(`REVIEW · ${item.department} · ${item.title}`, 8);
+    for (const item of ownerGaps) draw(`OWNER · ${item.department} · ${item.title}`, 8);
+    for (const item of openConflicts) draw(`CONFLICT · ${item.severity} · ${item.department} · ${item.title}`, 8);
+    for (const item of openIncidents) draw(`INCIDENT · ${item.severity} · ${item.department} · ${item.summary}`, 8);
+  }
+
+  section("Requirements");
+  if (!requirements.length) draw("No requirements in this report scope.", 9);
+  for (const item of requirements) {
+    draw(`${item.department} · ${item.title}`, 9, true);
+    draw(`${item.status.replaceAll("_", " ")} · Owner: ${item.owner || "—"} · Source: ${item.document_name}, p${item.page_number || "—"} · Confidence: ${Math.round(Number(item.confidence || 0) * 100)}%`, 8);
+    draw(`Evidence: ${item.excerpt || item.detail}`, 8);
+    y -= 3;
+  }
+
+  section("Conflict decisions");
   if (!conflicts.length) draw("No conflicts in this report scope.", 9);
-  for (const item of conflicts) { draw(`${item.department} · ${item.title} · ${item.status}`, 9, true); draw(item.status === "RESOLVED" ? `Decision: ${item.resolution} · Owner: ${item.owner}` : `${item.left_value} vs ${item.right_value}`, 8); y -= 4; }
-  y -= 8; draw(`Generated ${now()} · Source evidence preserved by RIGOR`, 8, false, rgb(0.35, 0.42, 0.46));
+  for (const item of conflicts) {
+    draw(`${item.department} · ${item.title} · ${item.severity} · ${item.status}`, 9, true);
+    draw(item.status === "RESOLVED"
+      ? `Decision: ${item.resolution} · Owner: ${item.owner}`
+      : `Open: ${item.left_value} vs ${item.right_value} · Sources: ${item.left_source} / ${item.right_source}`, 8);
+    y -= 3;
+  }
+
+  section("Show-day checkpoints");
+  if (!checkpoints.length) draw("No checkpoints in this report scope.", 9);
+  for (const item of checkpoints) {
+    draw(`${item.status} · ${item.department} · ${item.label}${item.completed_at ? ` · ${item.completed_at}` : ""}`, 8);
+  }
+
+  section("Incident log");
+  if (!incidents.length) draw("No incidents recorded in this report scope.", 9);
+  for (const item of incidents) {
+    draw(`${item.severity} · ${item.department} · ${item.summary}`, 9, true);
+    draw(item.resolution ? `Resolution: ${item.resolution}${item.resolved_at ? ` · Closed ${item.resolved_at}` : ""}` : "Status: OPEN — resolution required", 8);
+    y -= 3;
+  }
+
+  section("Analysis & AI provenance");
+  if (!documents.length) draw("No source documents in this report scope.", 9);
+  for (const item of documents) {
+    draw(`${item.name} · ${item.page_count || "—"} pages · Analysis: ${String(item.analysis_engine || "STRUCTURED_EXTRACTION_V1").replaceAll("_", " ")} · Source: ${item.source_kind || "UNKNOWN"}`, 8);
+  }
+
+  section("Decision chronology");
+  if (!relevantEvents.length) draw("No decision events recorded in this report scope.", 9);
+  for (const item of relevantEvents.slice(-80)) {
+    const payload = JSON.stringify(item.payload || {}).replace(/[{}"]/g, "").replace(/,/g, " · ").slice(0, 220);
+    draw(`${item.created_at} · ${String(item.type).replaceAll("_", " ")}${payload ? ` · ${payload}` : ""}`, 7);
+  }
+
+  y -= 8;
+  draw(`Generated ${now()} · RIGOR operational source of truth · Source evidence and decision chronology preserved`, 8, false, rgb(0.35, 0.42, 0.46));
   return pdf.save();
 }
-
 export default async (request: Request, context: Context) => {
   try {
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/\.netlify\/functions\/rigor-api/, "") || "/";
-    if (path === "/api/health" && request.method === "GET") return json({ status: "ok", service: "rigor-netlify-beta" });
+    if (path === "/api/health" && request.method === "GET") {
+      const deerFlowUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
+      const deerFlowToken = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
+      return json({
+        status: "ok",
+        service: "rigor",
+        version: "partner-demo-v1",
+        deerflow: { configured: Boolean(deerFlowUrl && deerFlowToken) },
+      });
+    }
     if (path === "/api/start" && request.method === "POST") {
       const data = await body(request); const displayName = String(data.display_name ?? "").trim(); const role = String(data.role ?? "");
       if (displayName.length < 2 || displayName.length > 60) return fail("Enter a name between 2 and 60 characters");
-      if (!["TM", "PM", "Video", "Audio", "Lighting", "Rigging", "Backline", "Other"].includes(role)) return fail("Select a valid production role");
-      const state = createWorkspace(displayName, role); const token = randomBytes(36).toString("base64url"); const expiresAt = new Date(Date.now() + 45 * 86400000).toISOString(); const store = storeFor(context);
+      if (!["TM", "PM", "Video", "Audio", "Lighting", "Rigging", "Backline", "Partner / Investor", "Other"].includes(role)) return fail("Select a valid production role");
+      const state = createWorkspace(displayName, role);
+      if (data.sample_demo === true) loadSampleProduction(state); const token = randomBytes(36).toString("base64url"); const expiresAt = new Date(Date.now() + 45 * 86400000).toISOString(); const store = storeFor(context);
       await Promise.all([store.setJSON(`workspace/${state.tester.tester_id}`, state), store.setJSON(`session/${hash(token)}`, { testerId: state.tester.tester_id, expiresAt })]);
       return json(snapshot(state), 200, { "Set-Cookie": `${COOKIE}=${token}; Max-Age=3888000; Path=/; HttpOnly; Secure; SameSite=Lax` });
     }
     if (path === "/api/logout" && request.method === "POST") return json({ ok: true }, 200, { "Set-Cookie": `${COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax` });
 
-    const auth = await authenticated(request, context); if (!auth) return fail("Start or resume your RIGOR beta session", 401);
+    const auth = await authenticated(request, context); if (!auth) return fail("Start or resume your RIGOR session", 401);
     const { store, state } = auth;
     if (path === "/api/workspace" && request.method === "GET") { await save(store, state); return json(snapshot(state)); }
 
     if (path === "/api/productions" && request.method === "POST") {
-      if (state.productions.length >= PRODUCTION_LIMIT) return fail(`Demo workspaces support up to ${PRODUCTION_LIMIT} productions`);
+      if (state.productions.length >= PRODUCTION_LIMIT) return fail(`RIGOR workspaces support up to ${PRODUCTION_LIMIT} productions`);
       const data = await body(request);
       const details = {
         show_name: String(data.show_name ?? "").trim(), artist: String(data.artist ?? "").trim(), venue: String(data.venue ?? "").trim(),
@@ -219,15 +325,47 @@ export default async (request: Request, context: Context) => {
       const item = production.checkpoints.find((entry) => entry.checkpoint_id === match![1]); if (!item) return fail("Checkpoint not found", 404); const data = await body(request); item.status = data.complete ? "COMPLETE" : "PENDING"; item.completed_at = data.complete ? now() : null; event(production, "CHECKPOINT_UPDATED", { checkpoint_id: item.checkpoint_id, complete: Boolean(data.complete) }); await save(store, state); return json(snapshot(state));
     }
     if (path === "/api/incidents" && request.method === "POST") {
-      const data = await body(request); if (!validateDepartment(data.department)) return fail("Invalid department"); if (!["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(data.severity)) return fail("Invalid severity"); const summary = String(data.summary ?? "").trim(); if (summary.length < 5) return fail("Describe what changed");
-      production.incidents.unshift({ incident_id: newId("incident"), production_id: production.production.production_id, workspace_id: state.workspace.workspace_id, department: data.department, summary: summary.slice(0, 500), severity: data.severity, resolution: String(data.resolution ?? "").trim().slice(0, 800) || null, created_at: now() }); event(production, "INCIDENT_LOGGED", { department: data.department, severity: data.severity }); await save(store, state); return json(snapshot(state));
+      const data = await body(request);
+      if (!validateDepartment(data.department)) return fail("Invalid department");
+      if (!["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(data.severity)) return fail("Invalid severity");
+      const summary = String(data.summary ?? "").trim();
+      if (summary.length < 5) return fail("Describe what changed");
+      const resolution = String(data.resolution ?? "").trim().slice(0, 800) || null;
+      const createdAt = now();
+      production.incidents.unshift({
+        incident_id: newId("incident"),
+        production_id: production.production.production_id,
+        workspace_id: state.workspace.workspace_id,
+        department: data.department,
+        summary: summary.slice(0, 500),
+        severity: data.severity,
+        resolution,
+        created_at: createdAt,
+        resolved_at: resolution ? createdAt : null,
+      });
+      event(production, "INCIDENT_LOGGED", { department: data.department, severity: data.severity, resolved: Boolean(resolution) });
+      await save(store, state);
+      return json(snapshot(state));
+    }
+    match = path.match(/^\/api\/incidents\/([^/]+)$/);
+    if (match && request.method === "PATCH") {
+      const item = production.incidents.find((entry) => entry.incident_id === match![1]);
+      if (!item) return fail("Incident not found", 404);
+      const data = await body(request);
+      const resolution = String(data.resolution ?? "").trim();
+      if (resolution.length < 5) return fail("Resolution must explain how the incident was closed");
+      item.resolution = resolution.slice(0, 800);
+      item.resolved_at = now();
+      event(production, "INCIDENT_RESOLVED", { incident_id: item.incident_id, department: item.department, severity: item.severity });
+      await save(store, state);
+      return json(snapshot(state));
     }
     if (path === "/api/feedback" && request.method === "POST") {
       const data = await body(request); if (![1, 2, 3].includes(Number(data.session_number)) || Number(data.useful_score) < 1 || Number(data.useful_score) > 5 || Number(data.trust_score) < 1 || Number(data.trust_score) > 5) return fail("Invalid feedback values");
       production.feedback.push({ feedback_id: newId("feedback"), production_id: production.production.production_id, workspace_id: state.workspace.workspace_id, session_number: Number(data.session_number), useful_score: Number(data.useful_score), trust_score: Number(data.trust_score), comments: String(data.comments ?? "").trim().slice(0, 2000), created_at: now() }); await save(store, state); return json({ ok: true });
     }
     if (path === "/api/documents" && request.method === "POST") {
-      const form = await request.formData(); const file = form.get("file"); if (!(file instanceof File)) return fail("Choose a PDF or TXT document"); if (file.size > MAX_UPLOAD) return fail("Document exceeds the 5 MB beta limit");
+      const form = await request.formData(); const file = form.get("file"); if (!(file instanceof File)) return fail("Choose a PDF or TXT document"); if (file.size > MAX_UPLOAD) return fail("Document exceeds the 5 MB upload limit");
       const safeName = file.name.replace(/[^A-Za-z0-9._ -]/g, "_").trim().slice(0, 120) || "uploaded-document"; const fileBuffer = await file.arrayBuffer(); const bytes = new Uint8Array(fileBuffer); let pages: string[];
       if (safeName.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") { const parsed = await pdfParse(Buffer.from(bytes)); pages = parsed.text.split(/\f/).filter(Boolean); if (!pages.length) pages = [parsed.text]; }
       else if (safeName.toLowerCase().endsWith(".txt") || file.type === "text/plain") pages = [new TextDecoder().decode(bytes)]; else return fail("Upload a PDF or TXT document");
@@ -272,5 +410,5 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/feedback", "/api/documents", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/reports/advance.pdf"],
 };
