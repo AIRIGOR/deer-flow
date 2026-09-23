@@ -2,13 +2,31 @@ import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
 
+type StateUpdate = {
+  record_type: "OBJECTIVE" | "MILESTONE" | "RELATIONSHIP" | "FEEDBACK" | "RISK" | "EXPERIMENT" | "RUNWAY";
+  title: string;
+  summary?: string | null;
+  status?: "OPEN" | "ACTIVE" | "BLOCKED" | "NEEDS_APPROVAL" | "COMPLETE" | "ARCHIVED";
+  priority?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  owner_agent?: string | null;
+  approval_required?: boolean;
+  source_ref?: string | null;
+  payload?: Record<string, unknown>;
+};
+
+type CompanyStateRecord = StateUpdate & {
+  record_key: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type PulsePayload = {
   current_state: string;
   top_priorities: string[];
   blockers_risks: string[];
   founder_approvals: string[];
   next_actions: string[];
-  state_updates: unknown[];
+  state_updates: StateUpdate[];
 };
 
 function safeEqual(left: string, right: string) {
@@ -40,7 +58,10 @@ async function publicJson(url: string) {
   }
 }
 
-async function buildCompanyContext(request: Request) {
+async function buildCompanyContext(
+  request: Request,
+  priorState: CompanyStateRecord[],
+) {
   const branch = "feat/rigor-netlify-beta-v1";
   const [commit, runs, previewHealth, deerflowHealth] = await Promise.all([
     publicJson(
@@ -79,7 +100,50 @@ async function buildCompanyContext(request: Request) {
     preview_health: previewHealth,
     deerflow_health: deerflowHealth,
     netlify_deploy_id: contextDeployId(request),
+    durable_company_state: priorState.slice(0, 250),
   };
+}
+
+function recordKey(update: StateUpdate) {
+  const title = String(update.title || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 180);
+  return `${update.record_type}:${title}`;
+}
+
+function mergeState(
+  current: CompanyStateRecord[],
+  updates: StateUpdate[],
+): CompanyStateRecord[] {
+  const now = new Date().toISOString();
+  const byKey = new Map(
+    current.map((record) => [record.record_key, { ...record }]),
+  );
+
+  for (const update of updates || []) {
+    if (!update?.record_type || !update?.title) continue;
+    const key = recordKey(update);
+    const previous = byKey.get(key);
+    byKey.set(key, {
+      ...(previous || {
+        record_key: key,
+        record_type: update.record_type,
+        title: update.title,
+        created_at: now,
+      }),
+      ...update,
+      record_key: key,
+      created_at: previous?.created_at || now,
+      updated_at: now,
+    });
+  }
+
+  return Array.from(byKey.values())
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .slice(0, 500);
 }
 
 function contextDeployId(request: Request) {
@@ -108,7 +172,12 @@ export default async (request: Request, context: Context) => {
     return;
   }
 
-  const companyContext = await buildCompanyContext(request);
+  const store = companyStore(context);
+  const priorState =
+    ((await store.get("state/records", { type: "json" })) as
+      | CompanyStateRecord[]
+      | null) || [];
+  const companyContext = await buildCompanyContext(request, priorState);
   const response = await fetch(
     `${baseUrl.replace(/\/$/, "")}/api/rigor/company/pulse`,
     {
@@ -143,10 +212,17 @@ export default async (request: Request, context: Context) => {
     pulse,
   };
 
-  const store = companyStore(context);
   const timestamp = envelope.generated_at.replace(/[:.]/g, "-");
-  await store.setJSON("pulse/latest", envelope);
-  await store.setJSON(`pulse/history/${timestamp}.json`, envelope);
+  const nextState = mergeState(priorState, pulse.state_updates || []);
+  await store.setJSON("state/records", nextState);
+  await store.setJSON("pulse/latest", {
+    ...envelope,
+    durable_state_records: nextState.length,
+  });
+  await store.setJSON(`pulse/history/${timestamp}.json`, {
+    ...envelope,
+    durable_state_records: nextState.length,
+  });
   await trimHistory(store);
   console.log(
     "RIGOR company pulse stored",
