@@ -55,6 +55,10 @@ function badge(status) {
   return `<span class="badge ${color}">${escapeHtml(status.replaceAll("_", " "))}</span>`;
 }
 
+function displaySampleName(value) {
+  return String(value || "").replace(/\s*—\s*SAMPLE$/i, "").trim();
+}
+
 function sessionCard(number, info) {
   const unlocked = number === 1 || state.progress.sessions[String(number - 1)].complete;
   const active = selectedSession === number;
@@ -69,9 +73,9 @@ function sessionCard(number, info) {
 function productionCard(item, index) {
   const active = item.production_id === state.workspace.active_production_id;
   return `<button class="production-pill ${active ? "active" : ""}" onclick="selectProduction('${item.production_id}')">
-    <span class="production-pill-kicker">${active ? "Active" : `Show ${index + 1}`}</span>
-    <strong>${escapeHtml(item.show.show_name)}</strong>
-    <span>${escapeHtml(item.show.venue)}</span>
+    <span class="production-pill-kicker">${item.sample_demo ? "Sample production" : (active ? "Active" : `Show ${index + 1}`)}</span>
+    <strong>${escapeHtml(item.sample_demo ? displaySampleName(item.show.show_name) : item.show.show_name)}</strong>
+    <span>${escapeHtml(item.sample_demo ? displaySampleName(item.show.venue) : item.show.venue)}</span>
   </button>`;
 }
 
@@ -156,7 +160,7 @@ function renderWorkspace() {
     <main>
       ${renderProductionSwitcher()}
       <section class="hero"><div class="wrap hero-grid">
-        <div class="show-identity"><div class="eyebrow">${escapeHtml(s.artist)} · ${escapeHtml(s.show_date)}</div><h1>${escapeHtml(s.venue)}</h1><p class="lead">${escapeHtml(s.city)} · ${escapeHtml(s.show_name)}</p></div>
+        <div class="show-identity"><div class="eyebrow">${escapeHtml(s.artist)} · ${escapeHtml(s.show_date)}${state.production.sample_demo ? ' <span class="badge blue sample-badge">SAMPLE PRODUCTION</span>' : ""}</div><h1>${escapeHtml(state.production.sample_demo ? displaySampleName(s.venue) : s.venue)}</h1><p class="lead">${escapeHtml(s.city)} · ${escapeHtml(state.production.sample_demo ? displaySampleName(s.show_name) : s.show_name)}</p></div>
         <div class="readiness-card">
           <div><div class="readiness-label">Show readiness</div><div class="readiness-number">${r.score}%</div></div>
           <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} · ${r.open_incidents || 0} open incident${(r.open_incidents || 0) === 1 ? "" : "s"} · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
@@ -183,17 +187,17 @@ function renderSessionOne() {
   const reviewItems = showAllRequirements ? state.requirements : (nextRequirement ? [nextRequirement] : []);
   return `<div class="stage-head focused-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Verify what matters, resolve one decision, then move to the next.</p></div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">${state.requirements.length ? "Work one requirement at a time. Open source evidence only when you need to verify what RIGOR saw." : "Upload a production document to begin extraction and source-backed review."}</div>`}
-    <div class="grid two source-grid">
-      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${badge(doc.status)}</div>`).join("")}</div></div>
-      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
-    </div>
-    <div class="card requirement-focus" style="margin-top:16px">
+    <div class="card requirement-focus">
       <div class="card-header requirement-focus-head">
         <div><div class="eyebrow">Now</div><h3>Requirement review</h3><div class="muted small">${info.done} of ${state.requirements.length} verified${openRequirements.length ? ` · ${openRequirements.length} remaining` : ""}</div></div>
         ${state.requirements.length > 1 ? `<button class="btn ghost small-button" onclick="toggleRequirementsView()">${showAllRequirements ? "Focus next" : "View all"}</button>` : ""}
       </div>
       ${showAllRequirements ? `<div class="requirement-tools"><select id="requirement-filter" aria-label="Filter department"><option value="ALL">All departments</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div>` : ""}
       <div id="requirements-list" class="stack requirement-stack">${state.requirements.length ? (reviewItems.length ? renderRequirements(reviewItems) : `<div class="callout success"><strong>All requirements reviewed.</strong> Technical Advance is ready when the remaining session conditions are complete.</div>`) : `<div class="callout">No extracted requirements yet. Upload the venue pack, rider, schedule, labor call, or other production source documents.</div>`}</div>
+    </div>
+    <div class="grid two source-grid" style="margin-top:16px">
+      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${badge(doc.status)}</div>`).join("")}</div></div>
+      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
     </div>
     ${renderFeedback(1)}`;
 }
@@ -260,6 +264,7 @@ function lockedSession(number, message) {
 }
 
 function renderFeedback(sessionNumber) {
+  if (state.tester.role === "Partner / Investor") return "";
   return `<div class="card feedback"><div class="card-header"><div><h3>Session feedback</h3><div class="muted small">Help RIGOR learn what production professionals actually need.</div></div></div><form class="feedback-form" data-feedback="${sessionNumber}" style="margin-top:12px"><div class="field"><label>Usefulness</label><select name="useful_score"><option value="5">5 · High</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1 · Low</option></select></div><div class="field"><label>Trust</label><select name="trust_score"><option value="5">5 · High</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1 · Low</option></select></div><div class="field"><label>What is wrong, missing, or essential?</label><input name="comments" maxlength="2000" placeholder="Your field judgment matters here." /></div><button class="btn" type="submit">Save feedback</button></form></div>`;
 }
 
