@@ -66,3 +66,37 @@ Once the operating loop has real data, add persistent company-state objects for:
 - company financial runway.
 
 Do not add more agent roles until one of these six roles becomes overloaded by a distinct recurring job.
+
+
+## Durable company state
+
+RIGOR company operations now persist in `rigor_company_records` rather than living only inside agent conversations.
+
+Supported record types:
+- `OBJECTIVE`
+- `MILESTONE`
+- `RELATIONSHIP`
+- `FEEDBACK`
+- `RISK`
+- `EXPERIMENT`
+- `RUNWAY`
+
+Each record can carry status, priority, owner agent, approval requirement, due time, source reference, and structured JSON payload. `RigorCompanyManager.get_state_snapshot()` returns grouped operating state plus the active founder-approval queue.
+
+The migration is `c8e7d9a1f203_add_rigor_company_operating_state.py`.
+
+## Company operating skill
+
+`skills/public/rigor-company-operator/SKILL.md` defines the standard company cycle.
+
+The lead agent delegates one focused report to Product/Ops, Engineering, QA/Security, Market Intelligence, and Partnerships/Capital, then sends those five reports to the Chief of Staff for synthesis. That consumes exactly six delegated subagents, matching DeerFlow's default per-run ceiling.
+
+The final founder brief must distinguish:
+- current state;
+- top three priorities;
+- blockers and risks;
+- founder approvals;
+- next three actions;
+- durable state updates.
+
+This is the default operating loop for recurring company pulses and strategic operating reviews.
