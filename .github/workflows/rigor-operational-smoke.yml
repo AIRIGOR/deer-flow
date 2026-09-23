@@ -6,17 +6,17 @@ on:
       - feat/rigor-netlify-beta-v1
     paths:
       - ".github/workflows/rigor-operational-smoke.yml"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   live-smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify DeerFlow analyzer is live and token-protected
+      - name: Verify DeerFlow analyzer auth boundary
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS --max-time 90 -o /tmp/deerflow-auth.json -w "%{http_code}"             -X POST "https://rigor-deerflow.onrender.com/api/rigor/analyze"             -H "Content-Type: application/json"             --data '{"document_name":"rigor-smoke.txt","pages":["Venue must provide 200A show power service at stage right."]}')"
+          code=$(curl -sS --max-time 90 -o /tmp/deerflow-auth.json -w "%{http_code}" -X POST "https://rigor-deerflow.onrender.com/api/rigor/analyze" -H "Content-Type: application/json" --data '{"document_name":"rigor-smoke.txt","pages":["Venue must provide 200A show power service at stage right."]}')
           cat /tmp/deerflow-auth.json
           echo "HTTP $code"
           if [ "$code" != "401" ]; then
@@ -34,23 +34,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 60 -c /tmp/rigor-cookies.txt             -X POST "https://rigor-beta.netlify.app/api/start"             -H "Content-Type: application/json"             --data '{"display_name":"RIGOR Operational Smoke","role":"PM"}'             > /tmp/start.json
-
-          printf '%s
-'             'Venue must provide 200A show power service at stage right.'             'Tour requires 400A show power service at stage right.'             > /tmp/rigor-smoke.txt
-
-          curl -fsS --max-time 120 -b /tmp/rigor-cookies.txt             -X POST "https://rigor-beta.netlify.app/api/documents"             -F "file=@/tmp/rigor-smoke.txt;type=text/plain"             > /tmp/upload.json
-
-          python - <<'PY'
-          import json
-          with open("/tmp/upload.json", "r", encoding="utf-8") as f:
-              payload = json.load(f)
-          result = payload.get("result", {})
-          print(json.dumps(result, indent=2))
-          engine = result.get("analysis_engine")
-          if engine != "DEERFLOW":
-              raise SystemExit(f"Expected DEERFLOW analysis engine, got {engine!r}")
-          if int(result.get("requirements_added", 0)) < 1:
-              raise SystemExit("DeerFlow returned no production requirements")
-          print("RIGOR -> DeerFlow bridge: PASS")
-          PY
+          curl -fsS --max-time 60 -c /tmp/rigor-cookies.txt -X POST "https://rigor-beta.netlify.app/api/start" -H "Content-Type: application/json" --data '{"display_name":"RIGOR Operational Smoke","role":"PM"}' > /tmp/start.json
+          printf '%s\n' 'Venue must provide 200A show power service at stage right.' 'Tour requires 400A show power service at stage right.' > /tmp/rigor-smoke.txt
+          curl -fsS --max-time 120 -b /tmp/rigor-cookies.txt -X POST "https://rigor-beta.netlify.app/api/documents" -F "file=@/tmp/rigor-smoke.txt;type=text/plain" > /tmp/upload.json
+          cat /tmp/upload.json
+          python -c 'import json; p=json.load(open("/tmp/upload.json", encoding="utf-8")); r=p.get("result", {}); print("\nParsed result:", json.dumps(r, indent=2)); assert r.get("analysis_engine") == "DEERFLOW", f"Expected DEERFLOW, got {r.get(\"analysis_engine\")!r}"; assert int(r.get("requirements_added", 0)) >= 1, "No requirements returned"; print("RIGOR -> DeerFlow bridge: PASS")'
