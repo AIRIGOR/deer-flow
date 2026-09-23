@@ -5,6 +5,7 @@ import {
   createWorkspace,
   departmentSummary,
   extractRequirements,
+  loadSampleProduction,
   normalizeWorkspace,
   progress,
   readiness,
@@ -27,6 +28,51 @@ describe("RIGOR beta model", () => {
       seeded: false,
       source_of_truth: "UPLOADED_DOCUMENTS",
     });
+  });
+
+  it("loads an explicitly labeled guided sample production without disguising it as real data", () => {
+    const state = createWorkspace("Partner Viewer", "Partner / Investor");
+    loadSampleProduction(state);
+    const production = activeProduction(state);
+    const view = snapshot(state);
+
+    expect(production.production.sample_demo).toBe(true);
+    expect(production.show.show_name).toContain("SAMPLE");
+    expect(production.documents.length).toBeGreaterThan(0);
+    expect(production.documents.every((item) => item.source_kind === "SAMPLE")).toBe(true);
+    expect(production.requirements.length).toBeGreaterThan(0);
+    expect(production.conflicts.length).toBeGreaterThan(0);
+    expect(view.readiness.status).toBe("BLOCKED");
+  });
+
+  it("keeps show readiness blocked until field incidents are resolved", () => {
+    const state = createWorkspace("Show PM", "PM");
+    const production = activeProduction(state);
+
+    extractRequirements(state, "show.txt", ["Venue must provide 200A show power service."]);
+    production.requirements[0].status = "CONFIRMED";
+    production.requirements[0].owner = "Power Lead";
+    production.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+    expect(readiness(state).status).toBe("SHOW_READY");
+
+    production.incidents.push({
+      incident_id: "incident_test",
+      department: "Power",
+      severity: "HIGH",
+      summary: "Temporary distro lost one leg.",
+      resolution: null,
+      created_at: new Date().toISOString(),
+    });
+    expect(progress(state).sessions["3"].complete).toBe(false);
+    expect(readiness(state)).toMatchObject({
+      status: "BLOCKED",
+      open_incidents: 1,
+      blocking_incidents: 1,
+    });
+
+    production.incidents[0].resolution = "Swapped distro and retested all phases.";
+    expect(progress(state).sessions["3"].complete).toBe(true);
+    expect(readiness(state).status).toBe("SHOW_READY");
   });
 
   it("extracts normalized source-backed requirement candidates", () => {
