@@ -1,6 +1,6 @@
 declare const Netlify: { env: { get(key: string): string | undefined } } | undefined;
 
-import { CHECKPOINTS, DEPARTMENTS, KEYWORDS } from "./seed.js";
+import { CHECKPOINTS, DEPARTMENTS, DOCUMENTS, KEYWORDS, REQUIREMENTS } from "./seed.js";
 
 export type RecordMap = Record<string, any>;
 export type ProductionState = {
@@ -135,6 +135,75 @@ export function createWorkspace(displayName: string, role: string): WorkspaceSta
   };
 }
 
+export function loadSampleProduction(input: WorkspaceState | ProductionState) {
+  const state = resolveProduction(input);
+  const createdAt = now();
+  state.production.sample_demo = true;
+  state.show = {
+    ...state.show,
+    show_name: "Neon Horizon World Tour — SAMPLE",
+    artist: "Neon Horizon",
+    venue: "Desert Crown Arena — SAMPLE",
+    city: "Las Vegas, NV",
+    show_date: new Date(Date.now() + 21 * 86400000).toISOString().slice(0, 10),
+    status: "NEEDS_REVIEW",
+  };
+  state.documents = DOCUMENTS.map((doc) => ({
+    document_id: newId("doc"),
+    production_id: state.production.production_id,
+    workspace_id: state.production.workspace_id,
+    name: doc.name,
+    doc_type: doc.doc_type,
+    status: "PROCESSED",
+    page_count: doc.page_count,
+    source_kind: "SAMPLE",
+    analysis_engine: "SAMPLE_DATA",
+    created_at: createdAt,
+  }));
+  state.requirements = REQUIREMENTS.map(([department, title, detail, status, documentIndex, pageNumber, excerpt]) => {
+    const category = classifyCategory(detail, department);
+    const normalized = normalizedValue(detail, category);
+    return {
+      requirement_id: newId("req"),
+      production_id: state.production.production_id,
+      workspace_id: state.production.workspace_id,
+      department,
+      category,
+      title,
+      detail,
+      normalized_value: normalized,
+      unit: normalized?.match(/[A-Z]+$/)?.[0] || null,
+      confidence: 0.98,
+      origin_type: "SOURCE_DOCUMENT",
+      status,
+      owner: null,
+      due_at: null,
+      document_name: DOCUMENTS[documentIndex].name,
+      page_number: pageNumber,
+      source_location: `Page ${pageNumber}`,
+      excerpt,
+      source_kind: "SAMPLE",
+      analysis_engine: "SAMPLE_DATA",
+    };
+  });
+  state.conflicts = [];
+  rebuildConflicts(state);
+  state.incidents = [];
+  state.feedback = [];
+  state.events.push({
+    event_id: newId("event"),
+    type: "SAMPLE_PRODUCTION_LOADED",
+    created_at: createdAt,
+    payload: {
+      sample: true,
+      documents: state.documents.length,
+      requirements: state.requirements.length,
+      conflicts: state.conflicts.length,
+    },
+  });
+  return state;
+}
+
 function migrateDemoRecords(production: ProductionState) {
   const demoDocumentIds = new Set(
     production.documents.filter((item) => item.source_kind === "DEMO").map((item) => item.document_id),
@@ -201,14 +270,16 @@ export function progress(input: WorkspaceState | ProductionState) {
   const owned = actionable.filter((item) => Boolean(item.owner)).length;
   const resolved = state.conflicts.filter((item) => item.status === "RESOLVED").length;
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
+  const openIncidents = state.incidents.filter((item) => !String(item.resolution || "").trim()).length;
   const reviewTarget = state.requirements.length;
   const ownerTarget = actionable.length;
   const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget;
   const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned === ownerTarget;
+  const showDayComplete = sessionTwoComplete && checks === state.checkpoints.length && openIncidents === 0;
   const sessions: Record<string, RecordMap> = {
     "1": { complete: sessionOneComplete, done: reviewed, total: reviewTarget || 1, label: "Preproduction intake" },
     "2": { complete: sessionTwoComplete, done: Math.min(resolved + owned, state.conflicts.length + ownerTarget), total: Math.max(1, state.conflicts.length + ownerTarget), label: "Technical advance" },
-    "3": { complete: sessionTwoComplete && checks === state.checkpoints.length, done: checks, total: state.checkpoints.length, label: "Show day" },
+    "3": { complete: showDayComplete, done: checks, total: state.checkpoints.length, open_incidents: openIncidents, label: "Show day" },
   };
   const completed = [1, 2, 3].filter((number) => sessions[String(number)].complete);
   const current = !completed.includes(1) ? 1 : !completed.includes(2) ? 2 : 3;
@@ -227,22 +298,45 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const owned = actionable.filter((item) => Boolean(item.owner)).length;
   const openConflicts = scopedConflicts.filter((item) => item.status !== "RESOLVED").length;
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
+  const openIncidents = state.incidents.filter((item) => !String(item.resolution || "").trim());
+  const blockingIncidents = openIncidents.filter((item) => ["HIGH", "CRITICAL"].includes(String(item.severity || "").toUpperCase()));
   if (!scopedRequirements.length) {
-    return { score: 0, status: "DOCUMENTS_PENDING", confirmed_requirements: 0, total_requirements: 0, open_conflicts: 0, completed_checkpoints: checks, total_checkpoints: state.checkpoints.length };
+    return {
+      score: 0,
+      status: "DOCUMENTS_PENDING",
+      confirmed_requirements: 0,
+      total_requirements: 0,
+      open_conflicts: 0,
+      open_incidents: openIncidents.length,
+      blocking_incidents: blockingIncidents.length,
+      completed_checkpoints: checks,
+      total_checkpoints: state.checkpoints.length,
+    };
   }
   const requirementScore = reviewed / scopedRequirements.length;
   const ownershipScore = actionable.length ? owned / actionable.length : 1;
   const conflictScore = scopedConflicts.length ? 1 - openConflicts / scopedConflicts.length : 1;
   const checkpointScore = checks / Math.max(state.checkpoints.length, 1);
-  const score = Math.round((requirementScore * 0.4 + ownershipScore * 0.2 + conflictScore * 0.25 + checkpointScore * 0.15) * 100);
-  const status = openConflicts
+  const incidentScore = state.incidents.length ? 1 - openIncidents.length / state.incidents.length : 1;
+  const score = Math.round((requirementScore * 0.35 + ownershipScore * 0.2 + conflictScore * 0.2 + checkpointScore * 0.15 + incidentScore * 0.1) * 100);
+  const status = openConflicts || blockingIncidents.length
     ? "BLOCKED"
-    : reviewed < scopedRequirements.length || owned < actionable.length
+    : reviewed < scopedRequirements.length || owned < actionable.length || openIncidents.length
       ? "NEEDS_REVIEW"
       : checks === state.checkpoints.length
         ? "SHOW_READY"
         : "ADVANCE_READY";
-  return { score, status, confirmed_requirements: reviewed, total_requirements: scopedRequirements.length, open_conflicts: openConflicts, completed_checkpoints: checks, total_checkpoints: state.checkpoints.length };
+  return {
+    score,
+    status,
+    confirmed_requirements: reviewed,
+    total_requirements: scopedRequirements.length,
+    open_conflicts: openConflicts,
+    open_incidents: openIncidents.length,
+    blocking_incidents: blockingIncidents.length,
+    completed_checkpoints: checks,
+    total_checkpoints: state.checkpoints.length,
+  };
 }
 
 export function departmentSummary(input: WorkspaceState | ProductionState) {
@@ -250,8 +344,11 @@ export function departmentSummary(input: WorkspaceState | ProductionState) {
   return [...new Set(state.requirements.map((item) => item.department))].sort().map((department) => {
     const scoped = state.requirements.filter((item) => item.department === department);
     const open = state.conflicts.filter((item) => item.department === department && item.status !== "RESOLVED").length;
+    const openIncidents = state.incidents.filter((item) => item.department === department && !String(item.resolution || "").trim());
+    const blockingIncidents = openIncidents.filter((item) => ["HIGH", "CRITICAL"].includes(String(item.severity || "").toUpperCase()));
     const ready = scoped.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
-    return { department, total: scoped.length, ready, open_conflicts: open, status: open ? "BLOCKED" : ready === scoped.length ? "READY" : "NEEDS_REVIEW" };
+    const status = open || blockingIncidents.length ? "BLOCKED" : ready === scoped.length && !openIncidents.length ? "READY" : "NEEDS_REVIEW";
+    return { department, total: scoped.length, ready, open_conflicts: open, open_incidents: openIncidents.length, status };
   });
 }
 
