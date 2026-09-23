@@ -8,7 +8,12 @@ import os
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from deerflow.rigor import RigorAnalysisError, RigorDocumentAnalyzer
+from deerflow.rigor import (
+    RigorAnalysisError,
+    RigorCompanyOperator,
+    RigorCompanyPulseError,
+    RigorDocumentAnalyzer,
+)
 
 app = FastAPI(
     title="RIGOR DeerFlow Intelligence",
@@ -21,6 +26,15 @@ app = FastAPI(
 class AnalyzeDocumentRequest(BaseModel):
     document_name: str = Field(min_length=1, max_length=255)
     pages: list[str] = Field(min_length=1, max_length=120)
+
+
+class CompanyPulseRequest(BaseModel):
+    objective: str = Field(
+        default="Review current RIGOR company state and identify the highest-leverage next actions.",
+        min_length=1,
+        max_length=4000,
+    )
+    context: str | None = Field(default=None, max_length=30000)
 
 
 def _authorize(token: str | None) -> None:
@@ -37,7 +51,11 @@ def _authorize(token: str | None) -> None:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "healthy", "service": "rigor-deerflow-intelligence"}
+    return {
+        "status": "healthy",
+        "service": "rigor-deerflow-intelligence",
+        "company_team": "v1",
+    }
 
 
 @app.post("/api/rigor/analyze")
@@ -60,5 +78,22 @@ async def analyze_document(
             pages=body.pages,
         )
     except RigorAnalysisError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return result.model_dump()
+
+
+
+@app.post("/api/rigor/company/pulse")
+async def run_company_pulse(
+    body: CompanyPulseRequest,
+    x_rigor_service_token: str | None = Header(default=None),
+):
+    _authorize(x_rigor_service_token)
+    try:
+        result = await RigorCompanyOperator().run(
+            objective=body.objective,
+            context=body.context,
+        )
+    except RigorCompanyPulseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return result.model_dump()
