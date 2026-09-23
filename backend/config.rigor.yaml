@@ -14,3 +14,22 @@ models:
 sandbox:
   use: deerflow.sandbox.local:LocalSandboxProvider
   allow_host_bash: false
+
+
+tools:
+  - name: web_search
+    group: web
+    use: deerflow.community.ddg_search.tools:web_search_tool
+    max_results: 5
+  - name: web_fetch
+    group: web
+    use: deerflow.community.jina_ai.tools:web_fetch_tool
+    timeout: 10
+
+subagents:
+  max_total_per_run: 6
+  timeout_seconds: 1800
+
+skills:
+  path: /app/skills
+  container_path: /mnt/skills
