@@ -275,10 +275,10 @@ export function snapshot(state: WorkspaceState) {
     readiness: currentReadiness,
     departments: departmentSummary(active),
     intelligence: {
-      mode: "STRUCTURED_EXTRACTION_V1",
+      mode: "DEERFLOW",
       seeded: false,
       source_of_truth: "UPLOADED_DOCUMENTS",
-      deerflow_bridge: (typeof Netlify !== "undefined" && Netlify.env.get("RIGOR_DEERFLOW_URL")) ? "CONFIGURED" : "PENDING_SERVICE_CONNECTION",
+      deerflow_bridge: (typeof Netlify !== "undefined" && Netlify.env.get("RIGOR_DEERFLOW_URL") && Netlify.env.get("RIGOR_DEERFLOW_TOKEN")) ? "CONFIGURED" : "PENDING_SERVICE_CONNECTION",
     },
   };
 }
