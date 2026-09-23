@@ -6,6 +6,12 @@ from .company import (
     RigorCompanyRecordNotFoundError,
     RigorCompanyStateSnapshot,
 )
+from .company_operator import (
+    CompanyStateUpdate,
+    RigorCompanyOperator,
+    RigorCompanyPulseError,
+    RigorCompanyPulseResult,
+)
 from .company_schemas import CompanyPriority, CompanyRecordStatus, CompanyRecordType
 from .manager import (
     RigorConflictError,
@@ -27,6 +33,7 @@ __all__ = [
     "RigorAnalysisResult",
     "RigorDocumentAnalyzer",
     "CompanyPriority",
+    "CompanyStateUpdate",
     "CompanyRecordStatus",
     "CompanyRecordType",
     "DocumentProcessingStatus",
@@ -34,6 +41,9 @@ __all__ = [
     "RequirementOriginType",
     "RequirementStatus",
     "RigorCompanyManager",
+    "RigorCompanyOperator",
+    "RigorCompanyPulseError",
+    "RigorCompanyPulseResult",
     "RigorCompanyRecordNotFoundError",
     "RigorCompanyStateSnapshot",
     "RigorConflictError",
