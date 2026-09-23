@@ -8,10 +8,12 @@ on:
       - "rigor_beta/**"
       - "backend/app/gateway/routers/rigor.py"
       - "backend/packages/harness/deerflow/rigor/**"
+      - "backend/packages/harness/deerflow/persistence/rigor/**"
+      - "backend/packages/harness/deerflow/persistence/models/__init__.py"
+      - "backend/packages/harness/deerflow/persistence/migrations/versions/*rigor*.py"
       - "backend/packages/harness/deerflow/subagents/builtins/rigor_company.py"
       - "backend/packages/harness/deerflow/subagents/builtins/__init__.py"
       - "backend/tests/test_rigor_*.py"
-      - "skills/public/rigor-company-operator/**"
       - "skills/public/rigor-company-operator/**"
       - ".github/workflows/rigor-beta-ci.yml"
   pull_request:
@@ -22,6 +24,7 @@ on:
       - "backend/packages/harness/deerflow/subagents/builtins/rigor_company.py"
       - "backend/packages/harness/deerflow/subagents/builtins/__init__.py"
       - "backend/tests/test_rigor_*.py"
+      - "skills/public/rigor-company-operator/**"
 
 jobs:
   rigor-beta:
