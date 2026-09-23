@@ -65,8 +65,20 @@ export async function reportPdf(state: ProductionState, department: string | nul
     }
     if (current) draw(current);
   };
-  const heading = (title: string) => { y -= 8; line(title, 12, true, 0, teal); y -= 3; };
+  const height = (value: unknown, size: number, font: PDFFont, indent = 0) => {
+    const limit = 528 - indent;
+    let rows = 1; let current = "";
+    for (const word of safe(value).split(/\s+/)) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (font.widthOfTextAtSize(candidate, size) > limit && current) { rows++; current = word; }
+      else current = candidate;
+    }
+    return rows * (size + 5);
+  };
+  const heading = (title: string) => { if (y < 96) nextPage(); y -= 8; line(title, 12, true, 0, teal); y -= 3; };
   const item = (title: string, detail: string, evidence?: string) => {
+    const required = height(title, 9, bold) + height(detail, 8, regular, 12) + (evidence ? height(evidence, 7.5, regular, 12) : 0) + 4;
+    if (y - required < 53) nextPage();
     line(title, 9, true);
     line(detail, 8, false, 12);
     if (evidence) line(evidence, 7.5, false, 12, muted);
@@ -113,6 +125,8 @@ export async function reportPdf(state: ProductionState, department: string | nul
   for (const i of incidents) item(`${i.department}: ${i.summary} [${i.severity}]`,
     `Resolution / handoff: ${i.resolution || "Open - no resolution recorded"}.`, `Logged ${i.created_at || "time unknown"}`);
 
+  // Keep a short chronology together; longer histories paginate normally.
+  if (events.length <= 45 && y - (events.length * 13 + 40) < 53) nextPage();
   heading("Recorded action chronology");
   if (!events.length) line("No scoped actions recorded.", 9);
   for (const e of events) {
@@ -120,7 +134,6 @@ export async function reportPdf(state: ProductionState, department: string | nul
     const target = payload.department || payload.document || payload.requirement_id || payload.conflict_id || payload.checkpoint_id || "";
     line(`${e.created_at || "Time unknown"} / ${e.type} / ${target}`, 8);
   }
-  line("This report reflects recorded decisions. Automated extraction candidates require human review; recorded actions are not proof of autonomous execution.", 7.5, false, 0, muted);
   pdf.getPages().forEach((p, index) => p.drawText(`RIGOR / ${department || "Master"} / ${index + 1} of ${pdf.getPageCount()}`, { x: 42, y: 28, size: 7, font: regular, color: muted }));
   return pdf.save({ useObjectStreams: false });
 }
