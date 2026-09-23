@@ -1,6 +1,12 @@
 """RIGOR application service."""
 
 from .analyzer import AnalyzedRequirement, RigorAnalysisError, RigorAnalysisResult, RigorDocumentAnalyzer
+from .company import (
+    RigorCompanyManager,
+    RigorCompanyRecordNotFoundError,
+    RigorCompanyStateSnapshot,
+)
+from .company_schemas import CompanyPriority, CompanyRecordStatus, CompanyRecordType
 from .manager import (
     RigorConflictError,
     RigorManager,
@@ -20,10 +26,16 @@ __all__ = [
     "RigorAnalysisError",
     "RigorAnalysisResult",
     "RigorDocumentAnalyzer",
+    "CompanyPriority",
+    "CompanyRecordStatus",
+    "CompanyRecordType",
     "DocumentProcessingStatus",
     "DocumentType",
     "RequirementOriginType",
     "RequirementStatus",
+    "RigorCompanyManager",
+    "RigorCompanyRecordNotFoundError",
+    "RigorCompanyStateSnapshot",
     "RigorConflictError",
     "RigorManager",
     "RigorNotFoundError",
