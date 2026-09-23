@@ -38,4 +38,17 @@ jobs:
           printf '%s\n' 'Venue must provide 200A show power service at stage right.' 'Tour requires 400A show power service at stage right.' > /tmp/rigor-smoke.txt
           curl -fsS --max-time 120 -b /tmp/rigor-cookies.txt -X POST "https://rigor-beta.netlify.app/api/documents" -F "file=@/tmp/rigor-smoke.txt;type=text/plain" > /tmp/upload.json
           cat /tmp/upload.json
-          python -c 'import json; p=json.load(open("/tmp/upload.json", encoding="utf-8")); r=p.get("result", {}); print("\nParsed result:", json.dumps(r, indent=2)); assert r.get("analysis_engine") == "DEERFLOW", f"Expected DEERFLOW, got {r.get(\"analysis_engine\")!r}"; assert int(r.get("requirements_added", 0)) >= 1, "No requirements returned"; print("RIGOR -> DeerFlow bridge: PASS")'
+          python - <<'PY'
+          import json
+          with open("/tmp/upload.json", encoding="utf-8") as fh:
+              payload = json.load(fh)
+          result = payload.get("result", {})
+          print("\nParsed result:")
+          print(json.dumps(result, indent=2))
+          engine = result.get("analysis_engine")
+          if engine != "DEERFLOW":
+              raise SystemExit("Expected DEERFLOW analysis engine; got %r" % (engine,))
+          if int(result.get("requirements_added", 0)) < 1:
+              raise SystemExit("DeerFlow returned no production requirements")
+          print("RIGOR -> DeerFlow bridge: PASS")
+          PY
