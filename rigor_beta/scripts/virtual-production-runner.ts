@@ -99,15 +99,21 @@ for (const cp of production.checkpoints) {
   if (cp.department === "Video") {
     production.incidents.push({
       incident_id:newId("incident"), production_id:production.production.production_id,
-      workspace_id:production.production.workspace_id, department:"Video", severity:"MEDIUM",
+      workspace_id:production.production.workspace_id, department:"Video", severity:"HIGH",
       summary:"Fiber path B failed continuity during FOH-to-stage verification.",
-      resolution:"Rerouted path B to spare tactical fiber. Continuity passed on retest; 11-minute impact with no doors delay.",
-      created_at:now()
+      resolution:null, resolved_at:null, created_at:now()
     });
-    evt("INCIDENT_LOGGED",{department:"Video",severity:"MEDIUM",resolved:true});
+    evt("INCIDENT_LOGGED",{department:"Video",severity:"HIGH",resolved:false});
   }
 }
 
+const incidentGateReadiness = readiness(production);
+const incidentToClose = production.incidents.find(i => !i.resolution);
+if (incidentToClose) {
+  incidentToClose.resolution = "Rerouted path B to spare tactical fiber. Continuity passed on retest; 11-minute impact with no doors delay.";
+  incidentToClose.resolved_at = now();
+  evt("INCIDENT_RESOLVED",{incident_id:incidentToClose.incident_id,department:incidentToClose.department,severity:incidentToClose.severity});
+}
 const finalProgress = progress(production);
 const finalReadiness = readiness(production);
 production.show.status = finalReadiness.status;
@@ -119,10 +125,10 @@ const unexpected = [...detectedSet].filter(x=>!planted.has(x));
 const findings = [
   {severity:missed.length?"CRITICAL":"PASS",finding:missed.length?"Missed expected conflicts: "+missed.join(", "):"All four intentionally planted cross-document conflicts were detected."},
   {severity:unexpected.length?"REVIEW":"PASS",finding:unexpected.length?"Additional conflicts detected: "+unexpected.join(", "):"No unintended conflict categories were generated."},
-  {severity:"PRODUCT_GAP",finding:"Session 1 can complete after six reviews even when more requirements remain. Production gate should require all decision-relevant items or explicit defer/waiver."},
-  {severity:"PRODUCT_GAP",finding:"Resolved show-day incidents do not affect readiness. Incident severity and closure should feed the readiness model."},
-  {severity:"PRODUCT_GAP",finding:"Current live PDF omits checkpoints, incidents, decision chronology, assumptions, and AI actions; Master Advance Report should include them."}
-];
+  {severity:progress(production).sessions["1"].complete?"PASS":"CRITICAL",finding:progress(production).sessions["1"].complete?"Every extracted requirement was reviewed before preproduction intake completed.":"Preproduction intake completed incorrectly with unresolved requirements."},
+  {severity:incidentGateReadiness.status==="BLOCKED"?"PASS":"CRITICAL",finding:incidentGateReadiness.status==="BLOCKED"?"An unresolved HIGH show-day incident blocked SHOW READY as required.":"High incident failed to block readiness."},
+  {severity:finalReadiness.status==="SHOW_READY"?"PASS":"CRITICAL",finding:finalReadiness.status==="SHOW_READY"?"Resolving the field incident restored SHOW READY after all checkpoints and advance decisions were complete.":"Show did not return to SHOW READY after incident resolution."}
+]
 
 const report = {
   run:{run_id:newId("virtual_run"),generated_at:now(),ai_employee:{name:"RIGOR OPS-1",role:"Autonomous Production Advance Coordinator"},engine:"STRUCTURED_EXTRACTION_V1"},
@@ -133,7 +139,7 @@ const report = {
     conflicts_resolved:production.conflicts.filter(c=>c.status==="RESOLVED").length,
     checkpoints_completed:production.checkpoints.filter(c=>c.status==="COMPLETE").length,
     incidents_logged:production.incidents.length,
-    pre_show_readiness:preShow, final_readiness:finalReadiness, workflow_progress:finalProgress
+    pre_show_readiness:preShow, incident_gate_readiness:incidentGateReadiness, final_readiness:finalReadiness, workflow_progress:finalProgress
   },
   departments, conflicts:production.conflicts, requirements:production.requirements,
   checkpoints:production.checkpoints, incidents:production.incidents, findings,
@@ -151,7 +157,8 @@ const md: string[] = [
   "- Requirements: **"+production.requirements.length+" extracted / "+finalReadiness.confirmed_requirements+" confirmed**",
   "- Conflicts: **"+detectedBefore.length+" detected / "+production.conflicts.filter(c=>c.status==="RESOLVED").length+" resolved**",
   "- Checkpoints: **"+production.checkpoints.filter(c=>c.status==="COMPLETE").length+"/"+production.checkpoints.length+" complete**",
-  "- Incidents: **"+production.incidents.length+" logged / "+production.incidents.filter(i=>i.resolution).length+" resolved**","",
+  "- Incidents: **"+production.incidents.length+" logged / "+production.incidents.filter(i=>i.resolution).length+" resolved**",
+  "- Incident gate test: **"+incidentGateReadiness.status+" while HIGH incident was open**","",
   "## Conflict decisions",""
 ];
 for (const c of production.conflicts) {
