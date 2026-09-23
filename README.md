@@ -988,3 +988,10 @@ Your unwavering commitment and expertise have been the driving force behind Deer
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=bytedance/deer-flow&type=Date)](https://star-history.com/#bytedance/deer-flow&Date)
+
+
+## RIGOR AI Company Team
+
+This fork includes a bounded RIGOR operating team built on DeerFlow's native subagent system. The lead agent can delegate to specialized Chief of Staff, Product/Production Intelligence, Engineering, QA/Security, Market Intelligence, and Partnerships/Capital agents. These agents are designed for internal research, analysis, implementation, and release validation; external commitments, spending, credential changes, and production promotion remain human-approved actions.
+
+See [docs/rigor-ai-company-team.md](docs/rigor-ai-company-team.md) for the operating model and approval boundary.
