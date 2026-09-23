@@ -127,6 +127,8 @@ Rule of thumb: **root `make` = the full application**; **`backend/Makefile` and 
 
 These apply repo-wide; module guides own the module-specific detail.
 
+The standalone RIGOR evaluator lives in `rigor_beta/`. Its Netlify API delegates PDF generation to `netlify/functions/_shared/report.ts`; Master and department reports use the same production state, with department-scoped records. The static UI uses same-origin report links so the browser carries its RIGOR session cookie into the PDF request.
+
 - **Documentation update policy** — keep docs in sync with code: update `README.md` for
   user-facing changes and the relevant `AGENTS.md` for development/architecture changes in
   the same change set.

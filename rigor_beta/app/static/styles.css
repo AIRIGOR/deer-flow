@@ -179,6 +179,7 @@ h3 { font-size: 16px; }
 .btn { min-height: 39px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 13px; background: #172028; color: var(--text); cursor: pointer; text-decoration: none; font-weight: 750; font-size: 13px; }
 .btn:hover:not(:disabled) { border-color: #526672; background: #1c2830; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 .btn.primary { border-color: rgba(77, 225, 157, 0.65); background: var(--green); color: #07110c; }
 .btn.primary:hover:not(:disabled) { background: #67e9ad; }
 .btn.danger { border-color: rgba(255, 108, 108, 0.35); color: #ff9b9b; background: var(--red-dim); }
@@ -250,6 +251,7 @@ textarea { min-height: 86px; resize: vertical; }
 .callout.warning { border-left-color: var(--amber); background: var(--amber-dim); }
 .callout.danger { border-left-color: var(--red); background: var(--red-dim); }
 .report-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.report-actions .btn, .report-actions select { min-height: 44px; }
 
 .feedback { margin-top: 18px; }
 .feedback-form { display: grid; grid-template-columns: 130px 130px minmax(0, 1fr) auto; gap: 10px; align-items: end; }
