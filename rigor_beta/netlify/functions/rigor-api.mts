@@ -3,11 +3,13 @@ import { getStore } from "@netlify/blobs";
 import type { Context, Config } from "@netlify/functions";
 import pdfParse from "pdf-parse";
 import { DEPARTMENTS } from "./_shared/seed.js";
-import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, newId, normalizeWorkspace, now, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
+import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, newId, normalizeWorkspace, now, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 import { reportPdf } from "./_shared/report.js";
+import { analyzeWithDeerFlow, deerFlowStatus, DeerFlowUnavailable, type DeerFlowRequirement } from "./_shared/deerflow.js";
 
 const COOKIE = "rigor_beta_session";
 const MAX_UPLOAD = 5 * 1024 * 1024;
+const deerFlowSettings = () => ({ url: Netlify.env.get("RIGOR_DEERFLOW_URL"), token: Netlify.env.get("RIGOR_DEERFLOW_TOKEN") });
 
 function storeFor(context: Context) {
   const name = context.deploy.context === "production" ? "rigor-beta" : "rigor-beta-preview";
@@ -45,44 +47,6 @@ async function save(store: ReturnType<typeof getStore>, state: WorkspaceState) {
 
 async function body(request: Request) {
   try { return await request.json() as Record<string, any>; } catch { throw new Error("Invalid JSON request"); }
-}
-
-type DeerFlowRequirement = {
-  department?: string;
-  category?: string;
-  requirement_text?: string;
-  normalized_value?: string | null;
-  unit?: string | null;
-  source_page?: number | null;
-  source_excerpt?: string;
-  confidence?: number;
-};
-
-async function analyzeWithDeerFlow(documentName: string, pages: string[]) {
-  const baseUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
-  if (!baseUrl) return null;
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const token = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
-  if (token) headers["X-RIGOR-Service-Token"] = token;
-
-  try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/rigor/analyze`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ document_name: documentName, pages }),
-      signal: AbortSignal.timeout(45000),
-    });
-    if (!response.ok) {
-      console.warn("RIGOR DeerFlow analysis failed", response.status, await response.text());
-      return null;
-    }
-    const payload = await response.json() as { requirements?: DeerFlowRequirement[] };
-    return Array.isArray(payload.requirements) ? payload.requirements : null;
-  } catch (error) {
-    console.warn("RIGOR DeerFlow analysis unavailable; using local extraction", error);
-    return null;
-  }
 }
 
 function ingestDeerFlowRequirements(production: ProductionState, documentName: string, items: DeerFlowRequirement[]) {
@@ -132,7 +96,10 @@ export default async (request: Request, context: Context) => {
   try {
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/\.netlify\/functions\/rigor-api/, "") || "/";
-    if (path === "/api/health" && request.method === "GET") return json({ status: "ok", service: "rigor-netlify-beta" });
+    if (path === "/api/health" && request.method === "GET") {
+      const deerflow = await deerFlowStatus(deerFlowSettings());
+      return json({ status: deerflow === "REACHABLE" ? "ok" : "degraded", service: "rigor-netlify-beta", deerflow }, deerflow === "REACHABLE" ? 200 : 503);
+    }
     if (path === "/api/start" && request.method === "POST") {
       const data = await body(request); const displayName = String(data.display_name ?? "").trim(); const role = String(data.role ?? "");
       if (displayName.length < 2 || displayName.length > 60) return fail("Enter a name between 2 and 60 characters");
@@ -206,10 +173,10 @@ export default async (request: Request, context: Context) => {
       const safeName = file.name.replace(/[^A-Za-z0-9._ -]/g, "_").trim().slice(0, 120) || "uploaded-document"; const fileBuffer = await file.arrayBuffer(); const bytes = new Uint8Array(fileBuffer); let pages: string[];
       if (safeName.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") { const parsed = await pdfParse(Buffer.from(bytes)); pages = parsed.text.split(/\f/).filter(Boolean); if (!pages.length) pages = [parsed.text]; }
       else if (safeName.toLowerCase().endsWith(".txt") || file.type === "text/plain") pages = [new TextDecoder().decode(bytes)]; else return fail("Upload a PDF or TXT document");
+      const deerFlowRequirements = await analyzeWithDeerFlow(deerFlowSettings(), safeName, pages);
       const documentId = newId("doc");
       await store.set(`upload/${state.workspace.workspace_id}/${production.production.production_id}/${documentId}`, fileBuffer);
-      const deerFlowRequirements = await analyzeWithDeerFlow(safeName, pages);
-      const analysisEngine = deerFlowRequirements ? "DEERFLOW" : "STRUCTURED_EXTRACTION_V1";
+      const analysisEngine = "DEERFLOW";
       production.documents.push({
         document_id: documentId,
         production_id: production.production.production_id,
@@ -222,9 +189,7 @@ export default async (request: Request, context: Context) => {
         analysis_engine: analysisEngine,
         created_at: now(),
       });
-      const extracted = deerFlowRequirements
-        ? ingestDeerFlowRequirements(production, safeName, deerFlowRequirements)
-        : extractRequirements(production, safeName, pages);
+      const extracted = ingestDeerFlowRequirements(production, safeName, deerFlowRequirements);
       event(production, "DOCUMENT_PROCESSED", { document_id: documentId, requirements: extracted.length, analysis_engine: analysisEngine });
       await save(store, state);
       return json({
@@ -243,7 +208,11 @@ export default async (request: Request, context: Context) => {
       const department = url.searchParams.get("department"); if (department && !(DEPARTMENTS as readonly string[]).includes(department)) return fail("Invalid department"); const bytes = await reportPdf(production, department); const pdfBody = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer; const filename = `RIGOR-${production.show.show_name}-${department || "Master"}-Advance-Report.pdf`.replace(/[^A-Za-z0-9.-]+/g, "-"); return new Response(pdfBody, { headers: { ...commonHeaders("application/pdf"), "Content-Disposition": `attachment; filename=\"${filename}\"` } });
     }
     return fail("Not found", 404);
-  } catch (error) { console.error(error); return fail(error instanceof Error ? error.message : "Unexpected server error", 500); }
+  } catch (error) {
+    if (error instanceof DeerFlowUnavailable) return fail(error.message, error.status);
+    console.error(error);
+    return fail(error instanceof Error ? error.message : "Unexpected server error", 500);
+  }
 };
 
 export const config: Config = {

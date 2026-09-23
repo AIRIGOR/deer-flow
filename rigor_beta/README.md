@@ -18,18 +18,17 @@ Production gates are fail-closed: every extracted requirement must be confirmed 
 - Three independently persisted productions per workspace, with active-show switching and no cross-show progress leakage.
 - Preview and production data use different stores.
 - PDF and TXT ingestion with source provenance.
-- Structured local extraction normalizes comparable production values and detects cross-document contradictions.
-- Optional DeerFlow analysis bridge uses the model-backed `POST /api/rigor/analyze` service when configured.
+- DeerFlow model analysis extracts requirements; local comparison detects cross-document contradictions.
 - Master and department-specific PDF exports share the same underlying state. They include source documents, requirements and excerpts, owners, open actions, conflict decisions, checkpoints, incidents, and the recorded action chronology. Department exports filter each section to the selected department.
 
 ## DeerFlow intelligence bridge
 
-Set these Netlify environment variables when the DeerFlow RIGOR gateway is reachable:
+Set these Netlify environment variables for the DeerFlow RIGOR gateway:
 
 - `RIGOR_DEERFLOW_URL` — base URL of the deployed DeerFlow gateway.
-- `RIGOR_DEERFLOW_TOKEN` — optional bearer token used by the beta service to call the protected RIGOR analysis endpoint.
+- `RIGOR_DEERFLOW_TOKEN` — service token matching the gateway's `RIGOR_SERVICE_TOKEN`.
 
-When `RIGOR_DEERFLOW_URL` is configured, document uploads prefer DeerFlow model analysis. If the service is unavailable or returns a non-success response, the beta falls back to the local structured extractor so the evaluator workflow remains usable.
+Document analysis requires DeerFlow. If either setting is missing, the service is unreachable, or analysis fails, the upload returns a clear error without recording the document as processed. `GET /api/health` checks the gateway's `/health` endpoint and returns `REACHABLE`, `UNAVAILABLE`, or `NOT_CONFIGURED`; reachability does not prove that the model provider is ready. Configure the model credentials on the gateway and test a real document before releasing the bridge.
 
 The DeerFlow endpoint treats uploaded document text as untrusted source material, returns structured production requirements with page provenance and confidence, and does not resolve contradictions on its own.
 
