@@ -13,6 +13,7 @@ def test_rigor_service_health():
     assert response.json() == {
         "status": "healthy",
         "service": "rigor-deerflow-intelligence",
+        "company_team": "v1",
     }
 
 
@@ -43,3 +44,50 @@ def test_rigor_service_rejects_analysis_when_token_not_configured(monkeypatch):
         json={"document_name": "venue.txt", "pages": ["Venue requires 200A power."]},
     )
     assert response.status_code == 503
+
+
+
+def test_rigor_company_pulse_requires_token(monkeypatch):
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+    client = TestClient(rigor_service.app)
+
+    response = client.post(
+        "/api/rigor/company/pulse",
+        json={"objective": "Run the company review."},
+    )
+    assert response.status_code == 401
+
+
+def test_rigor_company_pulse_returns_structured_brief(monkeypatch):
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+
+    class _Pulse:
+        def model_dump(self):
+            return {
+                "current_state": "RIGOR is operating.",
+                "top_priorities": ["A", "B", "C"],
+                "blockers_risks": [],
+                "founder_approvals": [],
+                "next_actions": ["D", "E", "F"],
+                "state_updates": [],
+            }
+
+    class _Operator:
+        async def run(self, *, objective, context=None):
+            assert objective == "Run the company review."
+            assert context == "CI green."
+            return _Pulse()
+
+    monkeypatch.setattr(rigor_service, "RigorCompanyOperator", _Operator)
+    client = TestClient(rigor_service.app)
+    response = client.post(
+        "/api/rigor/company/pulse",
+        headers={"X-RIGOR-Service-Token": "test-secret"},
+        json={
+            "objective": "Run the company review.",
+            "context": "CI green.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["top_priorities"] == ["A", "B", "C"]
