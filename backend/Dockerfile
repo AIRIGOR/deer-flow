@@ -42,8 +42,9 @@ COPY --from=uv-source /uv /uvx /usr/local/bin/
 # Set working directory
 WORKDIR /app
 
-# Copy backend source code
+# Copy backend source code and public agent skills used by embedded RIGOR
 COPY backend ./backend
+COPY skills ./skills
 
 # Install dependencies with cache mount
 # `redis` is always installed because Docker Compose defaults the stream bridge
@@ -106,8 +107,9 @@ COPY --from=uv-source /uv /uvx /usr/local/bin/
 # Set working directory
 WORKDIR /app
 
-# Copy backend with pre-built virtualenv from builder
+# Copy backend with pre-built virtualenv and public agent skills from builder
 COPY --from=builder /app/backend ./backend
+COPY --from=builder /app/skills ./skills
 
 # Expose Gateway API port.
 EXPOSE 8001
