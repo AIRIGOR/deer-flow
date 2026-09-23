@@ -620,3 +620,41 @@ body {
     justify-content: flex-start;
   }
 }
+
+
+/* RIGOR PARTNER DEMO HARDENING */
+.start-actions {
+  display: grid;
+  gap: 9px;
+}
+.start-actions .btn {
+  width: 100%;
+}
+
+.incident-resolution-card {
+  border-color: rgba(255, 189, 89, 0.24);
+}
+.incident-resolution-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.25fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.incident-resolution-form:first-child {
+  border-top: 0;
+}
+.incident-resolution-form input {
+  min-width: 0;
+}
+
+@media (max-width: 880px) {
+  .incident-resolution-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .incident-resolution-form .btn {
+    justify-self: start;
+  }
+}
