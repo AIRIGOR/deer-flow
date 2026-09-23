@@ -1,0 +1,166 @@
+"""DeerFlow-backed operating cycle for the RIGOR AI company team."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import Callable
+from typing import Any
+
+from pydantic import BaseModel, Field, ValidationError
+
+from deerflow.client import DeerFlowClient
+from deerflow.utils.llm_text import (
+    strip_markdown_code_fence,
+    strip_think_blocks,
+)
+
+
+class RigorCompanyPulseError(RuntimeError):
+    """Raised when the AI company operating cycle cannot return a valid brief."""
+
+
+class CompanyStateUpdate(BaseModel):
+    record_type: str = Field(
+        pattern="^(OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY)$"
+    )
+    title: str = Field(min_length=1, max_length=255)
+    summary: str | None = Field(default=None, max_length=4000)
+    status: str = Field(
+        default="OPEN",
+        pattern="^(OPEN|ACTIVE|BLOCKED|NEEDS_APPROVAL|COMPLETE|ARCHIVED)$",
+    )
+    priority: str = Field(
+        default="MEDIUM",
+        pattern="^(CRITICAL|HIGH|MEDIUM|LOW)$",
+    )
+    owner_agent: str | None = Field(default=None, max_length=128)
+    approval_required: bool = False
+    source_ref: str | None = Field(default=None, max_length=2000)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RigorCompanyPulseResult(BaseModel):
+    current_state: str = Field(min_length=1, max_length=8000)
+    top_priorities: list[str] = Field(min_length=1, max_length=3)
+    blockers_risks: list[str] = Field(default_factory=list, max_length=12)
+    founder_approvals: list[str] = Field(default_factory=list, max_length=12)
+    next_actions: list[str] = Field(min_length=1, max_length=3)
+    state_updates: list[CompanyStateUpdate] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+
+ClientFactory = Callable[[], DeerFlowClient]
+
+
+_COMPANY_PROMPT = """Run one complete RIGOR AI company operating cycle.
+
+You MUST use the task tool and the registered RIGOR company subagents.
+
+Operating sequence:
+1. Delegate one focused report to each of these five specialists:
+   - rigor-product-ops
+   - rigor-engineering
+   - rigor-qa-security
+   - rigor-market-intel
+   - rigor-partnerships-capital
+2. The five specialist reports may run in parallel.
+3. After all five return, delegate exactly one synthesis task to
+   rigor-chief-of-staff. Include compact evidence from all five reports.
+4. Do not create a seventh delegation.
+
+Human authority boundary:
+- no spending or financial commitments;
+- no contracts, equity, or binding commercial terms;
+- no external outreach or public statements;
+- no credential rotation/disclosure;
+- no production promotion/deployment;
+- no destructive or irreversible action.
+
+For any such recommendation, put it in founder_approvals instead of acting.
+
+The Chief of Staff synthesis must reconcile conflicting recommendations and
+return ONLY JSON in this exact shape:
+{
+  "current_state": "concise evidence-based company state",
+  "top_priorities": ["priority 1", "priority 2", "priority 3"],
+  "blockers_risks": ["risk or blocker"],
+  "founder_approvals": ["approval needed"],
+  "next_actions": ["action 1", "action 2", "action 3"],
+  "state_updates": [
+    {
+      "record_type": "OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY",
+      "title": "durable state record title",
+      "summary": "what changed and why it matters",
+      "status": "OPEN|ACTIVE|BLOCKED|NEEDS_APPROVAL|COMPLETE|ARCHIVED",
+      "priority": "CRITICAL|HIGH|MEDIUM|LOW",
+      "owner_agent": "registered RIGOR agent name or null",
+      "approval_required": false,
+      "source_ref": "URL, commit, deploy, test, or other evidence reference",
+      "payload": {}
+    }
+  ]
+}
+
+Do not wrap the JSON in Markdown.
+"""
+
+
+def _parse_pulse(text: str) -> RigorCompanyPulseResult:
+    cleaned = strip_markdown_code_fence(strip_think_blocks(text)).strip()
+    try:
+        payload = json.loads(cleaned)
+        return RigorCompanyPulseResult.model_validate(payload)
+    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+        raise RigorCompanyPulseError(
+            "RIGOR company operator returned invalid structured JSON"
+        ) from exc
+
+
+class RigorCompanyOperator:
+    """Run one bounded RIGOR company cycle through DeerFlow subagents."""
+
+    def __init__(
+        self,
+        *,
+        client_factory: ClientFactory | None = None,
+    ) -> None:
+        self._client_factory = client_factory or self._default_client_factory
+
+    @staticmethod
+    def _default_client_factory() -> DeerFlowClient:
+        return DeerFlowClient(
+            subagent_enabled=True,
+            thinking_enabled=False,
+            plan_mode=False,
+            available_skills={"rigor-company-operator"},
+            agent_name="rigor-company-operator",
+            environment="production",
+        )
+
+    async def run(
+        self,
+        *,
+        objective: str,
+        context: str | None = None,
+    ) -> RigorCompanyPulseResult:
+        objective = " ".join(objective.split())[:4000]
+        if not objective:
+            raise ValueError("objective must not be empty")
+        context = (context or "").strip()[:30000]
+        prompt = (
+            f"{_COMPANY_PROMPT}\n\n"
+            f"FOUNDER OBJECTIVE:\n{objective}\n\n"
+            f"CURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
+        )
+        client = self._client_factory()
+        text = await asyncio.to_thread(
+            client.chat,
+            prompt,
+            thread_id="rigor-company-pulse",
+            subagent_enabled=True,
+            recursion_limit=180,
+        )
+        return _parse_pulse(text)
