@@ -1140,3 +1140,27 @@ See `docs/` directory for detailed documentation:
 - [PATH_EXAMPLES.md](docs/PATH_EXAMPLES.md) - Path types and usage
 - [summarization.md](docs/summarization.md) - Context summarization
 - [plan_mode_usage.md](docs/plan_mode_usage.md) - Plan mode with TodoList
+
+
+## RIGOR Company Subagents
+
+RIGOR adds six bounded built-in subagents in
+`packages/harness/deerflow/subagents/builtins/rigor_company.py`:
+
+- `rigor-chief-of-staff`
+- `rigor-product-ops`
+- `rigor-engineering`
+- `rigor-qa-security`
+- `rigor-market-intel`
+- `rigor-partnerships-capital`
+
+They are merged into `BUILTIN_SUBAGENTS`, so the existing registry and `task`
+delegation path expose them without a parallel orchestration stack. Each agent
+has a bounded turn/time budget and disallows recursive `task` delegation.
+Their default toolsets are intentionally internal/research oriented; the
+partnerships/capital role has no shell tool. Human approval is required for
+spending, contracts/equity, outbound commitments, credential changes,
+production promotion, and destructive/irreversible actions.
+
+Tests: `backend/tests/test_rigor_company_subagents.py`.
+Architecture/operating policy: `docs/rigor-ai-company-team.md`.
