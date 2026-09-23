@@ -658,3 +658,84 @@ body {
     justify-self: start;
   }
 }
+
+
+/* RIGOR PARTNER / INVESTOR PRESENTATION LAYER */
+.field-hint {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.partner-brief {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(77, 225, 157, 0.22);
+  border-radius: 12px;
+  background: rgba(77, 225, 157, 0.045);
+}
+
+.partner-brief > p {
+  margin: 0;
+  color: #d9e2e6;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.partner-checks {
+  display: grid;
+  gap: 8px;
+}
+
+.partner-checks > div {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 9px;
+  align-items: start;
+}
+
+.partner-checks > div > span {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(77, 225, 157, 0.32);
+  border-radius: 50%;
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.partner-checks strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.partner-checks small {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.partner-direction {
+  padding-top: 10px;
+  border-top: 1px solid rgba(77, 225, 157, 0.12);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.partner-direction strong {
+  color: #cbd6db;
+}
+
+@media (max-width: 560px) {
+  .partner-brief {
+    padding: 14px;
+  }
+}
