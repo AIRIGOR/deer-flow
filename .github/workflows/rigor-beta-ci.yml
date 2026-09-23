@@ -83,5 +83,7 @@ jobs:
           tests/test_rigor_manager.py
           tests/test_rigor_repository.py
           tests/test_rigor_router.py
+          tests/test_rigor_service.py
           tests/test_rigor_company_subagents.py
+          tests/test_rigor_company_operator.py
           tests/test_rigor_company_state.py
