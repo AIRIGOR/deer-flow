@@ -1,0 +1,77 @@
+name: RIGOR Preview Smoke
+
+on:
+  push:
+    branches:
+      - feat/rigor-netlify-beta-v1
+    paths:
+      - ".github/workflows/rigor-preview-smoke.yml"
+  workflow_dispatch: {}
+
+jobs:
+  preview-smoke:
+    runs-on: ubuntu-latest
+    env:
+      RIGOR_URL: https://rigor-flow-preview.netlify.app
+    steps:
+      - name: Verify hardened preview health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 "$RIGOR_URL/api/health" > /tmp/health.json
+          cat /tmp/health.json
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/health.json", encoding="utf-8"))
+          assert data.get("status") == "ok", data
+          assert data.get("service") == "rigor", data
+          assert data.get("version") == "partner-demo-v1", data
+          assert data.get("deerflow", {}).get("configured") is True, data
+          print("Hardened preview health: PASS")
+          PY
+
+      - name: Verify guided Partner / Investor sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -c /tmp/sample-cookies.txt             -X POST "$RIGOR_URL/api/start"             -H "Content-Type: application/json"             --data '{"display_name":"Preview Investor Smoke","role":"Partner / Investor","sample_demo":true}'             > /tmp/sample.json
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/sample.json", encoding="utf-8"))
+          assert data["production"].get("sample_demo") is True
+          assert "SAMPLE" in data["show"]["show_name"]
+          assert data["documents"] and all(d.get("source_kind") == "SAMPLE" for d in data["documents"])
+          requirements=data["requirements"]
+          open_items=[r for r in requirements if r.get("status") not in {"CONFIRMED","REJECTED","RESOLVED"}]
+          assert len(requirements) == 18, len(requirements)
+          assert len(open_items) == 6, len(open_items)
+          assert len(data["conflicts"]) >= 4, len(data["conflicts"])
+          print("Guided sample: PASS")
+          print("Requirements:", len(requirements), "Open decisions:", len(open_items), "Conflicts:", len(data["conflicts"]))
+          PY
+
+      - name: Verify preview DeerFlow extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 -c /tmp/live-cookies.txt             -X POST "$RIGOR_URL/api/start"             -H "Content-Type: application/json"             --data '{"display_name":"Preview DeerFlow Smoke","role":"PM","sample_demo":false}'             > /tmp/start.json
+          printf '%s\n' 'Venue must provide 200A show power service at stage right.' > /tmp/venue.txt
+          curl -fsS --max-time 120 -b /tmp/live-cookies.txt             -X POST "$RIGOR_URL/api/documents"             -F "file=@/tmp/venue.txt;type=text/plain"             > /tmp/upload.json
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/upload.json", encoding="utf-8"))
+          result=data.get("result", {})
+          assert result.get("analysis_engine") == "DEERFLOW", result
+          assert int(result.get("requirements_added", 0)) >= 1, result
+          print("Preview DeerFlow extraction: PASS")
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Verify preview Advance Report PDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 90 -b /tmp/live-cookies.txt             "$RIGOR_URL/api/reports/advance.pdf"             -o /tmp/advance.pdf
+          test "$(head -c 4 /tmp/advance.pdf)" = "%PDF"
+          test "$(wc -c < /tmp/advance.pdf)" -gt 500
+          echo "Preview Advance Report PDF: PASS ($(wc -c < /tmp/advance.pdf) bytes)"
