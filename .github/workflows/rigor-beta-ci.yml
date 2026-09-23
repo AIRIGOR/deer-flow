@@ -11,6 +11,8 @@ on:
       - "backend/packages/harness/deerflow/subagents/builtins/rigor_company.py"
       - "backend/packages/harness/deerflow/subagents/builtins/__init__.py"
       - "backend/tests/test_rigor_*.py"
+      - "skills/public/rigor-company-operator/**"
+      - "skills/public/rigor-company-operator/**"
       - ".github/workflows/rigor-beta-ci.yml"
   pull_request:
     paths:
@@ -79,3 +81,4 @@ jobs:
           tests/test_rigor_repository.py
           tests/test_rigor_router.py
           tests/test_rigor_company_subagents.py
+          tests/test_rigor_company_state.py
