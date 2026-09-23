@@ -94,7 +94,7 @@ function renderStart() {
         <div style="height:42px"></div>
         <div class="eyebrow">Readiness Intelligence for Global Operations &amp; Requirements</div>
         <h1>Know the show before show day.</h1>
-        <p class="lead">Build and run up to three separate productions from raw advance documents to a show-ready operating picture.</p>
+        <p class="lead">Turn fragmented riders, venue packs, confirmations, and schedules into one source of operational truth—from intake to show day.</p>
         <div class="journey">
           <div class="journey-item"><span>1</span><div><strong>Preproduction intake</strong><div class="muted small">Review extracted requirements with page-level source evidence.</div></div></div>
           <div class="journey-item"><span>2</span><div><strong>Technical advance</strong><div class="muted small">Resolve contradictions, assign ownership, and drive department readiness.</div></div></div>
@@ -107,9 +107,9 @@ function renderStart() {
         <p class="muted">Your decisions and progress are saved in this browser.</p>
         <form id="start-form" class="start-form">
           <div class="field"><label for="display-name">Your name</label><input id="display-name" name="display_name" minlength="2" maxlength="60" required autocomplete="name" placeholder="First and last name" /></div>
-          <div class="field"><label for="role">Your production role</label><select id="role" name="role" required><option value="">Select role</option><option>TM</option><option>PM</option><option>Video</option><option>Audio</option><option>Lighting</option><option>Rigging</option><option>Backline</option><option>Other</option></select></div>
-          <button class="btn primary" type="submit">Enter RIGOR →</button>
-          <div class="privacy-note">Each evaluator receives three isolated production slots. Progress is saved automatically for 45 days.</div>
+          <div class="field"><label for="role">Your production role</label><select id="role" name="role" required><option value="">Select role</option><option>TM</option><option>PM</option><option>Video</option><option>Audio</option><option>Lighting</option><option>Rigging</option><option>Backline</option><option>Partner / Investor</option><option>Other</option></select></div>
+          <div class="start-actions"><button class="btn primary" type="submit" data-start-mode="sample">Explore sample production →</button><button class="btn ghost" type="submit" data-start-mode="blank">Start with my documents</button></div>
+          <div class="privacy-note">The guided production is clearly labeled SAMPLE. Your own workspace remains isolated and private to this browser session.</div>
         </form>
       </section>
     </div>
@@ -119,20 +119,32 @@ function renderStart() {
 
 async function startDemo(event) {
   event.preventDefault();
-  const button = event.currentTarget.querySelector("button");
-  button.disabled = true;
-  button.textContent = "Building your show…";
+  const button = event.submitter || event.currentTarget.querySelector("button[type=\"submit\"]");
+  const mode = button?.dataset.startMode || "sample";
+  const originalText = button?.textContent || "Enter RIGOR →";
+  if (button) {
+    button.disabled = true;
+    button.textContent = mode === "sample" ? "Loading sample production…" : "Building your workspace…";
+  }
   try {
-    state = await api("/api/start", { method: "POST", body: JSON.stringify({ display_name: event.currentTarget.display_name.value, role: event.currentTarget.role.value }) });
+    state = await api("/api/start", {
+      method: "POST",
+      body: JSON.stringify({
+        display_name: event.currentTarget.display_name.value,
+        role: event.currentTarget.role.value,
+        sample_demo: mode === "sample",
+      }),
+    });
     selectedSession = 1;
     renderWorkspace();
   } catch (error) {
-    button.disabled = false;
-    button.textContent = "Enter RIGOR →";
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
     showToast(error.message, true);
   }
 }
-
 function renderWorkspace() {
   const r = state.readiness;
   const s = state.show;
@@ -147,7 +159,7 @@ function renderWorkspace() {
         <div class="show-identity"><div class="eyebrow">${escapeHtml(s.artist)} · ${escapeHtml(s.show_date)}</div><h1>${escapeHtml(s.venue)}</h1><p class="lead">${escapeHtml(s.city)} · ${escapeHtml(s.show_name)}</p></div>
         <div class="readiness-card">
           <div><div class="readiness-label">Show readiness</div><div class="readiness-number">${r.score}%</div></div>
-          <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
+          <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} · ${r.open_incidents || 0} open incident${(r.open_incidents || 0) === 1 ? "" : "s"} · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
         </div>
       </div></section>
       <nav class="wrap flow-path" aria-label="RIGOR production path">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
@@ -232,8 +244,15 @@ function renderSessionThree() {
         <div class="card"><h3>Advance Reports</h3><p class="muted small">Master and department reports are generated from the same operational truth, including current ownership, status, conflicts, and source provenance.</p><div class="report-actions"><button id="master-report-button" class="btn primary" type="button">Download Master PDF</button><select id="report-department"><option value="">Choose department</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select><button id="department-report-button" class="btn" type="button" disabled>Download department PDF</button></div></div>
       </div>
     </div>
-    ${state.incidents.length ? `<div class="card" style="margin-top:16px"><h3>Day-of incident log</h3><div class="stack">${state.incidents.map(item => `<div class="incident-row" style="padding:14px"><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.severity)}</div><strong>${escapeHtml(item.summary)}</strong>${item.resolution ? `<div class="muted small">Resolution: ${escapeHtml(item.resolution)}</div>` : ""}</div>`).join("")}</div></div>` : ""}
+    ${state.incidents.length ? `<div class="card" style="margin-top:16px"><h3>Day-of incident log</h3><div class="stack">${state.incidents.map(item => `<div class="incident-row" style="padding:14px"><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.severity)}${badge(item.resolution ? "RESOLVED" : "PENDING")}</div><strong>${escapeHtml(item.summary)}</strong>${item.resolution ? `<div class="muted small">Resolution: ${escapeHtml(item.resolution)}${item.resolved_at ? ` · Closed ${escapeHtml(item.resolved_at)}` : ""}</div>` : `<div class="muted small">Open incident — resolution required before SHOW READY.</div>`}</div>`).join("")}</div></div>` : ""}
+    ${renderIncidentResolutionQueue()}
     ${renderFeedback(3)}`;
+}
+
+function renderIncidentResolutionQueue() {
+  const open = state.incidents.filter(item => !String(item.resolution || "").trim());
+  if (!open.length) return "";
+  return `<div class="card incident-resolution-card" style="margin-top:16px"><div class="eyebrow">Action required</div><h3>Close open incidents</h3><p class="muted small">RIGOR will not mark the show ready until every field incident has an operational resolution.</p><div class="stack">${open.map(item => `<form class="incident-resolution-form" data-incident-resolution="${item.incident_id}"><div><strong>${escapeHtml(item.department)} · ${escapeHtml(item.summary)}</strong><div class="muted small">${escapeHtml(item.severity)} severity</div></div><input name="resolution" required minlength="5" placeholder="Record resolution / handoff" /><button class="btn primary small-button" type="submit">Close incident</button></form>`).join("")}</div></div>`;
 }
 
 function lockedSession(number, message) {
@@ -248,6 +267,7 @@ function bindSessionEvents() {
   document.querySelectorAll("form[data-conflict]").forEach(form => form.addEventListener("submit", resolveConflict));
   document.querySelectorAll("form[data-feedback]").forEach(form => form.addEventListener("submit", saveFeedback));
   document.querySelectorAll("input[data-checkpoint]").forEach(input => input.addEventListener("change", toggleCheckpoint));
+  document.querySelectorAll("form[data-incident-resolution]").forEach(form => form.addEventListener("submit", resolveIncident));
   const upload = document.getElementById("document-upload");
   if (upload) upload.addEventListener("change", uploadDocument);
   const filter = document.getElementById("requirement-filter");
@@ -385,6 +405,24 @@ async function toggleCheckpoint(event) {
     if (!beforeComplete && state.progress.sessions["3"].complete) showToast("All checkpoints complete — show is SHOW READY.");
     renderWorkspace();
   } catch (error) { showToast(error.message, true); }
+}
+
+async function resolveIncident(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  button.disabled = true;
+  try {
+    state = await api(`/api/incidents/${form.dataset.incidentResolution}`, {
+      method: "PATCH",
+      body: JSON.stringify({ resolution: form.resolution.value }),
+    });
+    showToast("Incident closed. Readiness recalculated.");
+    renderWorkspace();
+  } catch (error) {
+    button.disabled = false;
+    showToast(error.message, true);
+  }
 }
 
 async function uploadDocument(event) {
