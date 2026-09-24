@@ -7,6 +7,7 @@ on:
     paths:
       - "rigor_beta/**"
       - "backend/app/gateway/routers/rigor.py"
+      - "backend/app/rigor_service.py"
       - "backend/packages/harness/deerflow/rigor/**"
       - "backend/packages/harness/deerflow/persistence/rigor/**"
       - "backend/packages/harness/deerflow/persistence/models/__init__.py"
@@ -21,6 +22,7 @@ on:
     paths:
       - "rigor_beta/**"
       - "backend/app/gateway/routers/rigor.py"
+      - "backend/app/rigor_service.py"
       - "backend/packages/harness/deerflow/rigor/**"
       - "backend/packages/harness/deerflow/subagents/builtins/rigor_company.py"
       - "backend/packages/harness/deerflow/subagents/builtins/__init__.py"
@@ -89,4 +91,5 @@ jobs:
           tests/test_rigor_service.py
           tests/test_rigor_company_subagents.py
           tests/test_rigor_company_operator.py
+          tests/test_rigor_company_action_executor.py
           tests/test_rigor_company_state.py
