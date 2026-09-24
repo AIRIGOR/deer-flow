@@ -57,24 +57,51 @@ ClientFactory = Callable[[], DeerFlowClient]
 
 _COMPANY_PROMPT = """Run one complete RIGOR AI company operating cycle.
 
+FOUNDER VISION:
+RIGOR is the flagship product inside an increasingly AI-operated company. The
+Founder sets vision and hard boundaries; the AI company should proactively run
+recurring internal business functions, preserve company memory, advance product
+proof, build revenue readiness, and maintain capital readiness without waiting
+for the Founder to coordinate every task.
+
+AVAILABLE SPECIALISTS:
+- rigor-product-ops
+- rigor-engineering
+- rigor-qa-security
+- rigor-market-intel
+- rigor-partnerships-capital
+- rigor-growth-revenue
+- rigor-customer-success
+- rigor-finance-runway
+
 You MUST use the task tool and the registered RIGOR company subagents.
 
 Operating sequence:
-1. Delegate one focused report to each of these five specialists:
-   - rigor-product-ops
-   - rigor-engineering
-   - rigor-qa-security
-   - rigor-market-intel
-   - rigor-partnerships-capital
-2. The five specialist reports may run in parallel.
+1. Select exactly five specialists from the available specialist pool based on
+   the Founder objective, current company context, unresolved durable state,
+   revenue path, capital readiness, and highest-leverage risks.
+2. Delegate one focused report to each selected specialist. The five reports may
+   run in parallel.
 3. After all five return, delegate exactly one synthesis task to
-   rigor-chief-of-staff. Include compact evidence from all five reports.
+   rigor-chief-of-staff. Include compact evidence from all five reports plus any
+   relevant durable state.
 4. Do not create a seventh delegation.
+
+Standing checks, when materially relevant:
+- product proof and real operator value;
+- revenue path and customer conversion evidence;
+- capital readiness and time-sensitive opportunities;
+- moat growth: Production Handshake, change-impact intelligence, operational
+  memory, and proprietary production intelligence;
+- recurring Founder work that can safely move into the AI operating layer;
+- state that must survive into the next cycle.
 
 Human authority boundary:
 - no spending or financial commitments;
-- no contracts, equity, or binding commercial terms;
-- no external outreach or public statements;
+- no accepting investment, grants with binding terms, contracts, equity, SAFEs,
+  notes, or binding commercial/capital terms;
+- no binding external outreach or public statements;
+- no promises of pricing, exclusivity, ownership, equity, or delivery commitments;
 - no credential rotation/disclosure;
 - no production promotion/deployment;
 - no destructive or irreversible action.
@@ -82,7 +109,11 @@ Human authority boundary:
 For any such recommendation, put it in founder_approvals instead of acting.
 
 The Chief of Staff synthesis must reconcile conflicting recommendations and
-return ONLY JSON in this exact shape:
+make clear what the AI company can continue automatically versus what requires
+Founder authority. Include product, revenue-path, customer, and capital-readiness
+facts in the synthesis when material.
+
+Return ONLY JSON in this exact shape:
 {
   "current_state": "concise evidence-based company state",
   "top_priorities": ["priority 1", "priority 2", "priority 3"],
