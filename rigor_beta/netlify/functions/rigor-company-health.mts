@@ -81,6 +81,9 @@ export default async (request: Request, context: Context) => {
         ? records.length
         : Number(latest?.durable_state_records || 0),
       action_queue: actionQueue,
+      corporate_mailbox_configured: Boolean(
+        Netlify.env.get("RIGOR_CORP_FROM_EMAIL")?.trim(),
+      ),
       source: latest?.source || null,
     });
   } catch (error) {
@@ -102,6 +105,9 @@ export default async (request: Request, context: Context) => {
           executing: 0,
           complete: 0,
         },
+        corporate_mailbox_configured: Boolean(
+          Netlify.env.get("RIGOR_CORP_FROM_EMAIL")?.trim(),
+        ),
       },
       503,
     );
