@@ -1,0 +1,158 @@
+name: RIGOR Company Release Gate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  company-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RIGOR_URL: https://rigor-flow-preview.netlify.app
+      DEERFLOW_URL: https://rigor-deerflow.onrender.com
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify company automation package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f rigor_beta/netlify/functions/rigor-company-pulse-background.mts
+          test -f rigor_beta/netlify/functions/rigor-company-schedule.mts
+          test -f rigor_beta/netlify/functions/rigor-company-health.mts
+          echo "Company automation package: PASS"
+
+      - name: Verify Render company team health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 "$DEERFLOW_URL/health" > /tmp/deerflow-health.json
+          cat /tmp/deerflow-health.json
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/deerflow-health.json", encoding="utf-8"))
+          assert data.get("status") == "healthy", data
+          assert data.get("service") == "rigor-deerflow-intelligence", data
+          assert data.get("company_team") == "v1", data
+          print("Render company_team=v1: PASS")
+          PY
+
+      - name: Verify Render company pulse auth boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --output /tmp/company-auth.json             --write-out "%{http_code}"             --max-time 30             --request POST             --header "Content-Type: application/json"             --data '{"objective":"release-gate-auth-boundary"}'             "$DEERFLOW_URL/api/rigor/company/pulse")"
+          cat /tmp/company-auth.json
+          test "$code" = "401"
+          echo "Unauthenticated company pulse=401: PASS"
+
+      - name: Verify isolated preview and company health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 "$RIGOR_URL/api/health" > /tmp/preview-health.json
+          curl -fsS --max-time 60 "$RIGOR_URL/api/company/health" > /tmp/company-health.json
+          cat /tmp/preview-health.json
+          cat /tmp/company-health.json
+          python - <<'PY'
+          import json
+          preview=json.load(open("/tmp/preview-health.json", encoding="utf-8"))
+          company=json.load(open("/tmp/company-health.json", encoding="utf-8"))
+          assert preview.get("status") == "ok", preview
+          assert preview.get("service") == "rigor", preview
+          assert preview.get("deerflow", {}).get("configured") is True, preview
+          assert company.get("status") == "ok", company
+          assert company.get("service") == "rigor-company", company
+          assert company.get("company_automation") == "v1", company
+          print("Isolated preview + company automation health: PASS")
+          PY
+
+      - name: Run first AI-company pulse cycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          before="$(python - <<'PY'
+          import json
+          data=json.load(open("/tmp/company-health.json", encoding="utf-8"))
+          print(data.get("latest_pulse_at") or "")
+          PY
+          )"
+          code="$(curl --silent --show-error --output /tmp/company-trigger-1.txt             --write-out "%{http_code}"             --max-time 30             --request POST             "$RIGOR_URL/.netlify/functions/rigor-company-schedule")"
+          cat /tmp/company-trigger-1.txt || true
+          case "$code" in 200|202|204) ;; *) echo "First company pulse trigger failed: HTTP $code"; exit 1 ;; esac
+
+          for attempt in $(seq 1 60); do
+            curl -fsS --max-time 60 "$RIGOR_URL/api/company/health" > /tmp/company-cycle-1.json
+            current="$(python - <<'PY'
+          import json
+          data=json.load(open("/tmp/company-cycle-1.json", encoding="utf-8"))
+          print(data.get("latest_pulse_at") or "")
+          PY
+          )"
+            if [ -n "$current" ] && [ "$current" != "$before" ]; then
+              cat /tmp/company-cycle-1.json
+              echo "First AI-company pulse cycle: PASS"
+              exit 0
+            fi
+            echo "Attempt $attempt/60: waiting for first company pulse..."
+            sleep 15
+          done
+          echo "First AI-company pulse did not complete within release-gate window."
+          exit 1
+
+      - name: Run second AI-company pulse cycle and prove durable state
+        shell: bash
+        run: |
+          set -euo pipefail
+          first_at="$(python - <<'PY'
+          import json
+          data=json.load(open("/tmp/company-cycle-1.json", encoding="utf-8"))
+          print(data.get("latest_pulse_at") or "")
+          PY
+          )"
+          first_records="$(python - <<'PY'
+          import json
+          data=json.load(open("/tmp/company-cycle-1.json", encoding="utf-8"))
+          print(int(data.get("durable_state_records") or 0))
+          PY
+          )"
+
+          code="$(curl --silent --show-error --output /tmp/company-trigger-2.txt             --write-out "%{http_code}"             --max-time 30             --request POST             "$RIGOR_URL/.netlify/functions/rigor-company-schedule")"
+          cat /tmp/company-trigger-2.txt || true
+          case "$code" in 200|202|204) ;; *) echo "Second company pulse trigger failed: HTTP $code"; exit 1 ;; esac
+
+          for attempt in $(seq 1 60); do
+            curl -fsS --max-time 60 "$RIGOR_URL/api/company/health" > /tmp/company-cycle-2.json
+            second_at="$(python - <<'PY'
+          import json
+          data=json.load(open("/tmp/company-cycle-2.json", encoding="utf-8"))
+          print(data.get("latest_pulse_at") or "")
+          PY
+          )"
+            if [ -n "$second_at" ] && [ "$second_at" != "$first_at" ]; then
+              cat /tmp/company-cycle-2.json
+              python - "$first_records" <<'PY'
+          import json
+          import sys
+          first_records=int(sys.argv[1])
+          data=json.load(open("/tmp/company-cycle-2.json", encoding="utf-8"))
+          second_records=int(data.get("durable_state_records") or 0)
+          assert second_records > 0, data
+          assert second_records >= first_records, (first_records, second_records, data)
+          assert data.get("source") == "RIGOR_AI_COMPANY_V1", data
+          print(f"Second AI-company pulse: PASS; durable state {first_records} -> {second_records}")
+          PY
+              exit 0
+            fi
+            echo "Attempt $attempt/60: waiting for second company pulse..."
+            sleep 15
+          done
+          echo "Second AI-company pulse did not complete within release-gate window."
+          exit 1
+
+      - name: Release gate result
+        run: |
+          echo "RIGOR AI-company release gate: PASS"
+          echo "Two live pulse cycles completed, security boundary held, and durable company state survived the second run."
