@@ -5,6 +5,18 @@ type LatestPulse = {
   generated_at?: string;
   source?: string;
   durable_state_records?: number;
+  action_queue?: {
+    total?: number;
+    approved?: number;
+    needs_founder_approval?: number;
+    executing?: number;
+    complete?: number;
+  };
+};
+
+type ActionQueueRecord = {
+  status?: string;
+  approval_required?: boolean;
 };
 
 function companyStore(context: Context) {
@@ -32,21 +44,43 @@ export default async (request: Request, context: Context) => {
 
   try {
     const store = companyStore(context);
-    const [latest, records] = await Promise.all([
+    const [latest, records, actions] = await Promise.all([
       store.get("pulse/latest", { type: "json" }) as Promise<LatestPulse | null>,
       store.get("state/records", { type: "json" }) as Promise<unknown[] | null>,
+      store.get("actions/queue", { type: "json" }) as Promise<
+        ActionQueueRecord[] | null
+      >,
     ]);
+
+    const queue = Array.isArray(actions) ? actions : [];
+    const actionQueue = {
+      total: queue.length || Number(latest?.action_queue?.total || 0),
+      approved:
+        queue.filter((item) => item.status === "APPROVED").length ||
+        Number(latest?.action_queue?.approved || 0),
+      needs_founder_approval:
+        queue.filter((item) => item.status === "NEEDS_APPROVAL").length ||
+        Number(latest?.action_queue?.needs_founder_approval || 0),
+      executing:
+        queue.filter((item) => item.status === "EXECUTING").length ||
+        Number(latest?.action_queue?.executing || 0),
+      complete:
+        queue.filter((item) => item.status === "COMPLETE").length ||
+        Number(latest?.action_queue?.complete || 0),
+    };
 
     return json({
       status: "ok",
       service: "rigor-company",
       version: "v1",
       company_automation: "v1",
+      action_layer: "v1",
       has_latest_pulse: Boolean(latest?.generated_at),
       latest_pulse_at: latest?.generated_at || null,
       durable_state_records: Array.isArray(records)
         ? records.length
         : Number(latest?.durable_state_records || 0),
+      action_queue: actionQueue,
       source: latest?.source || null,
     });
   } catch (error) {
@@ -57,9 +91,17 @@ export default async (request: Request, context: Context) => {
         service: "rigor-company",
         version: "v1",
         company_automation: "v1",
+        action_layer: "v1",
         has_latest_pulse: false,
         latest_pulse_at: null,
         durable_state_records: 0,
+        action_queue: {
+          total: 0,
+          approved: 0,
+          needs_founder_approval: 0,
+          executing: 0,
+          complete: 0,
+        },
       },
       503,
     );
