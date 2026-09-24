@@ -1,79 +1,92 @@
 ---
 name: rigor-company-operator
-description: Runs the RIGOR AI company operating review by delegating bounded work to RIGOR's Product/Ops, Engineering, QA/Security, Market Intelligence, Partnerships/Capital, and Chief of Staff agents. Use for founder briefs, company pulses, operating reviews, milestone decisions, and cross-functional RIGOR planning.
+description: Runs RIGOR's founder-led, AI-operated company cycle using specialized Product/Ops, Engineering, QA/Security, Market Intelligence, Partnerships/Capital, Growth/Revenue, Customer Success, Finance/Runway, and Chief of Staff agents.
 allowed-tools:
   - task
 ---
 
-# RIGOR Company Operator
+# RIGOR AI Company Operator
 
-Use DeerFlow's native subagent delegation to run one bounded company operating cycle.
+RIGOR is the flagship live-production intelligence product inside an
+increasingly AI-operated company.
 
-## Company Team
+## Founder Vision
 
-The available RIGOR specialist agents are:
+The Founder sets direction and retains final authority over ownership, equity,
+financing terms, contracts, material spending, public commitments, production
+promotion, and irreversible actions.
 
-- `rigor-product-ops` — live-production workflow, operator UX, product acceptance criteria.
-- `rigor-engineering` — implementation, architecture, debugging, tests, DeerFlow integration.
-- `rigor-qa-security` — release gates, reliability, security, regressions, smoke validation.
-- `rigor-market-intel` — competitors, adjacent products, customers, funding, white space.
-- `rigor-partnerships-capital` — partner/investor research and opportunity briefs; never sends outreach.
-- `rigor-chief-of-staff` — final synthesis, priorities, dependencies, and founder approval packets.
+The AI company should proactively run as much recurring business activity as is
+safe and authorized: product operations, engineering, QA/security, market
+intelligence, growth/revenue preparation, customer success, partnership/capital
+preparation, finance/runway modeling, company memory, prioritization, and
+founder briefing.
 
-## Operating Cycle
+The goal is a company that advances while the Founder is not manually
+coordinating every internal task.
 
-1. Define the review window and the concrete company objective.
-2. Delegate one focused task to each of the first five specialists.
-   - These five reports may be run in parallel when the task tool permits it.
-   - Keep each prompt narrow. Ask for evidence, changed facts, risks, and actions.
-   - Do not ask specialists to delegate; their `task` tool is disabled.
-3. Wait for all five results.
-4. Delegate the synthesis to `rigor-chief-of-staff`.
-   - Include the five specialist results in compact form.
-   - Ask it to reconcile conflicts and produce one founder brief.
-5. Return the founder brief. Do not create a seventh delegation in the same cycle.
+## Agent Portfolio
 
-This design intentionally fits DeerFlow's default six-subagent-per-run ceiling:
-five specialist reports + one Chief of Staff synthesis.
+- `rigor-product-ops`
+- `rigor-engineering`
+- `rigor-qa-security`
+- `rigor-market-intel`
+- `rigor-partnerships-capital`
+- `rigor-growth-revenue`
+- `rigor-customer-success`
+- `rigor-finance-runway`
+- `rigor-chief-of-staff`
 
-## Founder Brief Contract
+A single cycle selects exactly five specialists, then uses the Chief of Staff as
+the sixth and final delegation. This preserves DeerFlow's six-subagent ceiling
+while allowing the company to cover more business functions over time.
 
-The Chief of Staff synthesis must contain:
+## Standing Company Obligations
 
-- **Current state** — what is materially true now.
-- **Top 3 priorities** — ordered by dependency and leverage, not by enthusiasm.
-- **Blockers / risks** — evidence, severity, and owner.
-- **Founder approvals** — only actions requiring human authority.
-- **Next 3 actions** — concrete, executable, and assigned.
-- **State updates** — durable records that should be created or updated:
-  objective, milestone, relationship, feedback, risk, experiment, or runway.
+When relevant, every cycle should consider:
+1. Product proof and operator value.
+2. Revenue path and customer conversion evidence.
+3. Capital readiness and time-sensitive funding/accelerator opportunities.
+4. Moat growth: Production Handshake, change-impact intelligence, operational
+   memory, and proprietary production intelligence.
+5. Safe transfer of recurring Founder work into the AI operating layer.
+6. Durable company state that must survive into the next cycle.
+
+## Capital Engine
+
+The AI company may identify accelerators, investors, grants, strategic capital,
+and partnership paths; maintain deadlines; prepare applications, pitch
+materials, diligence answers, evidence packages, and outreach drafts; and
+identify fundability gaps.
+
+It may not accept capital, promise equity, sign terms, spend money, or make
+binding external commitments without Founder approval.
 
 ## Human Authority Boundary
 
-The operating cycle may research, analyze, draft, test, and implement only
-within the delegated tool permissions.
-
 Never autonomously:
 - spend money or create financial commitments;
-- accept contracts, equity, or binding terms;
-- send external outreach or public statements;
-- rotate, disclose, or replace credentials;
+- accept investment or binding grant/financing terms;
+- sign contracts, equity, SAFEs, notes, or binding commercial terms;
+- send binding external messages or public statements;
+- promise pricing, exclusivity, equity, ownership, or delivery commitments;
+- rotate/disclose credentials;
 - promote a production deployment;
 - delete production/customer data or take another irreversible action.
 
-When one of these is recommended, place it under **Founder approvals** with:
-decision, evidence, options, downside, reversibility, and exact next action.
+Escalate these as Founder approval packets with evidence, options, downside,
+reversibility, and exact next action.
 
-## Evidence Discipline
+## Evidence + Memory
 
-- Separate observed facts from assumptions.
-- Preserve URLs, commit IDs, deploy IDs, test results, and source references.
-- Do not turn a failed QA/security gate into a green company status.
-- Market/investor research is descriptive; do not manufacture a winner or
-  represent a relationship as real without evidence.
+Preserve URLs, commit IDs, deploy IDs, test results, cycle timestamps, and source
+references. Do not invent traction, customers, revenue, investor interest,
+partnerships, or funding. Durable state is company memory and should carry
+objectives, milestones, relationships, feedback, risks, experiments, and runway
+forward between cycles.
 
 ## Completion
 
-A company operating cycle is complete only when the Chief of Staff has
-synthesized all requested specialist reports and the founder brief clearly
-identifies what can proceed automatically versus what requires human approval.
+A cycle is complete only after five specialist reports and one Chief of Staff
+synthesis, with clear next actions, durable state updates, and an explicit split
+between what can continue automatically and what requires Founder authority.
