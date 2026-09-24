@@ -184,6 +184,14 @@ async function buildCompanyContext(
     preview_health: previewHealth,
     deerflow_health: deerflowHealth,
     netlify_deploy_id: contextDeployId(request),
+    corporate_mailbox: (() => {
+      const address = Netlify.env.get("RIGOR_CORP_FROM_EMAIL")?.trim() || "";
+      return {
+        configured: Boolean(address),
+        address: address || null,
+        mode: address ? "temporary-founder-mailbox" : "not-configured",
+      };
+    })(),
     durable_company_state: priorState.slice(0, 250),
     durable_action_queue: priorActions.slice(0, 100),
   };
