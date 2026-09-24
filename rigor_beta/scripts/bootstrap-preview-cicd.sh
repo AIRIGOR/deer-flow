@@ -60,7 +60,7 @@ fi
 if [ -z "$NETLIFY_TOKEN" ]; then
   echo "One-time Netlify authorization is required."
   echo "Approve the Netlify sign-in, then return to this terminal."
-  npx -y netlify-cli@latest login
+  npx -y netlify-cli@latest login --request "Authorize RIGOR preview deployment automation for rigor-flow-preview"
   NETLIFY_TOKEN="$(extract_token 2>/dev/null || true)"
 fi
 
