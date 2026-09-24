@@ -15,6 +15,8 @@ from deerflow.utils.llm_text import (
     strip_think_blocks,
 )
 
+from .company_actions import CompanyActionProposal
+
 
 class RigorCompanyPulseError(RuntimeError):
     """Raised when the AI company operating cycle cannot return a valid brief."""
@@ -49,6 +51,10 @@ class RigorCompanyPulseResult(BaseModel):
     state_updates: list[CompanyStateUpdate] = Field(
         default_factory=list,
         max_length=20,
+    )
+    action_proposals: list[CompanyActionProposal] = Field(
+        default_factory=list,
+        max_length=12,
     )
 
 
@@ -96,6 +102,24 @@ Standing checks, when materially relevant:
 - recurring Founder work that can safely move into the AI operating layer;
 - state that must survive into the next cycle.
 
+ACTION LAYER:
+Propose concrete actions that should enter RIGOR's durable action queue. The
+platform policy engine, not you, decides whether an action may execute
+automatically. Use these exact action types:
+INTERNAL_RESEARCH, INTERNAL_TEST, INTERNAL_DOCUMENT, INTERNAL_CODE_CHANGE,
+OUTREACH_DRAFT, SUPPORT_DRAFT, APPLICATION_DRAFT, EMAIL_SEND, PUBLIC_POST,
+AD_SPEND, CONTRACT, CAPITAL_ACCEPT, PAYMENT, PRODUCTION_PROMOTE,
+CREDENTIAL_CHANGE, DATA_DELETE.
+
+Use these exact scopes:
+OBSERVE, PREPARE, INTERNAL_EXECUTE, EXTERNAL_EXECUTE, FOUNDER_RESERVED.
+
+Do not hide a Founder-reserved action as a draft or internal action. Drafting an
+email is OUTREACH_DRAFT/PREPARE; actually sending it is
+EMAIL_SEND/EXTERNAL_EXECUTE. Preparing an investor application is
+APPLICATION_DRAFT/PREPARE; accepting financing is
+CAPITAL_ACCEPT/FOUNDER_RESERVED.
+
 Human authority boundary:
 - no spending or financial commitments;
 - no accepting investment, grants with binding terms, contracts, equity, SAFEs,
@@ -106,7 +130,8 @@ Human authority boundary:
 - no production promotion/deployment;
 - no destructive or irreversible action.
 
-For any such recommendation, put it in founder_approvals instead of acting.
+For any such recommendation, put it in founder_approvals and also create an
+accurately typed action_proposal when execution would be useful.
 
 The Chief of Staff synthesis must reconcile conflicting recommendations and
 make clear what the AI company can continue automatically versus what requires
@@ -130,6 +155,19 @@ Return ONLY JSON in this exact shape:
       "owner_agent": "registered RIGOR agent name or null",
       "approval_required": false,
       "source_ref": "URL, commit, deploy, test, or other evidence reference",
+      "payload": {}
+    }
+  ],
+  "action_proposals": [
+    {
+      "action_type": "INTERNAL_RESEARCH|INTERNAL_TEST|INTERNAL_DOCUMENT|INTERNAL_CODE_CHANGE|OUTREACH_DRAFT|SUPPORT_DRAFT|APPLICATION_DRAFT|EMAIL_SEND|PUBLIC_POST|AD_SPEND|CONTRACT|CAPITAL_ACCEPT|PAYMENT|PRODUCTION_PROMOTE|CREDENTIAL_CHANGE|DATA_DELETE",
+      "scope": "OBSERVE|PREPARE|INTERNAL_EXECUTE|EXTERNAL_EXECUTE|FOUNDER_RESERVED",
+      "title": "specific executable action",
+      "summary": "what should happen and why",
+      "owner_agent": "registered RIGOR agent name or null",
+      "target": "target system/person/resource or null",
+      "reversible": true,
+      "evidence_refs": ["URL, commit, deploy, test, or other evidence reference"],
       "payload": {}
     }
   ]
