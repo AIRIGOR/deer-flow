@@ -188,7 +188,7 @@ export default async (request: Request, context: Context) => {
       },
       body: JSON.stringify({
         objective:
-          "Run the RIGOR founder operating review. Identify the highest-leverage product, engineering, reliability, market, partnership, and capital actions while preserving the human approval boundary.",
+          "Run the RIGOR founder business operating review. Identify the highest-leverage growth/sales, customer-success, finance/operations, market-intelligence, partnership, and capital actions while preserving the human approval boundary. Treat product and release health as operating constraints and create precise product-team handoffs when needed.",
         context: JSON.stringify(companyContext),
       }),
       signal: AbortSignal.timeout(13 * 60 * 1000),
@@ -207,7 +207,7 @@ export default async (request: Request, context: Context) => {
   const pulse = (await response.json()) as PulsePayload;
   const envelope = {
     generated_at: new Date().toISOString(),
-    source: "RIGOR_AI_COMPANY_V1",
+    source: "RIGOR_AI_COMPANY_V2_BUSINESS",
     context: companyContext,
     pulse,
   };
