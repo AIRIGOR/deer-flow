@@ -1,6 +1,14 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
+import {
+  mergeApprovals,
+  reviewMission,
+  selectNextMission,
+  setMissionActive,
+  type CompanyApproval,
+  type CompanyMission,
+} from "./_shared/company.js";
 
 type StateUpdate = {
   record_type: "OBJECTIVE" | "MILESTONE" | "RELATIONSHIP" | "FEEDBACK" | "RISK" | "EXPERIMENT" | "RUNWAY";
@@ -42,6 +50,25 @@ function companyStore(context: Context) {
   return getDeployStore("rigor-company");
 }
 
+async function readArray<T>(store: any, key: string): Promise<T[]> {
+  return ((await store.get(key, { type: "json" })) as T[] | null) || [];
+}
+
+async function writeAudit(
+  store: any,
+  eventType: string,
+  payload: Record<string, unknown>,
+) {
+  const createdAt = new Date().toISOString();
+  const key = `audit/${createdAt.replace(/[:.]/g, "-")}-${randomUUID()}.json`;
+  await store.setJSON(key, {
+    audit_id: key.split("/").pop()?.replace(/\.json$/, ""),
+    event_type: eventType,
+    created_at: createdAt,
+    payload,
+  });
+}
+
 async function publicJson(url: string) {
   try {
     const response = await fetch(url, {
@@ -61,8 +88,11 @@ async function publicJson(url: string) {
 async function buildCompanyContext(
   request: Request,
   priorState: CompanyStateRecord[],
+  missions: CompanyMission[],
+  activeMission: CompanyMission | null,
 ) {
-  const branch = "feat/rigor-netlify-beta-v1";
+  const branch =
+    Netlify.env.get("BRANCH")?.trim() || "feat/rigor-netlify-beta-v1";
   const [commit, runs, previewHealth, deerflowHealth] = await Promise.all([
     publicJson(
       `https://api.github.com/repos/AIRIGOR/deer-flow/commits/${encodeURIComponent(branch)}`,
@@ -100,6 +130,8 @@ async function buildCompanyContext(
     preview_health: previewHealth,
     deerflow_health: deerflowHealth,
     netlify_deploy_id: contextDeployId(request),
+    active_founder_mission: activeMission,
+    mission_queue: missions.slice(0, 100),
     durable_company_state: priorState.slice(0, 250),
   };
 }
@@ -150,11 +182,11 @@ function contextDeployId(request: Request) {
   return request.headers.get("x-nf-deploy-id") || null;
 }
 
-async function trimHistory(store: ReturnType<typeof getStore>) {
+async function trimHistory(store: any) {
   const listed = await store.list({ prefix: "pulse/history/" });
-  const keys = listed.blobs.map((item) => item.key).sort();
+  const keys = listed.blobs.map((item: { key: string }) => item.key).sort();
   const excess = keys.slice(0, Math.max(0, keys.length - 30));
-  await Promise.all(excess.map((key) => store.delete(key)));
+  await Promise.all(excess.map((key: string) => store.delete(key)));
 }
 
 export default async (request: Request, context: Context) => {
@@ -173,11 +205,38 @@ export default async (request: Request, context: Context) => {
   }
 
   const store = companyStore(context);
-  const priorState =
-    ((await store.get("state/records", { type: "json" })) as
-      | CompanyStateRecord[]
-      | null) || [];
-  const companyContext = await buildCompanyContext(request, priorState);
+  const [priorState, priorMissions, priorApprovals] = await Promise.all([
+    readArray<CompanyStateRecord>(store, "state/records"),
+    readArray<CompanyMission>(store, "missions/records"),
+    readArray<CompanyApproval>(store, "approvals/records"),
+  ]);
+
+  const selectedMission = selectNextMission(priorMissions);
+  const activatedAt = new Date().toISOString();
+  const activeMissions = selectedMission
+    ? setMissionActive(priorMissions, selectedMission.mission_id, activatedAt)
+    : priorMissions;
+  const activeMission = selectedMission
+    ? activeMissions.find((item) => item.mission_id === selectedMission.mission_id) || null
+    : null;
+
+  if (selectedMission) {
+    await store.setJSON("missions/records", activeMissions);
+  }
+
+  const companyContext = await buildCompanyContext(
+    request,
+    priorState,
+    activeMissions,
+    activeMission,
+  );
+
+  const defaultObjective =
+    "Run the RIGOR founder business operating review. Identify the highest-leverage growth/sales, customer-success, finance/operations, market-intelligence, partnership, and capital actions while preserving the human approval boundary. Treat product and release health as operating constraints and create precise product-team handoffs when needed.";
+  const objective = activeMission
+    ? `Advance this founder mission as the primary objective: "${activeMission.title}" — ${activeMission.objective}. Also run the business operating review needed to advance that mission safely. Preserve the human approval boundary and create precise product-team handoffs when needed.`
+    : defaultObjective;
+
   const response = await fetch(
     `${baseUrl.replace(/\/$/, "")}/api/rigor/company/pulse`,
     {
@@ -187,8 +246,7 @@ export default async (request: Request, context: Context) => {
         "X-RIGOR-Service-Token": expected,
       },
       body: JSON.stringify({
-        objective:
-          "Run the RIGOR founder business operating review. Identify the highest-leverage growth/sales, customer-success, finance/operations, market-intelligence, partnership, and capital actions while preserving the human approval boundary. Treat product and release health as operating constraints and create precise product-team handoffs when needed.",
+        objective,
         context: JSON.stringify(companyContext),
       }),
       signal: AbortSignal.timeout(13 * 60 * 1000),
@@ -201,32 +259,72 @@ export default async (request: Request, context: Context) => {
       response.status,
       (await response.text()).slice(0, 1000),
     );
+    await writeAudit(store, "COMPANY_PULSE_FAILED", {
+      status: response.status,
+      mission_id: activeMission?.mission_id || null,
+    });
     return;
   }
 
   const pulse = (await response.json()) as PulsePayload;
+  const generatedAt = new Date().toISOString();
+  const pulseRef = `pulse:${generatedAt}`;
+  const nextState = mergeState(priorState, pulse.state_updates || []);
+  const nextApprovals = mergeApprovals(
+    priorApprovals,
+    pulse.founder_approvals || [],
+    pulseRef,
+    generatedAt,
+    () => `approval_${randomUUID().replaceAll("-", "")}`,
+  );
+  const nextMissions = activeMission
+    ? reviewMission(
+        activeMissions,
+        activeMission.mission_id,
+        generatedAt,
+        pulse.current_state,
+        (pulse.founder_approvals || []).length > 0,
+      )
+    : activeMissions;
+
   const envelope = {
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
     source: "RIGOR_AI_COMPANY_V2_BUSINESS",
+    selected_mission_id: activeMission?.mission_id || null,
     context: companyContext,
     pulse,
   };
 
-  const timestamp = envelope.generated_at.replace(/[:.]/g, "-");
-  const nextState = mergeState(priorState, pulse.state_updates || []);
-  await store.setJSON("state/records", nextState);
-  await store.setJSON("pulse/latest", {
-    ...envelope,
-    durable_state_records: nextState.length,
-  });
-  await store.setJSON(`pulse/history/${timestamp}.json`, {
-    ...envelope,
-    durable_state_records: nextState.length,
+  const timestamp = generatedAt.replace(/[:.]/g, "-");
+  await Promise.all([
+    store.setJSON("state/records", nextState),
+    store.setJSON("missions/records", nextMissions),
+    store.setJSON("approvals/records", nextApprovals),
+    store.setJSON("pulse/latest", {
+      ...envelope,
+      durable_state_records: nextState.length,
+      mission_count: nextMissions.length,
+      pending_approvals: nextApprovals.filter((item) => item.status === "PENDING").length,
+    }),
+    store.setJSON(`pulse/history/${timestamp}.json`, {
+      ...envelope,
+      durable_state_records: nextState.length,
+      mission_count: nextMissions.length,
+      pending_approvals: nextApprovals.filter((item) => item.status === "PENDING").length,
+    }),
+  ]);
+
+  await writeAudit(store, "COMPANY_PULSE_COMPLETED", {
+    mission_id: activeMission?.mission_id || null,
+    top_priorities: pulse.top_priorities?.length ?? 0,
+    founder_approvals: pulse.founder_approvals?.length ?? 0,
+    state_updates: pulse.state_updates?.length ?? 0,
   });
   await trimHistory(store);
   console.log(
     "RIGOR company pulse stored",
-    envelope.generated_at,
+    generatedAt,
     pulse.top_priorities?.length ?? 0,
+    activeMission?.mission_id || "no-mission",
   );
 };
