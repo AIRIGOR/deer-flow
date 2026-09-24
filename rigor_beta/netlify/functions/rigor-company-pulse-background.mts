@@ -435,4 +435,34 @@ export default async (request: Request, context: Context) => {
     "actions",
     counts,
   );
+
+  if (counts.approved > 0) {
+    try {
+      const runnerResponse = await fetch(
+        new URL(
+          "/.netlify/functions/rigor-company-action-runner-background",
+          request.url,
+        ),
+        {
+          method: "POST",
+          headers: {
+            "X-RIGOR-Automation-Token": expected,
+            "X-RIGOR-Action-Depth": "0",
+          },
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      if (!runnerResponse.ok) {
+        console.warn(
+          "RIGOR action runner launch rejected",
+          runnerResponse.status,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "RIGOR action runner launch failed",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
 };
