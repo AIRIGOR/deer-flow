@@ -52,6 +52,19 @@ When relevant, every cycle should consider:
 5. Safe transfer of recurring Founder work into the AI operating layer.
 6. Durable company state that must survive into the next cycle.
 
+## Corporate Communications
+
+Until a branded company-domain mailbox is configured, RIGOR may use the
+configured Founder mailbox as the temporary corporate sender identity for
+applications, investor/partner correspondence, customer follow-up, and support.
+
+The address must come from runtime configuration; never hard-code a personal
+email address into source control. Drafting is allowed in the automatic lane.
+Actual email sending remains a Founder-approved external action.
+
+When a branded mailbox is introduced, replace the runtime configuration only;
+the company workflow should not require code changes.
+
 ## Capital Engine
 
 The AI company may identify accelerators, investors, grants, strategic capital,
