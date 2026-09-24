@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "Opening Netlify CLI authorization..."
-npx -y netlify-cli@latest login
+npx -y netlify-cli@latest login --request "Authorize RIGOR preview deployment automation for rigor-flow-preview"
 
 echo
 echo "Netlify CLI authorization returned. Continuing RIGOR automation..."
