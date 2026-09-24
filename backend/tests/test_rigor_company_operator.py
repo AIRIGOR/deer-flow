@@ -49,9 +49,13 @@ async def test_company_operator_returns_structured_pulse():
     assert result.top_priorities[0] == "Deploy company team"
     assert result.state_updates[0].record_type == "MILESTONE"
     assert len(client.calls) == 1
-    _, kwargs = client.calls[0]
+    message, kwargs = client.calls[0]
     assert kwargs["subagent_enabled"] is True
     assert kwargs["thread_id"] == "rigor-company-pulse"
+    assert "rigor-growth-sales" in message
+    assert "rigor-customer-success" in message
+    assert "rigor-finance-ops" in message
+    assert "rigor-product-ops" not in message.split("Operating sequence:", 1)[1].split("Human authority boundary:", 1)[0]
 
 
 @pytest.mark.asyncio

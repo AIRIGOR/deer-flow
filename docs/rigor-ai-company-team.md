@@ -4,19 +4,32 @@ RIGOR uses DeerFlow's existing lead-agent, subagent, memory, delegation-ledger, 
 
 ## Operating model
 
-The DeerFlow lead agent acts as the orchestration layer. It can delegate focused work to six RIGOR company specialists:
+RIGOR separates the **business operating team** from the **product organization**.
 
-| Agent | Responsibility |
+The recurring business pulse uses exactly six delegated roles:
+
+| Business agent | Responsibility |
 | --- | --- |
-| `rigor-chief-of-staff` | Operating review, priorities, dependencies, founder decision packets |
-| `rigor-product-ops` | Live-production workflow, operator UX, readiness logic, acceptance criteria |
-| `rigor-engineering` | Architecture, implementation, debugging, tests, DeerFlow/RIGOR integration |
-| `rigor-qa-security` | Release gates, regressions, security/reliability analysis, smoke tests |
+| `rigor-chief-of-staff` | Business operating review, priorities, dependencies, founder decision packets |
+| `rigor-growth-sales` | ICP, qualified pipeline, prospect research, sales experiments, demo preparation |
+| `rigor-customer-success` | Onboarding, adoption, account health, support triage, feedback, retention risk |
+| `rigor-finance-ops` | Runway, costs, revenue tracking, forecasts, KPIs, billing/invoice preparation |
 | `rigor-market-intel` | Competitors, adjacent products, customers, market movement, white space |
 | `rigor-partnerships-capital` | Partner/investor research, opportunity briefs, outreach drafting |
 
-All six are registered as built-in DeerFlow subagents in
+A separate product organization remains available for targeted execution:
+
+| Product agent | Responsibility |
+| --- | --- |
+| `rigor-product-ops` | Live-production workflow, operator UX, readiness logic, acceptance criteria |
+| `rigor-engineering` | Architecture, implementation, debugging, tests, DeerFlow/RIGOR integration |
+| `rigor-qa-security` | Release gates, regressions, security/reliability analysis, smoke tests |
+
+All nine are registered as built-in DeerFlow subagents in
 `backend/packages/harness/deerflow/subagents/builtins/rigor_company.py`.
+The business pulse consumes five business specialist reports plus one Chief of
+Staff synthesis. Product work created by the business review becomes an
+explicit handoff rather than consuming a recurring business seat.
 
 ## Control boundary
 
@@ -36,13 +49,14 @@ The Chief of Staff should turn these cases into an approval packet with the deci
 
 ## Default operating loop
 
-1. **Observe** — gather product, reliability, market, and relationship signals.
-2. **Diagnose** — delegate to the smallest relevant specialist set.
-3. **Synthesize** — Chief of Staff produces the company state and priority order.
-4. **Execute** — Engineering/Product work against explicit acceptance criteria.
-5. **Verify** — QA/Security must independently check release gates.
-6. **Escalate** — founder receives only decisions requiring human authority.
-7. **Record** — preserve decisions, evidence, and outcomes in durable company context.
+1. **Observe** — gather pipeline, customer, financial, market, and relationship signals.
+2. **Diagnose** — Growth/Sales, Customer Success, Finance/Ops, Market Intel, and Partnerships/Capital each produce a focused report.
+3. **Synthesize** — Chief of Staff produces one business state and priority order.
+4. **Handoff** — product or reliability work becomes a precise task for Product/Ops, Engineering, or QA/Security.
+5. **Execute** — the product organization works against explicit acceptance criteria.
+6. **Verify** — QA/Security independently checks release gates for product changes.
+7. **Escalate** — founder receives only decisions requiring human authority.
+8. **Record** — preserve decisions, evidence, and outcomes in durable company context.
 
 ## Automation cadence
 
@@ -89,7 +103,11 @@ The migration is `c8e7d9a1f203_add_rigor_company_operating_state.py`.
 
 `skills/public/rigor-company-operator/SKILL.md` defines the standard company cycle.
 
-The lead agent delegates one focused report to Product/Ops, Engineering, QA/Security, Market Intelligence, and Partnerships/Capital, then sends those five reports to the Chief of Staff for synthesis. That consumes exactly six delegated subagents, matching DeerFlow's default per-run ceiling.
+The lead agent delegates one focused report to Growth/Sales, Customer Success,
+Finance/Ops, Market Intelligence, and Partnerships/Capital, then sends those five
+reports to the Chief of Staff for synthesis. That consumes exactly six delegated
+subagents, matching DeerFlow's default per-run ceiling. Product/Ops, Engineering,
+and QA/Security remain available for targeted follow-on execution.
 
 The final founder brief must distinguish:
 - current state;

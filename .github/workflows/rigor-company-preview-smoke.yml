@@ -1,0 +1,41 @@
+name: RIGOR Company Preview Smoke
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  company-preview-smoke:
+    runs-on: ubuntu-latest
+    env:
+      RIGOR_PREVIEW_URL: https://rigor-flow-preview.netlify.app
+    steps:
+      - name: Verify preview product health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 "$RIGOR_PREVIEW_URL/api/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          data=json.load(open("/tmp/health.json", encoding="utf-8"))
+          assert data.get("status") == "ok", data
+          assert data.get("service") == "rigor", data
+          print("RIGOR preview health: PASS")
+          PY
+
+      - name: Verify Company OS cockpit is deployed
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 "$RIGOR_PREVIEW_URL/company.html" -o /tmp/company.html
+          grep -q "RIGOR ONE" /tmp/company.html
+          grep -q "Company OS" /tmp/company.html
+          echo "RIGOR ONE Company OS cockpit: PASS"
+
+      - name: Verify Company OS auth boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --output /tmp/company-auth.json             --write-out "%{http_code}"             --max-time 30             "$RIGOR_PREVIEW_URL/api/company/state")"
+          cat /tmp/company-auth.json
+          test "$code" = "401"
+          echo "Company OS auth boundary: PASS"

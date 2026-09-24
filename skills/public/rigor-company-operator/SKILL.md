@@ -1,6 +1,6 @@
 ---
 name: rigor-company-operator
-description: Runs the RIGOR AI company operating review by delegating bounded work to RIGOR's Product/Ops, Engineering, QA/Security, Market Intelligence, Partnerships/Capital, and Chief of Staff agents. Use for founder briefs, company pulses, operating reviews, milestone decisions, and cross-functional RIGOR planning.
+description: Runs the RIGOR AI business operating review by delegating bounded work to RIGOR's Growth/Sales, Customer Success, Finance/Ops, Market Intelligence, Partnerships/Capital, and Chief of Staff agents. Use for founder briefs, company pulses, business operating reviews, commercial milestones, and cross-functional RIGOR planning.
 allowed-tools:
   - task
 ---
@@ -11,14 +11,18 @@ Use DeerFlow's native subagent delegation to run one bounded company operating c
 
 ## Company Team
 
-The available RIGOR specialist agents are:
+The default business operating team is:
 
-- `rigor-product-ops` — live-production workflow, operator UX, product acceptance criteria.
-- `rigor-engineering` — implementation, architecture, debugging, tests, DeerFlow integration.
-- `rigor-qa-security` — release gates, reliability, security, regressions, smoke validation.
-- `rigor-market-intel` — competitors, adjacent products, customers, funding, white space.
+- `rigor-growth-sales` — ICP, prospect research, qualification, pipeline, sales experiments, and demo preparation.
+- `rigor-customer-success` — onboarding, adoption, account health, support triage, feedback, and retention risk.
+- `rigor-finance-ops` — runway, costs, revenue tracking, forecasts, KPIs, billing/invoice preparation, and operating cadence.
+- `rigor-market-intel` — competitors, adjacent products, customers, funding, and white space.
 - `rigor-partnerships-capital` — partner/investor research and opportunity briefs; never sends outreach.
 - `rigor-chief-of-staff` — final synthesis, priorities, dependencies, and founder approval packets.
+
+RIGOR also keeps a separate product organization available for targeted work:
+`rigor-product-ops`, `rigor-engineering`, and `rigor-qa-security`. These
+roles are not part of every recurring business pulse.
 
 ## Operating Cycle
 
@@ -34,7 +38,8 @@ The available RIGOR specialist agents are:
 5. Return the founder brief. Do not create a seventh delegation in the same cycle.
 
 This design intentionally fits DeerFlow's default six-subagent-per-run ceiling:
-five specialist reports + one Chief of Staff synthesis.
+five business specialist reports + one Chief of Staff synthesis. Product work
+created by the pulse is handed off to the separate product organization.
 
 ## Founder Brief Contract
 

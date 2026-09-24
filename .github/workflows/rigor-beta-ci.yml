@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/rigor-netlify-beta-v1
+      - feat/rigor-company-business-os-v0.1
     paths:
       - "rigor_beta/**"
       - "backend/app/gateway/routers/rigor.py"

@@ -1,20 +1,34 @@
 from deerflow.subagents.builtins import BUILTIN_SUBAGENTS
-from deerflow.subagents.builtins.rigor_company import RIGOR_COMPANY_SUBAGENTS
+from deerflow.subagents.builtins.rigor_company import (
+    RIGOR_BUSINESS_SUBAGENTS,
+    RIGOR_COMPANY_SUBAGENTS,
+    RIGOR_PRODUCT_SUBAGENTS,
+)
 
 
-EXPECTED = {
+EXPECTED_BUSINESS = {
     "rigor-chief-of-staff",
-    "rigor-product-ops",
-    "rigor-engineering",
-    "rigor-qa-security",
+    "rigor-growth-sales",
+    "rigor-customer-success",
+    "rigor-finance-ops",
     "rigor-market-intel",
     "rigor-partnerships-capital",
 }
+
+EXPECTED_PRODUCT = {
+    "rigor-product-ops",
+    "rigor-engineering",
+    "rigor-qa-security",
+}
+
+EXPECTED = EXPECTED_BUSINESS | EXPECTED_PRODUCT
 
 
 def test_rigor_company_team_is_registered():
     assert EXPECTED <= set(BUILTIN_SUBAGENTS)
     assert set(RIGOR_COMPANY_SUBAGENTS) == EXPECTED
+    assert set(RIGOR_BUSINESS_SUBAGENTS) == EXPECTED_BUSINESS
+    assert set(RIGOR_PRODUCT_SUBAGENTS) == EXPECTED_PRODUCT
 
 
 def test_rigor_company_agents_are_bounded():
@@ -31,3 +45,9 @@ def test_partnerships_agent_has_no_outbound_or_shell_tools():
     assert "bash" not in tools
     assert "web_search" in tools
     assert "web_fetch" in tools
+
+
+def test_business_pulse_agents_do_not_have_shell_tools():
+    for name in EXPECTED_BUSINESS:
+        tools = set(BUILTIN_SUBAGENTS[name].tools or [])
+        assert "bash" not in tools
