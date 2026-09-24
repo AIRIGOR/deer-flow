@@ -28,18 +28,6 @@ try:
 except Exception:
     raise SystemExit(1)
 
-users=data.get("users") if isinstance(data, dict) else None
-if isinstance(users, dict):
-    for user in users.values():
-        if not isinstance(user, dict):
-            continue
-        auth=user.get("auth")
-        if isinstance(auth, dict):
-            token=auth.get("token")
-            if isinstance(token, str) and token.strip():
-                print(token.strip())
-                raise SystemExit(0)
-
 def walk(value):
     if isinstance(value, dict):
         token=value.get("token")
@@ -71,24 +59,24 @@ fi
 
 if [ -z "$NETLIFY_TOKEN" ]; then
   echo "One-time Netlify authorization is required."
-  echo "A Netlify sign-in page will open. Approve access, then return here."
+  echo "Approve the Netlify sign-in, then return to this terminal."
   npx -y netlify-cli@latest login
   NETLIFY_TOKEN="$(extract_token 2>/dev/null || true)"
 fi
 
 if [ -z "$NETLIFY_TOKEN" ]; then
-  echo "Could not read the Netlify authorization after login."
+  echo "Could not read Netlify authorization after login."
   exit 1
 fi
 
-echo "Saving Netlify authorization to GitHub Actions secrets..."
+echo "Saving Netlify authorization to GitHub Actions..."
 gh secret set NETLIFY_AUTH_TOKEN --repo "$REPO" --body "$NETLIFY_TOKEN"
 unset NETLIFY_TOKEN
 
-echo "Triggering isolated RIGOR preview deployment..."
-gh workflow run "RIGOR Preview Auto Deploy"   --repo "$REPO"   --ref "$BRANCH"
+echo "Triggering RIGOR CI + isolated preview deployment..."
+gh workflow run "RIGOR CI"   --repo "$REPO"   --ref "$BRANCH"
 
 echo
 echo "Bootstrap complete."
-echo "GitHub now owns the preview deploy loop."
-echo "Production was not promoted."
+echo "Future RIGOR pushes will test and deploy the isolated preview automatically."
+echo "Primary production was not promoted."
