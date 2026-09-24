@@ -8,6 +8,8 @@ on:
       - "backend/app/rigor_service.py"
       - "backend/config.rigor.yaml"
       - "backend/Dockerfile"
+      - "backend/packages/harness/deerflow/rigor/company_actions.py"
+      - "backend/packages/harness/deerflow/rigor/company_action_executor.py"
       - "backend/packages/harness/deerflow/rigor/company_operator.py"
       - "backend/packages/harness/deerflow/subagents/builtins/rigor_company.py"
       - "skills/public/rigor-company-operator/**"
@@ -18,7 +20,7 @@ jobs:
   company-live:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for Render company-team deploy
+      - name: Wait for Render company action executor
         shell: bash
         run: |
           set -euo pipefail
@@ -38,18 +40,19 @@ jobs:
               payload.get("status") == "healthy"
               and payload.get("service") == "rigor-deerflow-intelligence"
               and payload.get("company_team") == "v1"
+              and payload.get("action_executor") == "v1"
           ):
               raise SystemExit(0)
           raise SystemExit(1)
           PY
             then
-              echo "RIGOR company team is live on Render."
+              echo "RIGOR company team + action executor are live on Render."
               exit 0
             fi
             echo "Attempt $attempt/40: waiting for Render auto-deploy..."
             sleep 30
           done
-          echo "Timed out waiting for company_team=v1."
+          echo "Timed out waiting for company_team=v1 + action_executor=v1."
           exit 1
 
       - name: Verify company pulse auth boundary
@@ -58,4 +61,12 @@ jobs:
           set -euo pipefail
           code="$(curl --silent --output /tmp/rigor-company-auth.json             --write-out "%{http_code}"             --max-time 30             --request POST             --header "Content-Type: application/json"             --data '{"objective":"auth-boundary-check"}'             https://rigor-deerflow.onrender.com/api/rigor/company/pulse)"
           cat /tmp/rigor-company-auth.json
+          test "$code" = "401"
+
+      - name: Verify company action auth boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --output /tmp/rigor-action-auth.json             --write-out "%{http_code}"             --max-time 30             --request POST             --header "Content-Type: application/json"             --data '{"proposal":{"action_type":"APPLICATION_DRAFT","scope":"PREPARE","title":"auth-boundary-check"}}'             https://rigor-deerflow.onrender.com/api/rigor/company/action/execute)"
+          cat /tmp/rigor-action-auth.json
           test "$code" = "401"
