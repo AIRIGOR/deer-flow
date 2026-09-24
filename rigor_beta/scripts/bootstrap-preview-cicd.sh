@@ -3,7 +3,6 @@ set -euo pipefail
 
 REPO="AIRIGOR/deer-flow"
 BRANCH="feat/rigor-netlify-beta-v1"
-CONFIG="$HOME/.netlify/config.json"
 
 echo "RIGOR preview automation bootstrap"
 echo "Repository: $REPO"
@@ -17,8 +16,8 @@ fi
 
 gh auth status >/dev/null
 
-extract_token() {
-  python - "$CONFIG" <<'PY'
+extract_token_from_file() {
+  python - "$1" <<'PY'
 import json
 import sys
 
@@ -28,11 +27,14 @@ try:
 except Exception:
     raise SystemExit(1)
 
+KEYS=("token","access_token","authToken","auth_token")
+
 def walk(value):
     if isinstance(value, dict):
-        token=value.get("token")
-        if isinstance(token, str) and token.strip():
-            return token.strip()
+        for key in KEYS:
+            token=value.get(key)
+            if isinstance(token, str) and token.strip():
+                return token.strip()
         for child in value.values():
             found=walk(child)
             if found:
@@ -52,20 +54,48 @@ raise SystemExit(1)
 PY
 }
 
-NETLIFY_TOKEN=""
-if [ -f "$CONFIG" ]; then
-  NETLIFY_TOKEN="$(extract_token 2>/dev/null || true)"
-fi
+find_netlify_token() {
+  local file token
+  local candidates=(
+    "$HOME/.netlify/config.json"
+    "$HOME/.config/netlify/config.json"
+    "$HOME/.config/configstore/netlify-cli.json"
+    "$HOME/.config/configstore/netlify.json"
+  )
+
+  for file in "${candidates[@]}"; do
+    if [ -f "$file" ]; then
+      token="$(extract_token_from_file "$file" 2>/dev/null || true)"
+      if [ -n "$token" ]; then
+        printf '%s' "$token"
+        return 0
+      fi
+    fi
+  done
+
+  while IFS= read -r file; do
+    token="$(extract_token_from_file "$file" 2>/dev/null || true)"
+    if [ -n "$token" ]; then
+      printf '%s' "$token"
+      return 0
+    fi
+  done < <(find "$HOME" -maxdepth 4 -type f \( -path "*/netlify/*" -o -name "*netlify*.json" \) 2>/dev/null)
+
+  return 1
+}
+
+NETLIFY_TOKEN="$(find_netlify_token || true)"
 
 if [ -z "$NETLIFY_TOKEN" ]; then
   echo "One-time Netlify authorization is required."
   echo "Approve the Netlify sign-in, then return to this terminal."
   npx -y netlify-cli@latest login --request "Authorize RIGOR preview deployment automation for rigor-flow-preview"
-  NETLIFY_TOKEN="$(extract_token 2>/dev/null || true)"
+  NETLIFY_TOKEN="$(find_netlify_token || true)"
 fi
 
 if [ -z "$NETLIFY_TOKEN" ]; then
-  echo "Could not read Netlify authorization after login."
+  echo "Netlify login completed, but the credential file could not be located."
+  echo "Run: npx netlify status"
   exit 1
 fi
 
