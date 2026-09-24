@@ -6,6 +6,17 @@ from .company import (
     RigorCompanyRecordNotFoundError,
     RigorCompanyStateSnapshot,
 )
+from .company_actions import (
+    AUTO_ALLOWED_ACTIONS,
+    FOUNDER_RESERVED_ACTIONS,
+    CompanyActionDecision,
+    CompanyActionProposal,
+    CompanyActionScope,
+    CompanyActionStatus,
+    CompanyActionType,
+    decide_company_action,
+    requires_founder_approval,
+)
 from .company_operator import (
     CompanyStateUpdate,
     RigorCompanyOperator,
@@ -28,18 +39,24 @@ from .schemas import (
 )
 
 __all__ = [
+    "AUTO_ALLOWED_ACTIONS",
     "AnalyzedRequirement",
-    "RigorAnalysisError",
-    "RigorAnalysisResult",
-    "RigorDocumentAnalyzer",
+    "CompanyActionDecision",
+    "CompanyActionProposal",
+    "CompanyActionScope",
+    "CompanyActionStatus",
+    "CompanyActionType",
     "CompanyPriority",
     "CompanyStateUpdate",
     "CompanyRecordStatus",
     "CompanyRecordType",
     "DocumentProcessingStatus",
     "DocumentType",
+    "FOUNDER_RESERVED_ACTIONS",
     "RequirementOriginType",
     "RequirementStatus",
+    "RigorAnalysisError",
+    "RigorAnalysisResult",
     "RigorCompanyManager",
     "RigorCompanyOperator",
     "RigorCompanyPulseError",
@@ -47,8 +64,11 @@ __all__ = [
     "RigorCompanyRecordNotFoundError",
     "RigorCompanyStateSnapshot",
     "RigorConflictError",
+    "RigorDocumentAnalyzer",
     "RigorManager",
     "RigorNotFoundError",
     "RigorShowSnapshot",
     "ShowStatus",
+    "decide_company_action",
+    "requires_founder_approval",
 ]
