@@ -9,6 +9,9 @@ EXPECTED = {
     "rigor-qa-security",
     "rigor-market-intel",
     "rigor-partnerships-capital",
+    "rigor-growth-revenue",
+    "rigor-customer-success",
+    "rigor-finance-runway",
 }
 
 
@@ -26,8 +29,14 @@ def test_rigor_company_agents_are_bounded():
         assert config.timeout_seconds <= 1800
 
 
-def test_partnerships_agent_has_no_outbound_or_shell_tools():
-    tools = set(BUILTIN_SUBAGENTS["rigor-partnerships-capital"].tools or [])
-    assert "bash" not in tools
-    assert "web_search" in tools
-    assert "web_fetch" in tools
+def test_external_business_agents_have_no_shell_tools():
+    for name in (
+        "rigor-partnerships-capital",
+        "rigor-growth-revenue",
+        "rigor-customer-success",
+        "rigor-finance-runway",
+    ):
+        tools = set(BUILTIN_SUBAGENTS[name].tools or [])
+        assert "bash" not in tools
+        assert "web_search" in tools
+        assert "web_fetch" in tools
