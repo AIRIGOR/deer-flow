@@ -6,6 +6,12 @@ from .company import (
     RigorCompanyRecordNotFoundError,
     RigorCompanyStateSnapshot,
 )
+from .company_action_executor import (
+    RigorCompanyActionExecutionBlocked,
+    RigorCompanyActionExecutionError,
+    RigorCompanyActionExecutionResult,
+    RigorCompanyActionExecutor,
+)
 from .company_actions import (
     AUTO_ALLOWED_ACTIONS,
     FOUNDER_RESERVED_ACTIONS,
@@ -47,9 +53,9 @@ __all__ = [
     "CompanyActionStatus",
     "CompanyActionType",
     "CompanyPriority",
-    "CompanyStateUpdate",
     "CompanyRecordStatus",
     "CompanyRecordType",
+    "CompanyStateUpdate",
     "DocumentProcessingStatus",
     "DocumentType",
     "FOUNDER_RESERVED_ACTIONS",
@@ -57,6 +63,10 @@ __all__ = [
     "RequirementStatus",
     "RigorAnalysisError",
     "RigorAnalysisResult",
+    "RigorCompanyActionExecutionBlocked",
+    "RigorCompanyActionExecutionError",
+    "RigorCompanyActionExecutionResult",
+    "RigorCompanyActionExecutor",
     "RigorCompanyManager",
     "RigorCompanyOperator",
     "RigorCompanyPulseError",
