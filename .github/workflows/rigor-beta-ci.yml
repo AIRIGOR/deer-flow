@@ -16,6 +16,8 @@ on:
       - "backend/tests/test_rigor_*.py"
       - "skills/public/rigor-company-operator/**"
       - ".github/workflows/rigor-beta-ci.yml"
+      - ".github/workflows/rigor-preview-auto-deploy.yml"
+      - ".github/workflows/rigor-company-release-gate.yml"
   pull_request:
     paths:
       - "rigor_beta/**"
@@ -25,6 +27,8 @@ on:
       - "backend/packages/harness/deerflow/subagents/builtins/__init__.py"
       - "backend/tests/test_rigor_*.py"
       - "skills/public/rigor-company-operator/**"
+      - ".github/workflows/rigor-preview-auto-deploy.yml"
+      - ".github/workflows/rigor-company-release-gate.yml"
 
 jobs:
   rigor-beta:
