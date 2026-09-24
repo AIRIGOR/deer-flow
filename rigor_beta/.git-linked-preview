@@ -1,0 +1,4 @@
+RIGOR Git-linked preview deployment marker
+Date: 2026-09-24
+Purpose: trigger the first Netlify Git deployment after linking rigor-flow-preview to AIRIGOR/deer-flow.
+Production promotion: prohibited.
