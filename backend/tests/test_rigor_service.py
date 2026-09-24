@@ -14,6 +14,7 @@ def test_rigor_service_health():
         "status": "healthy",
         "service": "rigor-deerflow-intelligence",
         "company_team": "v1",
+        "action_executor": "v1",
     }
 
 
@@ -46,7 +47,6 @@ def test_rigor_service_rejects_analysis_when_token_not_configured(monkeypatch):
     assert response.status_code == 503
 
 
-
 def test_rigor_company_pulse_requires_token(monkeypatch):
     monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
     client = TestClient(rigor_service.app)
@@ -70,6 +70,7 @@ def test_rigor_company_pulse_returns_structured_brief(monkeypatch):
                 "founder_approvals": [],
                 "next_actions": ["D", "E", "F"],
                 "state_updates": [],
+                "action_proposals": [],
             }
 
     class _Operator:
@@ -91,3 +92,55 @@ def test_rigor_company_pulse_returns_structured_brief(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["top_priorities"] == ["A", "B", "C"]
+
+
+def test_rigor_company_action_requires_token(monkeypatch):
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+    client = TestClient(rigor_service.app)
+    response = client.post(
+        "/api/rigor/company/action/execute",
+        json={
+            "proposal": {
+                "action_type": "APPLICATION_DRAFT",
+                "scope": "PREPARE",
+                "title": "Prepare application",
+            }
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_rigor_company_action_executes_internal_work(monkeypatch):
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+
+    class _Result:
+        def model_dump(self):
+            return {
+                "status": "COMPLETE",
+                "result_summary": "Draft prepared.",
+                "artifact_markdown": "# Draft",
+                "evidence_refs": [],
+            }
+
+    class _Executor:
+        async def execute(self, proposal, *, context=None):
+            assert proposal.action_type.value == "APPLICATION_DRAFT"
+            assert context == "Saudi application."
+            return _Result()
+
+    monkeypatch.setattr(rigor_service, "RigorCompanyActionExecutor", _Executor)
+    client = TestClient(rigor_service.app)
+    response = client.post(
+        "/api/rigor/company/action/execute",
+        headers={"X-RIGOR-Service-Token": "test-secret"},
+        json={
+            "proposal": {
+                "action_type": "APPLICATION_DRAFT",
+                "scope": "PREPARE",
+                "title": "Prepare application",
+            },
+            "context": "Saudi application.",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETE"
