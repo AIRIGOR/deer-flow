@@ -9,7 +9,11 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from deerflow.rigor import (
+    CompanyActionProposal,
     RigorAnalysisError,
+    RigorCompanyActionExecutionBlocked,
+    RigorCompanyActionExecutionError,
+    RigorCompanyActionExecutor,
     RigorCompanyOperator,
     RigorCompanyPulseError,
     RigorDocumentAnalyzer,
@@ -37,6 +41,11 @@ class CompanyPulseRequest(BaseModel):
     context: str | None = Field(default=None, max_length=30000)
 
 
+class CompanyActionExecuteRequest(BaseModel):
+    proposal: CompanyActionProposal
+    context: str | None = Field(default=None, max_length=20000)
+
+
 def _authorize(token: str | None) -> None:
     configured = os.getenv("RIGOR_SERVICE_TOKEN", "").strip()
     if not configured:
@@ -55,6 +64,7 @@ async def health() -> dict[str, str]:
         "status": "healthy",
         "service": "rigor-deerflow-intelligence",
         "company_team": "v1",
+        "action_executor": "v1",
     }
 
 
@@ -82,7 +92,6 @@ async def analyze_document(
     return result.model_dump()
 
 
-
 @app.post("/api/rigor/company/pulse")
 async def run_company_pulse(
     body: CompanyPulseRequest,
@@ -95,5 +104,23 @@ async def run_company_pulse(
             context=body.context,
         )
     except RigorCompanyPulseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return result.model_dump()
+
+
+@app.post("/api/rigor/company/action/execute")
+async def execute_company_action(
+    body: CompanyActionExecuteRequest,
+    x_rigor_service_token: str | None = Header(default=None),
+):
+    _authorize(x_rigor_service_token)
+    try:
+        result = await RigorCompanyActionExecutor().execute(
+            body.proposal,
+            context=body.context,
+        )
+    except RigorCompanyActionExecutionBlocked as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RigorCompanyActionExecutionError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return result.model_dump()
