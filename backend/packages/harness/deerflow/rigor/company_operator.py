@@ -55,15 +55,21 @@ class RigorCompanyPulseResult(BaseModel):
 ClientFactory = Callable[[], DeerFlowClient]
 
 
-_COMPANY_PROMPT = """Run one complete RIGOR AI company operating cycle.
+_COMPANY_PROMPT = """Run one complete RIGOR AI business operating cycle.
 
 You MUST use the task tool and the registered RIGOR company subagents.
 
+The recurring company pulse is business-first. Product/Ops, Engineering, and
+QA/Security are a separate product organization; do not consume the six-agent
+pulse budget with those roles. If the business review surfaces product work,
+record a precise handoff for the product organization in next_actions or
+state_updates.
+
 Operating sequence:
-1. Delegate one focused report to each of these five specialists:
-   - rigor-product-ops
-   - rigor-engineering
-   - rigor-qa-security
+1. Delegate one focused report to each of these five business specialists:
+   - rigor-growth-sales
+   - rigor-customer-success
+   - rigor-finance-ops
    - rigor-market-intel
    - rigor-partnerships-capital
 2. The five specialist reports may run in parallel.
@@ -81,8 +87,9 @@ Human authority boundary:
 
 For any such recommendation, put it in founder_approvals instead of acting.
 
-The Chief of Staff synthesis must reconcile conflicting recommendations and
-return ONLY JSON in this exact shape:
+The Chief of Staff synthesis must reconcile conflicting recommendations across
+revenue/pipeline, customer health, finance/operations, market intelligence, and
+partnerships/capital, then return ONLY JSON in this exact shape:
 {
   "current_state": "concise evidence-based company state",
   "top_priorities": ["priority 1", "priority 2", "priority 3"],
