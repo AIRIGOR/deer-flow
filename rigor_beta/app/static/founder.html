@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="RIGOR Founder Command — private AI company control room." />
+    <title>RIGOR · Founder Command</title>
+    <link rel="stylesheet" href="/founder.css" />
+  </head>
+  <body>
+    <div class="ambient"></div>
+    <main class="founder-shell">
+      <header class="founder-topbar">
+        <a class="founder-brand" href="/" aria-label="RIGOR">
+          <span class="founder-mark">R</span>
+          <span><strong>RIGOR</strong><small>Founder Command</small></span>
+        </a>
+        <div class="topbar-actions">
+          <button id="refresh-button" class="quiet-button hidden" type="button">Refresh</button>
+          <button id="logout-button" class="quiet-button hidden" type="button">Lock</button>
+        </div>
+      </header>
+
+      <section id="login-view" class="login-view">
+        <div class="login-card">
+          <div class="eyebrow">Private control room</div>
+          <h1>Founder access</h1>
+          <p>Company state, AI employee activity, commands, and consequential approvals are isolated from the public RIGOR beta.</p>
+          <form id="login-form">
+            <label for="founder-key">Founder key</label>
+            <input id="founder-key" name="key" type="password" autocomplete="current-password" required />
+            <button class="primary-button" type="submit">Enter Founder Command</button>
+          </form>
+          <div id="login-error" class="error-text" role="alert"></div>
+        </div>
+      </section>
+
+      <section id="office-view" class="office-view hidden">
+        <div class="office-heading">
+          <div>
+            <div class="eyebrow">RIGOR AI Company</div>
+            <h1>Founder Command</h1>
+            <p id="pulse-time">Loading company state…</p>
+          </div>
+          <div id="company-health" class="health-pill">Checking</div>
+        </div>
+
+        <section id="metrics" class="metric-grid"></section>
+
+        <section class="command-panel">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">Company command</div>
+              <h2>Tell the company the outcome.</h2>
+            </div>
+            <span class="authority-note">Founder authority preserved</span>
+          </div>
+          <form id="command-form">
+            <textarea id="command-input" name="command" maxlength="2000" required placeholder="Example: Advance the company. Prioritize E3 readiness, product proof, customer acquisition, and anything blocking deployment."></textarea>
+            <div class="command-actions">
+              <div class="command-presets">
+                <button type="button" data-command="Advance the company.">Advance the company</button>
+                <button type="button" data-command="Run the company pulse and surface anything that requires my attention.">Run company pulse</button>
+                <button type="button" data-command="Prepare RIGOR for E3. Identify every remaining gap and advance all work that does not require Founder approval.">Prepare for E3</button>
+              </div>
+              <button id="command-submit" class="primary-button" type="submit">Execute directive</button>
+            </div>
+          </form>
+          <div id="command-status" class="command-status" role="status"></div>
+        </section>
+
+        <div class="office-grid">
+          <section class="panel approval-panel">
+            <div class="section-heading">
+              <div><div class="eyebrow">Authority</div><h2>Needs your approval</h2></div>
+              <span id="approval-count" class="count-badge">0</span>
+            </div>
+            <div id="approvals" class="stack"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-heading">
+              <div><div class="eyebrow">AI workforce</div><h2>Company agents</h2></div>
+            </div>
+            <div id="agents" class="stack"></div>
+          </section>
+        </div>
+
+        <div class="office-grid">
+          <section class="panel">
+            <div class="section-heading">
+              <div><div class="eyebrow">Direction</div><h2>Current objectives</h2></div>
+            </div>
+            <div id="objectives" class="stack"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-heading">
+              <div><div class="eyebrow">Attention</div><h2>Blockers & risks</h2></div>
+            </div>
+            <div id="risks" class="stack"></div>
+          </section>
+        </div>
+
+        <section class="panel feed-panel">
+          <div class="section-heading">
+            <div><div class="eyebrow">Transparency</div><h2>Live company feed</h2></div>
+          </div>
+          <div id="feed" class="feed"></div>
+        </section>
+      </section>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/founder.js" defer></script>
+  </body>
+</html>

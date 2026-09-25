@@ -362,6 +362,17 @@ export default async (request: Request, context: Context) => {
     return;
   }
 
+  let invocation: { founder_command?: unknown } = {};
+  try {
+    invocation = (await request.json()) as { founder_command?: unknown };
+  } catch {
+    invocation = {};
+  }
+  const founderCommand =
+    typeof invocation.founder_command === "string"
+      ? invocation.founder_command.trim().slice(0, 2000)
+      : "";
+
   const baseUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
   if (!baseUrl) {
     console.error("RIGOR company pulse: RIGOR_DEERFLOW_URL missing");
@@ -394,8 +405,9 @@ export default async (request: Request, context: Context) => {
         "X-RIGOR-Service-Token": expected,
       },
       body: JSON.stringify({
-        objective:
-          "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
+        objective: founderCommand
+          ? `Founder directive: ${founderCommand}\n\nAct as the RIGOR AI company. Translate this outcome into coordinated specialist work. Advance everything that is safely executable, prepare consequential actions for explicit Founder approval, preserve durable company state, and report blockers without inventing completion.`
+          : "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
         context: JSON.stringify(companyContext),
       }),
       signal: AbortSignal.timeout(13 * 60 * 1000),
@@ -417,7 +429,8 @@ export default async (request: Request, context: Context) => {
   const counts = actionCounts(nextActions);
   const envelope = {
     generated_at: new Date().toISOString(),
-    source: "RIGOR_AI_COMPANY_V1",
+    source: founderCommand ? "RIGOR_FOUNDER_COMMAND_V1" : "RIGOR_AI_COMPANY_V1",
+    founder_directive: founderCommand || null,
     context: companyContext,
     pulse,
   };
