@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RIGOR Founder Preview Deployer</title><style>body{background:#080b0e;color:#f3f6f7;font:16px system-ui;padding:40px;max-width:760px;margin:auto}.ok{color:#4de19d}.bad{color:#ff6c6c}pre{white-space:pre-wrap;background:#10161b;padding:16px;border-radius:12px}</style><script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script></head><body><h1>RIGOR Founder Preview</h1><p id="status">Preparing isolated Netlify preview…</p><pre id="detail"></pre><script>
+(async()=>{const status=document.getElementById('status'),detail=document.getElementById('detail');try{
+const proxy=decodeURIComponent(location.hash.slice(1));if(!proxy.startsWith('https://netlify-mcp.netlify.app/proxy/'))throw new Error('Missing deployment capability');
+const base='https://raw.githubusercontent.com/AIRIGOR/deer-flow/f8b223b12bd0d309164611aad8e810a807e2121d/rigor_beta/app/static/';
+const [h,c,j]=await Promise.all([fetch(base+'founder.html').then(r=>r.text()),fetch(base+'founder.css').then(r=>r.text()),fetch(base+'founder.js').then(r=>r.text())]);
+const zip=new JSZip();zip.file('index.html',h.replace('/assets/founder.css','./founder.css').replace('/assets/founder.js','./founder.js'));zip.file('founder.css',c);zip.file('founder.js',j);zip.file('netlify.toml','[build]\n  publish = "."\n');
+const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});const form=new FormData();form.append('zip',blob,'rigor-founder-preview.zip');
+status.textContent='Uploading Founder Command Center…';
+const url=proxy+'/api/v1/sites/017e4a4d-7db9-4e61-88fd-56dd2b2be844/builds?branch=founder-command-center-v1&title=RIGOR%20Founder%20Command%20Center%20v1';
+const res=await fetch(url,{method:'POST',body:form});const text=await res.text();if(!res.ok)throw new Error('Netlify '+res.status+': '+text);
+const data=JSON.parse(text);status.className='ok';status.textContent='Upload accepted. Netlify is building the isolated preview.';detail.textContent=JSON.stringify(data,null,2);document.title='RIGOR DEPLOY ACCEPTED';
+}catch(e){status.className='bad';status.textContent='Deployment failed';detail.textContent=String(e);document.title='RIGOR DEPLOY FAILED';}})();
+</script></body></html>
