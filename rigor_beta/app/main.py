@@ -193,6 +193,11 @@ def report(department: str | None = None, rigor_beta_session: Annotated[str | No
     )
 
 
+@app.get("/founder")
+def founder_command() -> FileResponse:
+    return FileResponse(APP_ROOT / "static" / "founder.html")
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(APP_ROOT / "static" / "index.html")
