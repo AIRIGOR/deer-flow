@@ -57,10 +57,17 @@ describe("company pulse durable failure reporting", () => {
     expect(JSON.stringify(records.get("pulse/last-attempt"))).not.toContain("private diagnostic text");
   });
 
+  it("does not persist a model-only completion as a successful company cycle", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({current_state: "claimed success", state_updates: []}))));
+    await pulse(authorized(), context);
+    expect(records.get("pulse/last-attempt")).toMatchObject({status: "FAILED", failure_code: "DELEGATION_NOT_VERIFIED"});
+    expect(records.get("pulse/latest")).toBeUndefined();
+  });
+
   it("records completion only after a valid pulse has persisted", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(
       String(url).endsWith("/api/rigor/company/pulse")
-        ? {state_updates: [{record_type: "OBJECTIVE", title: "Release verification"}], action_proposals: [], top_priorities: []}
+        ? {execution_receipts: ["rigor-product-ops", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-finance-runway", "rigor-chief-of-staff"].map((agent, index) => ({agent, task_id: `task-${index}`, status: "COMPLETE"})), state_updates: [{record_type: "OBJECTIVE", title: "Release verification"}], action_proposals: [], top_priorities: []}
         : {}
     ))));
     await pulse(authorized(), context);

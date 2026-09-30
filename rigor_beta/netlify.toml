@@ -19,3 +19,13 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=3600"
+
+[[redirects]]
+from = "/founder"
+to = "/founder.html"
+status = 200
+
+[[redirects]]
+from = "/founder/"
+to = "/founder.html"
+status = 200

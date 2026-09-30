@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
+import { delegationVerified } from "./_shared/founder.js";
 
 type StateUpdate = {
   record_type: "OBJECTIVE" | "MILESTONE" | "RELATIONSHIP" | "FEEDBACK" | "RISK" | "EXPERIMENT" | "RUNWAY";
@@ -76,6 +77,7 @@ type ActionQueueRecord = ActionProposal & {
 };
 
 type PulsePayload = {
+  execution_receipts?: unknown[];
   current_state: string;
   top_priorities: string[];
   blockers_risks: string[];
@@ -353,7 +355,7 @@ async function trimHistory(store: ReturnType<typeof getStore>) {
   await Promise.all(excess.map((key) => store.delete(key)));
 }
 
-export default async (request: Request, context: Context) => {
+export async function runCompanyPulse(request: Request, context: Context, founderObjective?: string) {
   const expected = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim() || "";
   const provided =
     request.headers.get("x-rigor-automation-token")?.trim() || "";
@@ -398,7 +400,7 @@ export default async (request: Request, context: Context) => {
         },
         body: JSON.stringify({
           objective:
-            "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
+            founderObjective?.trim().slice(0, 2000) || "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
           context: JSON.stringify(companyContext),
         }),
         signal: AbortSignal.timeout(13 * 60 * 1000),
@@ -415,12 +417,16 @@ export default async (request: Request, context: Context) => {
       console.error(
         "RIGOR company pulse failed",
         response.status,
-        (await response.text()).slice(0, 1000),
+        "Upstream execution rejected",
       );
       return;
     }
 
     const pulse = (await response.json()) as PulsePayload;
+    if (!delegationVerified(pulse as unknown as Record<string, unknown>, undefined, true)) {
+      await store.setJSON("pulse/last-attempt", {started_at: startedAt, completed_at: new Date().toISOString(), status: "FAILED", failure_code: "DELEGATION_NOT_VERIFIED"});
+      return;
+    }
     const nextState = mergeState(companyState, pulse.state_updates || []);
     const nextActions = mergeActions(actionQueue, pulse.action_proposals || []);
     const counts = actionCounts(nextActions);
@@ -487,6 +493,7 @@ export default async (request: Request, context: Context) => {
         );
       }
     }
+    return {...envelope, durable_state_records: nextState.length, action_queue: counts};
   } catch (error) {
     await store.setJSON("pulse/last-attempt", {
       started_at: startedAt,
@@ -496,4 +503,8 @@ export default async (request: Request, context: Context) => {
     });
     console.error("RIGOR company pulse execution failed", error instanceof Error ? error.name : "UnknownError");
   }
+}
+
+export default async (request: Request, context: Context) => {
+  await runCompanyPulse(request, context);
 };

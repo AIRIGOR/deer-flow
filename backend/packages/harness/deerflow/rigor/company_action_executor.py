@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -17,6 +18,7 @@ from .company_actions import (
     CompanyActionProposal,
     decide_company_action,
 )
+from .execution_receipts import ExecutionReceipt, collect_execution
 
 
 class RigorCompanyActionExecutionError(RuntimeError):
@@ -28,6 +30,7 @@ class RigorCompanyActionExecutionBlocked(PermissionError):
 
 
 class RigorCompanyActionExecutionResult(BaseModel):
+    execution_receipts: list[ExecutionReceipt] = Field(default_factory=list)
     status: Literal["COMPLETE"] = "COMPLETE"
     result_summary: str = Field(min_length=1, max_length=6000)
     artifact_markdown: str | None = Field(default=None, max_length=30000)
@@ -66,9 +69,7 @@ def _parse_execution(text: str) -> RigorCompanyActionExecutionResult:
         payload = json.loads(cleaned)
         return RigorCompanyActionExecutionResult.model_validate(payload)
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-        raise RigorCompanyActionExecutionError(
-            "RIGOR company action executor returned invalid structured JSON"
-        ) from exc
+        raise RigorCompanyActionExecutionError("RIGOR company action executor returned invalid structured JSON") from exc
 
 
 class RigorCompanyActionExecutor:
@@ -98,22 +99,23 @@ class RigorCompanyActionExecutor:
         if decision.approval_required:
             raise RigorCompanyActionExecutionBlocked(decision.policy_reason)
         if proposal.action_type not in AUTO_ALLOWED_ACTIONS:
-            raise RigorCompanyActionExecutionBlocked(
-                "action is not executable in the automatic internal lane"
-            )
+            raise RigorCompanyActionExecutionBlocked("action is not executable in the automatic internal lane")
 
         context = (context or "").strip()[:20000]
-        prompt = (
-            f"{_ACTION_PROMPT}\n\n"
-            f"ACTION PROPOSAL:\n{proposal.model_dump_json()}\n\n"
-            f"COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
-        )
+        prompt = f"{_ACTION_PROMPT}\n\nACTION PROPOSAL:\n{proposal.model_dump_json()}\n\nCOMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
-        text = await asyncio.to_thread(
-            client.chat,
-            prompt,
-            thread_id="rigor-company-action",
-            subagent_enabled=True,
-            recursion_limit=100,
-        )
-        return _parse_execution(text)
+        try:
+            text, receipts = await asyncio.to_thread(
+                collect_execution,
+                client,
+                prompt,
+                owner=proposal.owner_agent,
+                thread_id="rigor-company-action-" + str(uuid4()),
+                subagent_enabled=True,
+                recursion_limit=100,
+            )
+        except ValueError as exc:
+            raise RigorCompanyActionExecutionError("Specialist runtime execution was not verified") from exc
+        result = _parse_execution(text)
+        result.execution_receipts = receipts
+        return result

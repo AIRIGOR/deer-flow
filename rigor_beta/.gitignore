@@ -6,3 +6,5 @@
 /deno.lock
 
 .artifacts/
+
+/scripts/__pycache__/

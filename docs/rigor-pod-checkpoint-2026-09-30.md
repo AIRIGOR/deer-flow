@@ -27,3 +27,15 @@ Fix review: PR #11, `fix/rigor-pod-live-proof-20260930`.
 - The company release workflow still attempts public scheduled-function invocation. Correct that trigger path before treating the workflow as a two-cycle gate.
 
 Production promotion remains on hold. E3 is secondary to product/company reliability and moat proof. These synthetic operational decisions are test data, not actual engineering approvals or a real tour.
+
+## Founder and company implementation follow-up
+
+The draft review now replaces the static Founder shell with a bundled `@netlify/identity` client and authenticated server command API. Only a server-assigned founder role can use the browser command path. Protected service automation can run the same bounded internal commands. UUID idempotency and atomic background claims prevent duplicate execution. Durable receipts and persisted reports replace scripted answers and progress percentages. Invite and recovery flows are supported; signup does not grant a founder role.
+
+Backend company execution now correlates actual task-tool calls with runtime start/completion events in an isolated thread per invocation. Model-supplied receipt text cannot establish completion. Company cycles require five distinct registered specialists, then Chief of Staff synthesis after all five complete. Internal action execution requires one registered specialist matching the assigned owner. Netlify company pulse, action runner and founder worker reject unverified delegation.
+
+The release workflow no longer attempts public invocation of a scheduled function. Its protected command API proof requires two fresh cycles, a bounded moat review, durable records and persisted receipts. Strict ingestion proof remains a separate required gate. Browser founder authentication must also be verified separately.
+
+Validation: 45 TypeScript tests pass; focused RIGOR backend tests pass 46/46. Full backend baseline: 9,177 passed, 36 failed, 57 skipped. After changes: 9,183 passed, the identical 36 failed tests, 57 skipped. Existing failures concern browser/network mocks, persistence migrations/bootstrap and subagent prompt security; they were present before these changes. Full and production npm audits report zero vulnerabilities. Offline production Netlify build bundles all seven functions and the Founder browser client.
+
+Live completion remains blocked by deployment-context credentials and founder authentication setup. This follow-up does not establish strict authenticated AI ingestion, two new live company cycles, or browser founder sign-in. No production promotion or mailbox send capability is claimed. To unlock verification: align deployed Netlify/Render service credentials, configure the required test contexts, enable invite-only Identity and assign the founder role, and configure the protected GitHub automation secret. Deploy the matching backend receipt implementation before running the release gate.

@@ -1,3 +1,4 @@
+import { delegationVerified } from "./_shared/founder.js";
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
@@ -187,6 +188,9 @@ export default async (request: Request, context: Context) => {
     }
 
     const result = await response.json();
+    if (result.status !== "COMPLETE" || !delegationVerified(result, action.owner_agent || undefined)) {
+      throw new Error("DELEGATION_NOT_VERIFIED");
+    }
     const resultRef = `actions/results/${encodeURIComponent(action.action_key)}.json`;
     await store.setJSON(resultRef, {
       action_key: action.action_key,
