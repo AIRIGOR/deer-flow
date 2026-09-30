@@ -1,0 +1,6 @@
+# Local Netlify folder
+.netlify
+
+/app/static/deploy-meta.json
+
+/deno.lock

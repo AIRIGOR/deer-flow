@@ -53,7 +53,6 @@ jobs:
 
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
 
       - name: Type check
         run: npm run check
