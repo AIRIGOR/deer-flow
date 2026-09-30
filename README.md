@@ -1004,6 +1004,8 @@ RIGOR's AI company layer also includes durable company state for objectives, mil
 
 Specialist execution uses two bounded batches (three, then two), followed by
 Chief of Staff, matching DeerFlow's concurrency limit.
+Incomplete delegation sequences fail closed and provide a privacy-safe runtime
+diagnostic rather than reporting success.
 
 The isolated proof lane accepts authenticated `VERIFY_PUBLIC_HEALTH` at `POST /api/company/command`; poll its returned status path with the same company-admin token. It creates durable command state, runs five specialists and then Chief of Staff, delegates one evidence artifact to QA/Security, checks it against independently fetched public health facts, saves it, reads it back, and reports to the founder. No investor/E3 or external actions are executed. This command verifies public health only, not production release readiness.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from uuid import uuid4
 
@@ -55,6 +56,8 @@ def run_with_receipts(client, prompt: str, *, mode: str, owner: str | None = Non
     agents = [receipt["agent"] for receipt in receipts]
     if mode == "pulse":
         if len(agents) != 6 or len(set(agents[:5])) != 5 or not set(agents[:5]) <= SPECIALISTS or agents[-1] != "rigor-chief-of-staff":
+            safe_agents = [agent if agent in SPECIALISTS | {"rigor-chief-of-staff"} else "unregistered" for agent in agents]
+            logging.getLogger(__name__).warning("RIGOR company sequence invalid: task_count=%s roles=%s", len(agents), ",".join(safe_agents))
             raise ValueError("Company cycle requires five specialists and one final Chief of Staff")
         chief_position = calls[receipts[-1]["call_id"]][1]
         if any(results[receipt["call_id"]][1] >= chief_position for receipt in receipts[:5]):

@@ -60,3 +60,12 @@ def test_chief_cannot_start_before_all_specialists_return():
     messages = [pair[0] for pair in pairs] + delegation("rigor-chief-of-staff", "chief") + [pair[1] for pair in pairs]
     with pytest.raises(ValueError):
         run_with_receipts(Client(messages), "proof", mode="pulse")
+
+
+def test_failed_sequence_diagnostic_contains_only_registered_role_names(caplog):
+    messages = delegation("private-unregistered-value", "call-1")
+    with pytest.raises(ValueError):
+        run_with_receipts(Client(messages), "proof", mode="pulse")
+    assert "task_count=1" in caplog.text
+    assert "unregistered" in caplog.text
+    assert "private-unregistered-value" not in caplog.text
