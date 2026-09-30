@@ -64,3 +64,17 @@ export function delegationVerified(result: Record<string, unknown>, owner?: stri
     && receipts.filter((item) => item.agent === "rigor-chief-of-staff").length === 1;
   return receipts.length === 1 && (!owner || receipts[0].agent === owner);
 }
+
+// The deployed company runtime records uncapped, completed task-tool results
+// using call IDs and SHA-256 digests. Normalize that authenticated wire format
+// without accepting missing, failed or model-only completion evidence.
+export function normalizeExecutionResult(result: Record<string, unknown>): Record<string, unknown> {
+  if (Array.isArray(result.execution_receipts)) return result;
+  const legacy = result.delegation_receipts;
+  const receipts = Array.isArray(legacy) && legacy.every((item) => item?.status === "completed"
+    && typeof item.call_id === "string" && item.call_id.length > 0
+    && typeof item.agent === "string" && typeof item.result_sha256 === "string"
+    && /^[0-9a-f]{64}$/.test(item.result_sha256))
+    ? legacy.map((item) => ({task_id: item.call_id, agent: item.agent, status: "COMPLETE", result_sha256: item.result_sha256})) : [];
+  return {...result, execution_receipts: receipts};
+}

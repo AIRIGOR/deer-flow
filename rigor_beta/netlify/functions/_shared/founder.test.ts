@@ -17,7 +17,7 @@ vi.mock('@netlify/identity', () => ({getUser: mocks.user, verifyRequestOrigin: m
 vi.mock('../rigor-company-pulse-background.mjs', () => ({runCompanyPulse: mocks.pulse}));
 import founder from '../rigor-founder.mjs';
 import worker from '../rigor-founder-command-background.mjs';
-import {commandView, delegationVerified} from './founder.js';
+import {commandView, delegationVerified, normalizeExecutionResult} from './founder.js';
 const context = {deploy: {context: 'production'}} as Context;
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const request = (path = '/api/founder/commands', body?: unknown, service = false) => new Request(`https://example.test${path}`, {
@@ -73,7 +73,7 @@ describe('Founder authority and durable command execution', () => {
   });
   it('persists correlated specialist evidence and only executes once', async () => {
     mocks.records.set('founder/commands/' + id, command());
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({status: 'COMPLETE', result_summary: 'reviewed', execution_receipts: [{status: 'COMPLETE', task_id: 'actual-task', agent: 'rigor-product-ops'}]}))));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({status: 'COMPLETE', result_summary: 'reviewed', delegation_receipts: [{status: 'completed', call_id: 'actual-task', agent: 'rigor-product-ops', result_sha256: 'a'.repeat(64)}]}))));
     await worker(request(undefined, {command_id: id}, true), context);
     expect(mocks.records.get('founder/commands/' + id)).toMatchObject({status: 'COMPLETE', execution_receipt: {delegation_verified: true, external_action_performed: false}});
     const count = vi.mocked(fetch).mock.calls.length; await worker(request(undefined, {command_id: id}, true), context); expect(fetch).toHaveBeenCalledTimes(count);
@@ -89,5 +89,18 @@ describe('Founder authority and durable command execution', () => {
     expect(commandView({...command(), status: 'RUNNING', started_at: '2020-01-01T00:00:00Z'} as any)).toMatchObject({status: 'TIMED_OUT', request_hash: undefined});
     expect(delegationVerified({execution_receipts: [{status: 'COMPLETE', task_id: 'task', agent: 'wrong'}]}, 'rigor-product-ops')).toBe(false);
     expect(delegationVerified({execution_receipts: [{status: 'COMPLETE', task_id: 'task', agent: 'rigor-chief-of-staff'}]}, undefined, true)).toBe(false);
+  });
+});
+
+describe('deployed runtime receipt compatibility', () => {
+  it('accepts completed correlated legacy receipts with a result digest', () => {
+    const result = normalizeExecutionResult({delegation_receipts: [{call_id: 'runtime-call', agent: 'rigor-product-ops', status: 'completed', result_sha256: 'a'.repeat(64)}]});
+    expect(delegationVerified(result, 'rigor-product-ops')).toBe(true);
+    expect(result.execution_receipts).toEqual([{task_id: 'runtime-call', agent: 'rigor-product-ops', status: 'COMPLETE', result_sha256: 'a'.repeat(64)}]);
+  });
+  it('rejects missing runtime digests and incomplete legacy delegations', () => {
+    for (const receipt of [ {call_id: 'call', agent: 'rigor-product-ops', status: 'completed'}, {call_id: 'call', agent: 'rigor-product-ops', status: 'failed', result_sha256: 'a'.repeat(64)}]) {
+      expect(delegationVerified(normalizeExecutionResult({delegation_receipts: [receipt]}), 'rigor-product-ops')).toBe(false);
+    }
   });
 });

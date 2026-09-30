@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
-import { delegationVerified } from "./_shared/founder.js";
+import { normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
 
 type StateUpdate = {
   record_type: "OBJECTIVE" | "MILESTONE" | "RELATIONSHIP" | "FEEDBACK" | "RISK" | "EXPERIMENT" | "RUNWAY";
@@ -422,7 +422,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
       return;
     }
 
-    const pulse = (await response.json()) as PulsePayload;
+    const pulse = normalizeExecutionResult(await response.json()) as PulsePayload;
     if (!delegationVerified(pulse as unknown as Record<string, unknown>, undefined, true)) {
       await store.setJSON("pulse/last-attempt", {started_at: startedAt, completed_at: new Date().toISOString(), status: "FAILED", failure_code: "DELEGATION_NOT_VERIFIED"});
       return;

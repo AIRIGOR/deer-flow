@@ -1,6 +1,6 @@
 import type { Context } from "@netlify/functions";
 import { runCompanyPulse } from "./rigor-company-pulse-background.mjs";
-import { delegationVerified, founderStore, serviceAuthorized, validCommandId, type FounderCommand } from "./_shared/founder.js";
+import { normalizeExecutionResult, delegationVerified, founderStore, serviceAuthorized, validCommandId, type FounderCommand } from "./_shared/founder.js";
 
 export default async (request: Request, context: Context) => {
   if (request.method !== "POST" || !serviceAuthorized(request)) return;
@@ -44,7 +44,7 @@ export default async (request: Request, context: Context) => {
         signal: AbortSignal.timeout(12 * 60 * 1000),
       });
       if (!response.ok) throw new Error(`UPSTREAM_HTTP_${response.status}`);
-      result = await response.json() as Record<string, unknown>;
+      result = normalizeExecutionResult(await response.json() as Record<string, unknown>);
       if (result.status !== "COMPLETE" || typeof result.result_summary !== "string" || !result.result_summary.trim()) throw new Error("INVALID_EXECUTION_RESULT");
     }
     const verified = delegationVerified(result, command.kind === "RUN_COMPANY_PULSE" ? undefined : command.owner_agent, command.kind === "RUN_COMPANY_PULSE");
