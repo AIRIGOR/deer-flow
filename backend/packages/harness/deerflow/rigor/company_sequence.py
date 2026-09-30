@@ -44,6 +44,7 @@ class CompanySequenceMiddleware(AgentMiddleware):
                 {
                     "id": f"company-chief-{uuid4()}",
                     "name": "task",
+                    "type": "tool_call",
                     "args": {
                         "subagent_type": "rigor-chief-of-staff",
                         "description": "Reconcile five completed company reviews",
@@ -55,7 +56,7 @@ class CompanySequenceMiddleware(AgentMiddleware):
             ]
         else:
             selected = []
-            candidates = task_calls or [{"id": f"company-review-{uuid4()}", "name": "task", "args": {}}]
+            candidates = task_calls or [{"id": f"company-review-{uuid4()}", "name": "task", "type": "tool_call", "args": {}}]
             for call in candidates[: min(3, 5 - len(used))]:
                 args = dict(call.get("args", {}))
                 role = args.get("subagent_type")

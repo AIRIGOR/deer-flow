@@ -1144,6 +1144,8 @@ See `docs/` directory for detailed documentation:
 
 ## RIGOR Company Subagents
 
+Document analysis in `deerflow.rigor.analyzer` converts finite JSON numbers in `normalized_value` to text before validation; booleans, containers, and nonfinite numbers remain invalid. Regression coverage lives in `tests/test_rigor_analyzer.py`.
+
 RIGOR adds six bounded built-in subagents in
 `packages/harness/deerflow/subagents/builtins/rigor_company.py`:
 
@@ -1176,6 +1178,8 @@ Behavior is gated by `backend/tests/test_rigor_company_state.py` and `backend/te
 
 
 ## Pod 3 verified company command
+
+Synthetic calls inserted by `CompanySequenceMiddleware` must carry `type: "tool_call"`, because LangGraph routes them directly to `ToolNode` as call dictionaries. The routing regression test executes both a fallback specialist and final synthesis through the real tool node.
 
 The operator must respect the three-call concurrent ceiling: three specialists,
 then two, then Chief of Staff after all five return. The six-delegation total

@@ -55,3 +55,21 @@ async def test_async_sequence_has_no_blocking_io():
     with detect_blocking_io_strict():
         updated = await CompanySequenceMiddleware().aafter_model({"messages": messages}, None)
     assert updated["messages"][0].tool_calls
+
+
+@pytest.mark.parametrize("roles", [[], ["rigor-product-ops", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-partnerships-capital"]])
+def test_synthetic_company_calls_execute_through_real_tool_node(roles):
+    from langchain_core.tools import tool
+    from langgraph.prebuilt import ToolNode
+    from langgraph.runtime import Runtime
+
+    @tool("task")
+    def task(subagent_type: str, prompt: str, description: str) -> str:
+        """Return the assigned role for a synthetic routing check."""
+        return subagent_type
+
+    messages = history(roles) + [AIMessage(content="premature final response")]
+    updated = CompanySequenceMiddleware().after_model({"messages": messages}, None)["messages"][0]
+    result = ToolNode([task]).invoke([updated.tool_calls[0]], runtime=Runtime())
+    assert result["messages"][0].content == updated.tool_calls[0]["args"]["subagent_type"]
+    assert result["messages"][0].tool_call_id == updated.tool_calls[0]["id"]
