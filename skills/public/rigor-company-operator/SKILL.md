@@ -40,6 +40,10 @@ coordinating every internal task.
 A single cycle selects exactly five specialists, then uses the Chief of Staff as
 the sixth and final delegation. This preserves DeerFlow's six-subagent ceiling
 while allowing the company to cover more business functions over time.
+Run specialist reviews in batches of at most three concurrent task calls: wait
+for the first three results, run the remaining two, then request Chief of Staff
+synthesis. Never request all five in one model response; the concurrent limiter
+will drop excess calls.
 
 ## Standing Company Obligations
 

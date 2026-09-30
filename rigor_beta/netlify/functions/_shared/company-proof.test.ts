@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { proofArtifact, queueCounts, requireReceipts, verifyArtifact } from "./company-proof.js";
+import { proofArtifact, queueCounts, requireReceipts, verifyArtifact, runtimeFailure } from "./company-proof.js";
 const receipt = (agent: string, call_id: string) => ({ agent, call_id, status: "completed", result_sha256: "a".repeat(64) });
 describe("independent company proof", () => {
+  it("records known runtime failures without reflecting arbitrary private error text", () => {
+    expect(runtimeFailure(502, { detail: "Company cycle requires five specialists and one final Chief of Staff" })).toContain("five specialists");
+    expect(runtimeFailure(502, { detail: "credential=private-value" })).toBe("Company runtime HTTP 502");
+  });
   it("does not resurrect approved actions from stale pulse counts", () => {
     expect(queueCounts([{ status: "COMPLETE" }], { approved: 2 })).toMatchObject({ approved: 0, complete: 1 });
     expect(queueCounts([], { complete: 2 })).toMatchObject({ complete: 0, total: 0 });

@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 
 const specialists = new Set(["rigor-product-ops", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-partnerships-capital", "rigor-growth-revenue", "rigor-customer-success", "rigor-finance-runway"]);
+export function runtimeFailure(status: number, payload: unknown) {
+  const allowed = new Set(["Company cycle requires five specialists and one final Chief of Staff", "Chief of Staff started before all specialist results returned", "Delegation lacks an uncapped completed runtime result", "Missing or duplicate delegation call ID", "Action requires exactly one completed delegation to its owner", "RIGOR company operator returned invalid structured JSON", "RIGOR company action executor returned invalid structured JSON", "Invalid RIGOR service token"]);
+  const detail = typeof payload === "object" && payload !== null && "detail" in payload ? String(payload.detail) : "";
+  return `Company runtime HTTP ${status}${allowed.has(detail) ? `: ${detail}` : ""}`;
+}
 export function requireReceipts(value: unknown, mode: "pulse" | "action") {
   if (!Array.isArray(value)) throw new Error("Runtime delegation evidence missing");
   const valid = value.every(item => item && item.status === "completed" && typeof item.call_id === "string" && /^[0-9a-f]{64}$/.test(item.result_sha256));

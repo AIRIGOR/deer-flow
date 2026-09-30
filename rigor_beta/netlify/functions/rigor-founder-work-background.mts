@@ -1,6 +1,6 @@
 import type { Context } from "@netlify/functions";
 import { authorized, commandStore } from "./_shared/company-command.js";
-import { proofArtifact, requireReceipts, verifyArtifact } from "./_shared/company-proof.js";
+import { proofArtifact, requireReceipts, verifyArtifact, runtimeFailure } from "./_shared/company-proof.js";
 
 export default async (request: Request, context: Context) => {
   if (request.method !== "POST" || !authorized(request)) return;
@@ -29,7 +29,7 @@ export default async (request: Request, context: Context) => {
     const expected = proofArtifact(checks);
     const invoke = async (path: string, body: unknown) => {
       const response = await fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json", "X-RIGOR-Service-Token": token }, body: JSON.stringify(body), signal: AbortSignal.timeout(6 * 60 * 1000) });
-      if (!response.ok) throw new Error(`Company runtime HTTP ${response.status}`);
+      if (!response.ok) throw new Error(runtimeFailure(response.status, await response.json().catch(() => null)));
       return response.json();
     };
     const pulse = await invoke("/api/rigor/company/pulse", { objective: record.objective, context: `Only the following independently captured facts are established. Prior company memory, revenue, biographies, partners and test results are unverified. Evidence: ${expected.evidence}. Do not initiate unrelated work. Source: ${expected.reference}` });

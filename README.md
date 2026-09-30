@@ -1002,6 +1002,9 @@ RIGOR's AI company layer also includes durable company state for objectives, mil
 
 ## Pod 3 verified company command
 
+Specialist execution uses two bounded batches (three, then two), followed by
+Chief of Staff, matching DeerFlow's concurrency limit.
+
 The isolated proof lane accepts authenticated `VERIFY_PUBLIC_HEALTH` at `POST /api/company/command`; poll its returned status path with the same company-admin token. It creates durable command state, runs five specialists and then Chief of Staff, delegates one evidence artifact to QA/Security, checks it against independently fetched public health facts, saves it, reads it back, and reports to the founder. No investor/E3 or external actions are executed. This command verifies public health only, not production release readiness.
 
 Runtime receipt validation uses structured task-result metadata from DeerFlow stream values. Missing, failed, capped, duplicate or incorrectly ordered delegations fail closed. Model-authored receipt claims are replaced with server-derived receipts. Artifacts containing unsupported additions fail the exact evidence check. Command storage is separate from existing company memory and deploy-isolated for drafts. `RIGOR_COMPANY_ADMIN_TOKEN` is required; the existing service token stays server-side. Backend and Netlify functions must be deployed together before a live completion claim.

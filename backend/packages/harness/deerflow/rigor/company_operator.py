@@ -86,8 +86,12 @@ Operating sequence:
 1. Select exactly five specialists from the available specialist pool based on
    the Founder objective, current company context, unresolved durable state,
    revenue path, capital readiness, and highest-leverage risks.
-2. Delegate one focused report to each selected specialist. The five reports may
-   run in parallel.
+2. Delegate one focused report to each selected specialist in two batches. Call
+   at most three task tools in one model response, wait for that batch to return,
+   then delegate the remaining two specialists and wait for their results.
+   DeerFlow's concurrent delegation ceiling is three; requesting all five at
+   once drops two calls. If any call is rejected, finish the missing specialist
+   reviews before requesting Chief of Staff synthesis.
 3. After all five return, delegate exactly one synthesis task to
    rigor-chief-of-staff. Include compact evidence from all five reports plus any
    relevant durable state.
