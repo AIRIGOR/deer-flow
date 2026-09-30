@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,9 +19,19 @@ class StubClient:
         self.response = response
         self.calls = []
 
-    def chat(self, message, **kwargs):
+    def stream(self, message, **kwargs):
         self.calls.append((message, kwargs))
-        return self.response
+        messages = []
+        for index, agent in enumerate(["rigor-product-ops", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-partnerships-capital", "rigor-chief-of-staff"]):
+            call_id = str(index)
+            messages.extend(
+                [
+                    {"type": "ai", "tool_calls": [{"id": call_id, "name": "task", "args": {"subagent_type": agent}}]},
+                    {"type": "tool", "name": "task", "tool_call_id": call_id, "additional_kwargs": {"subagent_status": "completed", "subagent_result_sha256": "a" * 64}},
+                ]
+            )
+        messages.append({"type": "ai", "content": self.response})
+        yield SimpleNamespace(type="values", data={"messages": messages})
 
 
 @pytest.mark.asyncio
@@ -69,7 +80,8 @@ async def test_company_operator_returns_structured_pulse():
     assert len(client.calls) == 1
     _, kwargs = client.calls[0]
     assert kwargs["subagent_enabled"] is True
-    assert kwargs["thread_id"] == "rigor-company-pulse"
+    assert kwargs["thread_id"].startswith("rigor-company-pulse-")
+    assert len(result.delegation_receipts) == 6
 
 
 def test_action_policy_auto_allows_bounded_internal_preparation():
@@ -124,9 +136,7 @@ def test_code_change_requires_review():
 
 @pytest.mark.asyncio
 async def test_company_operator_rejects_invalid_result():
-    operator = RigorCompanyOperator(
-        client_factory=lambda: StubClient("not json")
-    )
+    operator = RigorCompanyOperator(client_factory=lambda: StubClient("not json"))
 
     with pytest.raises(RigorCompanyPulseError):
         await operator.run(objective="Run company review.")
@@ -134,9 +144,7 @@ async def test_company_operator_rejects_invalid_result():
 
 @pytest.mark.asyncio
 async def test_company_operator_rejects_empty_objective():
-    operator = RigorCompanyOperator(
-        client_factory=lambda: StubClient("{}")
-    )
+    operator = RigorCompanyOperator(client_factory=lambda: StubClient("{}"))
 
     with pytest.raises(ValueError, match="objective"):
         await operator.run(objective="   ")

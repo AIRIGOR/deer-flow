@@ -1,5 +1,6 @@
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
+import { queueCounts } from "./_shared/company-proof.js";
 
 type LatestPulse = {
   generated_at?: string;
@@ -52,22 +53,7 @@ export default async (request: Request, context: Context) => {
       >,
     ]);
 
-    const queue = Array.isArray(actions) ? actions : [];
-    const actionQueue = {
-      total: queue.length || Number(latest?.action_queue?.total || 0),
-      approved:
-        queue.filter((item) => item.status === "APPROVED").length ||
-        Number(latest?.action_queue?.approved || 0),
-      needs_founder_approval:
-        queue.filter((item) => item.status === "NEEDS_APPROVAL").length ||
-        Number(latest?.action_queue?.needs_founder_approval || 0),
-      executing:
-        queue.filter((item) => item.status === "EXECUTING").length ||
-        Number(latest?.action_queue?.executing || 0),
-      complete:
-        queue.filter((item) => item.status === "COMPLETE").length ||
-        Number(latest?.action_queue?.complete || 0),
-    };
+    const actionQueue = queueCounts(actions, latest?.action_queue);
 
     return json({
       status: "ok",

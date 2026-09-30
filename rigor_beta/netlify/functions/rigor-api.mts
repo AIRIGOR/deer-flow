@@ -4,7 +4,7 @@ import type { Context, Config } from "@netlify/functions";
 import pdfParse from "pdf-parse";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { DEPARTMENTS } from "./_shared/seed.js";
-import { PRODUCTION_LIMIT, activeProduction, createProduction, createWorkspace, extractRequirements, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
+import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
 const COOKIE = "rigor_beta_session";
 const MAX_UPLOAD = 5 * 1024 * 1024;
@@ -116,6 +116,7 @@ function ingestDeerFlowRequirements(production: ProductionState, documentName: s
       source_kind: "DEERFLOW",
       analysis_engine: "DEERFLOW",
     };
+    canonicalizeRequirement(item);
     production.requirements.push(item);
     created.push(item);
     seen.add(dedupeKey);
@@ -135,8 +136,8 @@ function wrap(text: string, limit = 92) {
 }
 
 async function reportPdf(state: ProductionState, department: string | null) {
-  const requirements = department ? state.requirements.filter((item) => item.department === department) : state.requirements;
-  const conflicts = department ? state.conflicts.filter((item) => item.department === department) : state.conflicts;
+  const requirements = department ? state.requirements.filter((item) => affectsDepartment(item, department)) : state.requirements;
+  const conflicts = department ? state.conflicts.filter((item) => affectsDepartment(item, department)) : state.conflicts;
   const checkpoints = department ? state.checkpoints.filter((item) => item.department === department) : state.checkpoints;
   const incidents = department ? state.incidents.filter((item) => item.department === department) : state.incidents;
   const relevantRequirementIds = new Set(requirements.map((item) => item.requirement_id));
@@ -180,31 +181,34 @@ async function reportPdf(state: ProductionState, department: string | null) {
   draw(`${state.show.show_name} · ${state.show.venue} · ${state.show.show_date}`, 10);
   if (state.production.sample_demo) draw("SAMPLE PRODUCTION — demonstration data, not a real show", 8, true, rgb(0.55, 0.36, 0.08));
 
-  const score = readiness(state, requirements, conflicts);
+  const score = readiness(state, requirements, conflicts, checkpoints, incidents);
   section("Executive readiness");
   draw(`Status: ${score.status.replaceAll("_", " ")} · Readiness: ${score.score}%`, 13, true);
   draw(`${score.confirmed_requirements}/${score.total_requirements} requirements reviewed · ${score.open_conflicts} open conflicts · ${score.open_incidents || 0} open incidents · ${score.completed_checkpoints}/${score.total_checkpoints} checkpoints complete`, 8);
+  draw(`${score.unreviewed_documents} source documents awaiting full review`, 8);
 
   section("Open items / assumptions");
   const openRequirements = requirements.filter((item) => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status));
   const ownerGaps = requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status) && !item.owner);
   const openConflicts = conflicts.filter((item) => item.status !== "RESOLVED");
   const openIncidents = incidents.filter((item) => !String(item.resolution || "").trim());
-  if (!openRequirements.length && !ownerGaps.length && !openConflicts.length && !openIncidents.length) {
+  if (!openRequirements.length && !ownerGaps.length && !openConflicts.length && !openIncidents.length && !score.unreviewed_documents) {
     draw("No open items in this report scope.", 9);
   } else {
-    for (const item of openRequirements) draw(`REVIEW · ${item.department} · ${item.title}`, 8);
+    for (const item of openRequirements) draw(`REVIEW · ${item.department} · ${item.detail || item.title}`, 8);
     for (const item of ownerGaps) draw(`OWNER · ${item.department} · ${item.title}`, 8);
     for (const item of openConflicts) draw(`CONFLICT · ${item.severity} · ${item.department} · ${item.title}`, 8);
     for (const item of openIncidents) draw(`INCIDENT · ${item.severity} · ${item.department} · ${item.summary}`, 8);
+    for (const doc of documents.filter((doc) => doc.source_kind !== "SAMPLE" && doc.review_status !== "REVIEWED")) draw(`SOURCE REVIEW · ${doc.name} · Check the complete document for missed or uncertain requirements.`, 8);
   }
 
   section("Requirements");
   if (!requirements.length) draw("No requirements in this report scope.", 9);
   for (const item of requirements) {
-    draw(`${item.department} · ${item.title}`, 9, true);
+    draw(`${item.department} · ${item.detail || item.title}`, 9, true);
     draw(`${item.status.replaceAll("_", " ")} · Owner: ${item.owner || "—"} · Source: ${item.document_name}, p${item.page_number || "—"} · Confidence: ${Math.round(Number(item.confidence || 0) * 100)}%`, 8);
     draw(`Evidence: ${item.excerpt || item.detail}`, 8);
+    if (item.coverage_review_required) draw("Source review candidate: reconcile this statement with the original document before confirming.", 8);
     y -= 3;
   }
 
@@ -277,6 +281,22 @@ export default async (request: Request, context: Context) => {
     const auth = await authenticated(request, context); if (!auth) return fail("Start or resume your RIGOR session", 401);
     const { store, state } = auth;
     if (path === "/api/workspace" && request.method === "GET") { await save(store, state); return json(snapshot(state)); }
+    const documentReviewMatch = path.match(/^\/api\/documents\/([^/]+)\/review$/);
+    if (documentReviewMatch && request.method === "POST") {
+      const production = activeProduction(state);
+      const document = production.documents.find((doc) => doc.document_id === documentReviewMatch[1]);
+      if (!document) return fail("Document not found", 404);
+      const data = await body(request);
+      if (data.complete_source_review !== true) return fail("Confirm the complete source document has been reviewed");
+      const candidates = production.requirements.filter((req) => req.document_name === document.name);
+      if (candidates.some((req) => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(req.status))) return fail("Review the document's requirement candidates first");
+      document.review_status = "REVIEWED";
+      document.reviewed_by = state.tester.display_name;
+      document.reviewed_at = now();
+      event(production, "SOURCE_REVIEW_COMPLETED", {document_id: document.document_id, reviewer: document.reviewed_by});
+      await save(store, state);
+      return json(snapshot(state));
+    }
 
     if (path === "/api/productions" && request.method === "POST") {
       if (state.productions.length >= PRODUCTION_LIMIT) return fail(`RIGOR workspaces support up to ${PRODUCTION_LIMIT} productions`);
@@ -380,6 +400,7 @@ export default async (request: Request, context: Context) => {
         name: safeName,
         doc_type: "UPLOADED",
         status: "PROCESSED",
+        review_status: "PENDING",
         page_count: pages.length,
         source_kind: "TESTER",
         analysis_engine: analysisEngine,
@@ -388,6 +409,10 @@ export default async (request: Request, context: Context) => {
       const extracted = deerFlowRequirements
         ? ingestDeerFlowRequirements(production, safeName, deerFlowRequirements)
         : extractRequirements(production, safeName, pages);
+      const recovered = deerFlowRequirements ? reconcileSourceRequirements(production, safeName, pages) : [];
+      extracted.push(...recovered);
+      invalidateChangedCheckpoints(production, extracted);
+      production.documents[production.documents.length - 1].source_review_candidates = recovered.length;
       event(production, "DOCUMENT_PROCESSED", { document_id: documentId, requirements: extracted.length, analysis_engine: analysisEngine });
       await save(store, state);
       return json({
@@ -396,6 +421,7 @@ export default async (request: Request, context: Context) => {
           name: safeName,
           page_count: pages.length,
           requirements_added: extracted.length,
+          source_review_candidates: recovered.length,
           conflicts_detected: production.conflicts.filter((item) => item.status !== "RESOLVED").length,
           analysis_engine: analysisEngine,
         },
@@ -410,5 +436,5 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/reports/advance.pdf"],
 };
