@@ -421,6 +421,10 @@ def build_middlewares(
         max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
         max_total_subagents = cfg.get("max_total_subagents", _default_max_total_subagents(resolved_app_config))
         middlewares.append(SubagentLimitMiddleware(max_concurrent=max_concurrent_subagents, max_total=max_total_subagents))
+        if agent_name == "rigor-company-operator":
+            from deerflow.rigor.company_sequence import CompanySequenceMiddleware
+
+            middlewares.append(CompanySequenceMiddleware())
 
     # LoopDetectionMiddleware — detect and break repetitive tool call loops
     loop_detection_config = resolved_app_config.loop_detection
