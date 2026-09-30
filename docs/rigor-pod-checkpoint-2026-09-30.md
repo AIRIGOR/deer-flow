@@ -10,7 +10,7 @@ Fix review: PR #11, `fix/rigor-pod-live-proof-20260930`.
 - New fixes pass TypeScript and 34 tests. Full and production dependency audits reported zero vulnerabilities. Production-context offline Netlify build bundled all five functions before the additional four handler tests, which independently pass afterward.
 - Live baseline diagnostics detected eight synthetic contradictions with an explicit labor-wording workaround, held readiness until full-source review, reached synthetic SHOW_READY, and returned to BLOCKED after a revised automated LED load. Rigging and Video checkpoints reopened while Audio remained complete. Workspace state survived a subsequent GET.
 - Master, Rigging, Video, Stage Management and Audio reports downloaded. Revised 6000 kg LED load appeared in Master/Rigging/Video and stayed out of Stage Management/Audio. All nine original blocked report pages were rendered and inspected without clipping or overlap.
-- The PR deploy preview detected all eight contradictions using the original “Labor call provides 24 stagehands” wording. Its uploads used local fallback because the configured service token is production-scoped. Full preview workflow verification is recorded separately when the runner finishes.
+- The PR deploy preview completed all product gates using the original “Labor call provides 24 stagehands” wording: eight contradictions, independent source review, synthetic SHOW_READY, LED amendment reopening, all scoped PDF downloads and durable workspace verification. Its uploads used local fallback because the configured service token is production-scoped; the strict AI bridge gate remains FAIL. Both RIGOR CI jobs passed commit 090d832 with all 34 tests.
 
 ## Defects fixed in PR #11
 
