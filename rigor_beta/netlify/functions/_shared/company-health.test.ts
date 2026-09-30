@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { companyActionCounts } from "./company-health.js";
+import { companyActionCounts, companyPulseHealth } from "./company-health.js";
+
+describe("company pulse health", () => {
+  it("does not hide a failed cycle behind an old successful pulse", () => {
+    expect(companyPulseHealth({started_at: "2026-09-30T21:00:00Z", status: "FAILED", failure_code: "UPSTREAM_HTTP_401"}, "2026-09-29T15:00:00Z"))
+      .toMatchObject({status: "degraded", latest_attempt_failure: "UPSTREAM_HTTP_401"});
+  });
+  it("clears degraded health after a newer successful cycle", () => {
+    expect(companyPulseHealth({started_at: "2026-09-29T15:00:00Z", status: "FAILED"}, "2026-09-30T21:00:00Z"))
+      .toMatchObject({status: "ok", latest_attempt_failure: null});
+  });
+  it("marks an abandoned background invocation as timed out", () => {
+    expect(companyPulseHealth({started_at: "2026-09-30T21:00:00Z", status: "RUNNING"}, undefined, Date.parse("2026-09-30T21:16:00Z")))
+      .toMatchObject({status: "degraded", latest_attempt_status: "TIMED_OUT"});
+  });
+  it("keeps a current running cycle distinct from a failed cycle", () => {
+    expect(companyPulseHealth({started_at: "2026-09-30T21:00:00Z", status: "RUNNING"}, undefined, Date.parse("2026-09-30T21:01:00Z")))
+      .toMatchObject({status: "ok", latest_attempt_status: "RUNNING"});
+  });
+});
 
 describe("company health queue counts", () => {
   it("reports completed execution rather than obsolete pulse approval counts", () => {

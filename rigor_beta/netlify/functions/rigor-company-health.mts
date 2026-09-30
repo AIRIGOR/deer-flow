@@ -1,6 +1,6 @@
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
-import { companyActionCounts } from "./_shared/company-health.js";
+import { companyActionCounts, companyPulseHealth, type PulseAttempt } from "./_shared/company-health.js";
 
 type LatestPulse = {
   generated_at?: string;
@@ -46,18 +46,20 @@ export default async (request: Request, context: Context) => {
 
   try {
     const store = companyStore(context);
-    const [latest, records, actions] = await Promise.all([
+    const [latest, records, actions, attempt] = await Promise.all([
       store.get("pulse/latest", { type: "json" }) as Promise<LatestPulse | null>,
       store.get("state/records", { type: "json" }) as Promise<unknown[] | null>,
       store.get("actions/queue", { type: "json" }) as Promise<
         ActionQueueRecord[] | null
       >,
+      store.get("pulse/last-attempt", { type: "json" }) as Promise<PulseAttempt | null>,
     ]);
 
     const actionQueue = companyActionCounts(actions, latest?.action_queue);
+    const pulseHealth = companyPulseHealth(attempt, latest?.generated_at);
 
     return json({
-      status: "ok",
+      ...pulseHealth,
       service: "rigor-company",
       version: "v1",
       company_automation: "v1",
@@ -72,7 +74,7 @@ export default async (request: Request, context: Context) => {
         Netlify.env.get("RIGOR_CORP_FROM_EMAIL")?.trim(),
       ),
       source: latest?.source || null,
-    });
+    }, pulseHealth.status === "degraded" ? 503 : 200);
   } catch (error) {
     console.error("RIGOR company health failed", error);
     return json(

@@ -4,3 +4,5 @@
 /app/static/deploy-meta.json
 
 /deno.lock
+
+.artifacts/
