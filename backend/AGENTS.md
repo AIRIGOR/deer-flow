@@ -1173,3 +1173,18 @@ Architecture/operating policy: `docs/rigor-ai-company-team.md`.
 `skills/public/rigor-company-operator/SKILL.md` defines the bounded operating cycle: five specialist delegations followed by one `rigor-chief-of-staff` synthesis. Do not raise the subagent ceiling merely to add more roles; split work across operating cycles instead.
 
 Behavior is gated by `backend/tests/test_rigor_company_state.py` and `backend/tests/test_rigor_company_subagents.py`.
+
+
+## Pod 3 verified company command
+
+The operator must respect the three-call concurrent ceiling: three specialists,
+then two, then Chief of Staff after all five return. The six-delegation total
+ceiling is separate; it does not allow a batch of five simultaneous tool calls.
+Invalid sequences log only their count and registered role names; unknown names
+are redacted. Do not log prompts, tool results, credentials, or private context.
+
+The isolated proof lane accepts authenticated `VERIFY_PUBLIC_HEALTH` at `POST /api/company/command`; poll its returned status path with the same company-admin token. It creates durable command state, runs five specialists and then Chief of Staff, delegates one evidence artifact to QA/Security, checks it against independently fetched public health facts, saves it, reads it back, and reports to the founder. No investor/E3 or external actions are executed. This command verifies public health only, not production release readiness.
+
+Runtime receipt validation uses structured task-result metadata from DeerFlow stream values. Missing, failed, capped, duplicate or incorrectly ordered delegations fail closed. Model-authored receipt claims are replaced with server-derived receipts. Artifacts containing unsupported additions fail the exact evidence check. Command storage is separate from existing company memory and deploy-isolated for drafts. `RIGOR_COMPANY_ADMIN_TOKEN` is required; the existing service token stays server-side. Backend and Netlify functions must be deployed together before a live completion claim.
+
+CompanySequenceMiddleware is enabled only for rigor-company-operator and runs before SubagentLimitMiddleware's after-model gate (reverse middleware order). It bounds batches to three, replaces duplicate/early roles with unvisited registered specialists, and supplies all five real returned reports to the final Chief of Staff. Receipt validation remains independent and mandatory. Regression checks include the live duplicate-sixth-call failure and strict async blocking-IO detection.

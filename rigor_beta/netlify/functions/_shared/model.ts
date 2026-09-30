@@ -25,6 +25,91 @@ export const PRODUCTION_LIMIT = 3;
 export const now = () => new Date().toISOString();
 export const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 
+// Use source facts for stable identity; retain the model's original labels for audit.
+export function canonicalizeRequirement(item: RecordMap) {
+  const text = String(item.excerpt || item.detail || "");
+  const rules: Array<[RegExp, string, string, string[]]> = [
+    [/\b(?:load[- ]?in dock|truck loading bays|dock capacity)\b/i, "DOCK_ACCESS", "Stage Management", ["Stage Management"]],
+    [/\bb[- ]stage\b.*\b(?:footprint|clear|dimensions)\b/i, "BSTAGE_FOOTPRINT", "Rigging", ["Rigging", "Stage Management", "Video"]],
+    [/\b(?:suspended weight|suspended load)\b/i, "RIGGING_SUSPENDED_WEIGHT", "Rigging", /\bled\b/i.test(text) ? ["Rigging", "Video"] : ["Rigging"]],
+    [/\bpoint load\b/i, "RIGGING_POINT_LOAD", "Rigging", ["Rigging"]],
+    [/\b(?:downstage trim|trim height)\b/i, "RIGGING_TRIM", "Rigging", ["Rigging"]],
+    [/\bshow power\b.*\b\d+\s*a(?:mps?)?\b/i, "POWER_CAPACITY", "Power", ["Power"]],
+    [/\bshow curfew\b/i, "SHOW_CURFEW", "Stage Management", ["Stage Management"]],
+    [/\blabor call\b.*\bstagehands?\b/i, "LABOR_CALL", "Labor", ["Labor"]],
+  ];
+  const rule = rules.find(([pattern]) => pattern.test(text));
+  if (!rule) return item;
+  const [, category, department, affected] = rule;
+  item.source_category ??= item.category;
+  item.source_department ??= item.department;
+  item.category = category;
+  item.department = department;
+  item.affected_departments = affected;
+  let value: string | null = null;
+  const match = text.match(category === "POWER_CAPACITY" ? /\b(\d+)\s*a(?:mps?)?\b/i
+    : category === "RIGGING_TRIM" ? /\b(\d+(?:\.\d+)?)\s*(?:ft|feet)\b/i
+    : category.startsWith("RIGGING_") ? /\b(\d+(?:\.\d+)?)\s*(kg|lbs?|pounds?)\b/i
+    : category === "DOCK_ACCESS" ? /\b(\d+)\s+(?:simultaneous\s+)?truck loading bays\b/i
+    : category === "LABOR_CALL" ? /\b(\d+)\s+stagehands?\b/i
+    : category === "SHOW_CURFEW" ? /\b(\d{2}:\d{2})\b/
+    : /\b(\d+(?:\.\d+)?)\s*(?:ft|feet)?\s*[x×]\s*(\d+(?:\.\d+)?)\s*(?:ft|feet)\b/i);
+  if (match) {
+    value = category === "POWER_CAPACITY" ? `${Number(match[1])}A`
+      : category === "RIGGING_TRIM" ? `${Number(match[1])}FT`
+      : category.startsWith("RIGGING_") ? `${Number(match[1])}${/kg/i.test(match[2]) ? "KG" : "LB"}`
+      : category === "DOCK_ACCESS" ? `${Number(match[1])}BAYS`
+      : category === "LABOR_CALL" ? `${Number(match[1])}STAGEHANDS`
+      : category === "SHOW_CURFEW" ? match[1]
+      : `${Number(match[1])}x${Number(match[2])}FT`;
+  }
+  if (value) item.normalized_value = value;
+  return item;
+}
+
+export function affectsDepartment(item: RecordMap, department: string) {
+  return item.department === department || item.affected_departments?.includes(department) === true;
+}
+
+function sourceReviewed(document: RecordMap) {
+  return document.source_kind === "SAMPLE" || document.review_status === "REVIEWED";
+}
+
+// Reconcile obvious source sentences that the model omitted. This assists human
+// document review; it is not a claim of exhaustive semantic extraction.
+export function reconcileSourceRequirements(state: ProductionState, documentName: string, pages: string[]) {
+  const existing = state.requirements.filter((item) => item.document_name === documentName);
+  const scratch = createProduction(state.production.workspace_id);
+  const candidates = extractRequirements(scratch, documentName, pages);
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const recovered = candidates.filter((candidate) => !existing.some((item) => {
+    const sentence = normalize(candidate.excerpt);
+    const excerpt = normalize(String(item.excerpt || ""));
+    return sentence === excerpt || (excerpt.length > 20 && sentence.includes(excerpt));
+  }));
+  for (const candidate of recovered) {
+    candidate.production_id = state.production.production_id;
+    candidate.source_kind = "SOURCE_REVIEW";
+    candidate.analysis_engine = "SOURCE_RECONCILIATION";
+    candidate.coverage_review_required = true;
+    state.requirements.push(candidate);
+  }
+  rebuildConflicts(state);
+  return recovered;
+}
+
+export function invalidateChangedCheckpoints(state: ProductionState, added: RecordMap[]) {
+  const affected = new Set(state.conflicts.filter((item) => item.status !== "RESOLVED"
+    && added.some((req) => [item.left_requirement_id, item.right_requirement_id].includes(req.requirement_id)))
+    .flatMap((item) => item.affected_departments || [item.department]));
+  for (const checkpoint of state.checkpoints) {
+    if (affected.has(checkpoint.department)) {
+      checkpoint.status = "PENDING";
+      checkpoint.completed_at = null;
+    }
+  }
+}
+
 type ProductionDetails = {
   show_name?: string;
   artist?: string;
@@ -244,7 +329,14 @@ export function normalizeWorkspace(raw: any): WorkspaceState {
     raw.workspace.production_limit = PRODUCTION_LIMIT;
     if (!raw.workspace.active_production_id && raw.productions[0]) raw.workspace.active_production_id = raw.productions[0].production.production_id;
     const state = raw as WorkspaceState;
-    state.productions.forEach(migrateDemoRecords);
+    state.productions.forEach((production) => {
+      migrateDemoRecords(production);
+      if (production.production.conflict_rules_version !== "pod2-source-v1") {
+        rebuildConflicts(production);
+        invalidateChangedCheckpoints(production, production.requirements);
+        production.production.conflict_rules_version = "pod2-source-v1";
+      }
+    });
     return state;
   }
 
@@ -265,6 +357,9 @@ export function normalizeWorkspace(raw: any): WorkspaceState {
   raw.workspace.production_limit = PRODUCTION_LIMIT;
   delete raw.workspace.current_session;
   delete raw.workspace.completed_sessions;
+  rebuildConflicts(production);
+  invalidateChangedCheckpoints(production, production.requirements);
+  production.production.conflict_rules_version = "pod2-source-v1";
   return { tester: raw.tester, workspace: raw.workspace, productions: [production] };
 }
 
@@ -288,8 +383,9 @@ export function progress(input: WorkspaceState | ProductionState) {
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
   const openIncidents = state.incidents.filter((item) => !String(item.resolution || "").trim()).length;
   const reviewTarget = state.requirements.length;
+  const sourcesReviewed = state.documents.every(sourceReviewed);
   const ownerTarget = actionable.length;
-  const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget;
+  const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget && sourcesReviewed;
   const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned === ownerTarget;
   const showDayComplete = sessionTwoComplete && checks === state.checkpoints.length && openIncidents === 0;
   const sessions: Record<string, RecordMap> = {
@@ -305,16 +401,21 @@ export function progress(input: WorkspaceState | ProductionState) {
   return { sessions, current_session: current, completed_sessions: completed };
 }
 
-export function readiness(input: WorkspaceState | ProductionState, requirements?: RecordMap[], conflicts?: RecordMap[]) {
+export function readiness(input: WorkspaceState | ProductionState, requirements?: RecordMap[], conflicts?: RecordMap[], checkpoints?: RecordMap[], incidents?: RecordMap[]) {
   const state = resolveProduction(input);
   const scopedRequirements = requirements || state.requirements;
   const scopedConflicts = conflicts || state.conflicts;
+  const scopedCheckpoints = checkpoints || state.checkpoints;
+  const scopedIncidents = incidents || state.incidents;
+  const sourceNames = new Set(scopedRequirements.map((item) => item.document_name));
+  const documents = requirements ? state.documents.filter((doc) => sourceNames.has(doc.name)) : state.documents;
+  const unreviewedDocuments = documents.filter((doc) => !sourceReviewed(doc)).length;
   const reviewed = scopedRequirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
   const actionable = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
   const owned = actionable.filter((item) => Boolean(item.owner)).length;
   const openConflicts = scopedConflicts.filter((item) => item.status !== "RESOLVED").length;
-  const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
-  const openIncidents = state.incidents.filter((item) => !String(item.resolution || "").trim());
+  const checks = scopedCheckpoints.filter((item) => item.status === "COMPLETE").length;
+  const openIncidents = scopedIncidents.filter((item) => !String(item.resolution || "").trim());
   const blockingIncidents = openIncidents.filter((item) => ["HIGH", "CRITICAL"].includes(String(item.severity || "").toUpperCase()));
   if (!scopedRequirements.length) {
     return {
@@ -326,20 +427,22 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
       open_incidents: openIncidents.length,
       blocking_incidents: blockingIncidents.length,
       completed_checkpoints: checks,
-      total_checkpoints: state.checkpoints.length,
+      total_checkpoints: scopedCheckpoints.length,
+      unreviewed_documents: unreviewedDocuments,
     };
   }
   const requirementScore = reviewed / scopedRequirements.length;
   const ownershipScore = actionable.length ? owned / actionable.length : 1;
   const conflictScore = scopedConflicts.length ? 1 - openConflicts / scopedConflicts.length : 1;
-  const checkpointScore = checks / Math.max(state.checkpoints.length, 1);
-  const incidentScore = state.incidents.length ? 1 - openIncidents.length / state.incidents.length : 1;
-  const score = Math.round((requirementScore * 0.35 + ownershipScore * 0.2 + conflictScore * 0.2 + checkpointScore * 0.15 + incidentScore * 0.1) * 100);
+  const checkpointScore = checks / Math.max(scopedCheckpoints.length, 1);
+  const incidentScore = scopedIncidents.length ? 1 - openIncidents.length / scopedIncidents.length : 1;
+  const computedScore = Math.round((requirementScore * 0.35 + ownershipScore * 0.2 + conflictScore * 0.2 + checkpointScore * 0.15 + incidentScore * 0.1) * 100);
+  const score = unreviewedDocuments ? Math.min(computedScore, 95) : computedScore;
   const status = openConflicts || blockingIncidents.length
     ? "BLOCKED"
-    : reviewed < scopedRequirements.length || owned < actionable.length || openIncidents.length
+    : reviewed < scopedRequirements.length || owned < actionable.length || openIncidents.length || unreviewedDocuments
       ? "NEEDS_REVIEW"
-      : checks === state.checkpoints.length
+      : checks === scopedCheckpoints.length
         ? "SHOW_READY"
         : "ADVANCE_READY";
   return {
@@ -351,19 +454,22 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
     open_incidents: openIncidents.length,
     blocking_incidents: blockingIncidents.length,
     completed_checkpoints: checks,
-    total_checkpoints: state.checkpoints.length,
+    total_checkpoints: scopedCheckpoints.length,
+    unreviewed_documents: unreviewedDocuments,
   };
 }
 
 export function departmentSummary(input: WorkspaceState | ProductionState) {
   const state = resolveProduction(input);
-  return [...new Set(state.requirements.map((item) => item.department))].sort().map((department) => {
-    const scoped = state.requirements.filter((item) => item.department === department);
-    const open = state.conflicts.filter((item) => item.department === department && item.status !== "RESOLVED").length;
+  return [...new Set(state.requirements.flatMap((item) => item.affected_departments || [item.department]))].sort().map((department) => {
+    const scoped = state.requirements.filter((item) => affectsDepartment(item, department));
+    const open = state.conflicts.filter((item) => affectsDepartment(item, department) && item.status !== "RESOLVED").length;
     const openIncidents = state.incidents.filter((item) => item.department === department && !String(item.resolution || "").trim());
     const blockingIncidents = openIncidents.filter((item) => ["HIGH", "CRITICAL"].includes(String(item.severity || "").toUpperCase()));
     const ready = scoped.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
-    const status = open || blockingIncidents.length ? "BLOCKED" : ready === scoped.length && !openIncidents.length ? "READY" : "NEEDS_REVIEW";
+    const sourceNames = new Set(scoped.map((item) => item.document_name));
+    const sourcesReviewed = state.documents.filter((doc) => sourceNames.has(doc.name)).every(sourceReviewed);
+    const status = open || blockingIncidents.length ? "BLOCKED" : ready === scoped.length && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
     return { department, total: scoped.length, ready, open_conflicts: open, open_incidents: openIncidents.length, status };
   });
 }
@@ -397,7 +503,7 @@ export function snapshot(state: WorkspaceState) {
 }
 
 function conflictSeverity(category: string) {
-  if (["POWER_CAPACITY", "RIGGING_TRIM", "RIGGING_LOAD"].includes(category)) return "CRITICAL";
+  if (["POWER_CAPACITY", "RIGGING_TRIM", "RIGGING_LOAD", "RIGGING_SUSPENDED_WEIGHT", "RIGGING_POINT_LOAD", "BSTAGE_FOOTPRINT"].includes(category)) return "CRITICAL";
   if (["VIDEO_TRANSPORT", "VIDEO_SCREEN", "BACKLINE_RISER", "AUDIO_PA"].includes(category)) return "HIGH";
   return "MEDIUM";
 }
@@ -409,6 +515,7 @@ export function rebuildConflicts(input: WorkspaceState | ProductionState) {
   const groups = new Map<string, RecordMap[]>();
 
   for (const item of state.requirements) {
+    canonicalizeRequirement(item);
     if (!item.normalized_value || !item.category) continue;
     const key = `${item.department}|${item.category}`;
     groups.set(key, [...(groups.get(key) || []), item]);
@@ -429,6 +536,7 @@ export function rebuildConflicts(input: WorkspaceState | ProductionState) {
           workspace_id: state.production.workspace_id,
           signature,
           department: left.department,
+          affected_departments: [...new Set([...(left.affected_departments || [left.department]), ...(right.affected_departments || [right.department])])],
           category: left.category,
           title: `${left.department}: conflicting ${String(left.category).toLowerCase().replaceAll("_", " ")}`,
           severity: conflictSeverity(left.category),
@@ -447,7 +555,7 @@ export function rebuildConflicts(input: WorkspaceState | ProductionState) {
     }
   }
 
-  state.conflicts = conflicts.slice(0, 30);
+  state.conflicts = conflicts;
   return state.conflicts;
 }
 
@@ -487,6 +595,7 @@ export function extractRequirements(input: WorkspaceState | ProductionState, doc
       excerpt: cleaned,
       source_kind: "TESTER",
     };
+    canonicalizeRequirement(item);
     state.requirements.push(item);
     created.push(item);
     seen.add(dedupeKey);

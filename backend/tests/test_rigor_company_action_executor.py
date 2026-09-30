@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,9 +18,19 @@ class StubClient:
         self.response = response
         self.calls = []
 
-    def chat(self, message, **kwargs):
+    def stream(self, message, **kwargs):
         self.calls.append((message, kwargs))
-        return self.response
+        messages = []
+        for index, agent in enumerate(["rigor-partnerships-capital"]):
+            call_id = str(index)
+            messages.extend(
+                [
+                    {"type": "ai", "tool_calls": [{"id": call_id, "name": "task", "args": {"subagent_type": agent}}]},
+                    {"type": "tool", "name": "task", "tool_call_id": call_id, "additional_kwargs": {"subagent_status": "completed", "subagent_result_sha256": "a" * 64}},
+                ]
+            )
+        messages.append({"type": "ai", "content": self.response})
+        yield SimpleNamespace(type="values", data={"messages": messages})
 
 
 @pytest.mark.asyncio
@@ -54,9 +65,7 @@ async def test_action_executor_runs_approved_internal_action():
 
 @pytest.mark.asyncio
 async def test_action_executor_blocks_founder_reserved_action():
-    executor = RigorCompanyActionExecutor(
-        client_factory=lambda: StubClient("{}")
-    )
+    executor = RigorCompanyActionExecutor(client_factory=lambda: StubClient("{}"))
     with pytest.raises(RigorCompanyActionExecutionBlocked):
         await executor.execute(
             CompanyActionProposal(
@@ -69,9 +78,7 @@ async def test_action_executor_blocks_founder_reserved_action():
 
 @pytest.mark.asyncio
 async def test_action_executor_rejects_invalid_result():
-    executor = RigorCompanyActionExecutor(
-        client_factory=lambda: StubClient("not-json")
-    )
+    executor = RigorCompanyActionExecutor(client_factory=lambda: StubClient("not-json"))
     with pytest.raises(RigorCompanyActionExecutionError):
         await executor.execute(
             CompanyActionProposal(

@@ -16,6 +16,7 @@ from deerflow.utils.llm_text import (
 )
 
 from .company_actions import CompanyActionProposal
+from .company_receipts import run_with_receipts
 
 
 class RigorCompanyPulseError(RuntimeError):
@@ -23,9 +24,7 @@ class RigorCompanyPulseError(RuntimeError):
 
 
 class CompanyStateUpdate(BaseModel):
-    record_type: str = Field(
-        pattern="^(OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY)$"
-    )
+    record_type: str = Field(pattern="^(OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY)$")
     title: str = Field(min_length=1, max_length=255)
     summary: str | None = Field(default=None, max_length=4000)
     status: str = Field(
@@ -43,6 +42,7 @@ class CompanyStateUpdate(BaseModel):
 
 
 class RigorCompanyPulseResult(BaseModel):
+    delegation_receipts: list[dict] = Field(default_factory=list)
     current_state: str = Field(min_length=1, max_length=8000)
     top_priorities: list[str] = Field(min_length=1, max_length=3)
     blockers_risks: list[str] = Field(default_factory=list, max_length=12)
@@ -86,8 +86,12 @@ Operating sequence:
 1. Select exactly five specialists from the available specialist pool based on
    the Founder objective, current company context, unresolved durable state,
    revenue path, capital readiness, and highest-leverage risks.
-2. Delegate one focused report to each selected specialist. The five reports may
-   run in parallel.
+2. Delegate one focused report to each selected specialist in two batches. Call
+   at most three task tools in one model response, wait for that batch to return,
+   then delegate the remaining two specialists and wait for their results.
+   DeerFlow's concurrent delegation ceiling is three; requesting all five at
+   once drops two calls. If any call is rejected, finish the missing specialist
+   reviews before requesting Chief of Staff synthesis.
 3. After all five return, delegate exactly one synthesis task to
    rigor-chief-of-staff. Include compact evidence from all five reports plus any
    relevant durable state.
@@ -167,7 +171,7 @@ Return ONLY JSON in this exact shape:
   ],
   "action_proposals": [
     {
-      "action_type": "INTERNAL_RESEARCH|INTERNAL_TEST|INTERNAL_DOCUMENT|INTERNAL_CODE_CHANGE|OUTREACH_DRAFT|SUPPORT_DRAFT|APPLICATION_DRAFT|EMAIL_SEND|PUBLIC_POST|AD_SPEND|CONTRACT|CAPITAL_ACCEPT|PAYMENT|PRODUCTION_PROMOTE|CREDENTIAL_CHANGE|DATA_DELETE",
+      "action_type": "one of the exact allowed action types listed above",
       "scope": "OBSERVE|PREPARE|INTERNAL_EXECUTE|EXTERNAL_EXECUTE|FOUNDER_RESERVED",
       "title": "specific executable action",
       "summary": "what should happen and why",
@@ -190,9 +194,7 @@ def _parse_pulse(text: str) -> RigorCompanyPulseResult:
         payload = json.loads(cleaned)
         return RigorCompanyPulseResult.model_validate(payload)
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-        raise RigorCompanyPulseError(
-            "RIGOR company operator returned invalid structured JSON"
-        ) from exc
+        raise RigorCompanyPulseError("RIGOR company operator returned invalid structured JSON") from exc
 
 
 class RigorCompanyOperator:
@@ -226,17 +228,19 @@ class RigorCompanyOperator:
         if not objective:
             raise ValueError("objective must not be empty")
         context = (context or "").strip()[:30000]
-        prompt = (
-            f"{_COMPANY_PROMPT}\n\n"
-            f"FOUNDER OBJECTIVE:\n{objective}\n\n"
-            f"CURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
-        )
+        prompt = f"{_COMPANY_PROMPT}\n\nFOUNDER OBJECTIVE:\n{objective}\n\nCURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
-        text = await asyncio.to_thread(
-            client.chat,
-            prompt,
-            thread_id="rigor-company-pulse",
-            subagent_enabled=True,
-            recursion_limit=180,
-        )
-        return _parse_pulse(text)
+        try:
+            text, receipts = await asyncio.to_thread(
+                run_with_receipts,
+                client,
+                prompt,
+                mode="pulse",
+                subagent_enabled=True,
+                recursion_limit=180,
+            )
+        except ValueError as exc:
+            raise RigorCompanyPulseError(str(exc)) from exc
+        result = _parse_pulse(text)
+        result.delegation_receipts = receipts
+        return result

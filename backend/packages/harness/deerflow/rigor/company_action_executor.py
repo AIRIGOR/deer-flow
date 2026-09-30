@@ -17,6 +17,7 @@ from .company_actions import (
     CompanyActionProposal,
     decide_company_action,
 )
+from .company_receipts import run_with_receipts
 
 
 class RigorCompanyActionExecutionError(RuntimeError):
@@ -30,8 +31,9 @@ class RigorCompanyActionExecutionBlocked(PermissionError):
 class RigorCompanyActionExecutionResult(BaseModel):
     status: Literal["COMPLETE"] = "COMPLETE"
     result_summary: str = Field(min_length=1, max_length=6000)
-    artifact_markdown: str | None = Field(default=None, max_length=30000)
-    evidence_refs: list[str] = Field(default_factory=list, max_length=30)
+    artifact_markdown: str = Field(min_length=1, max_length=30000)
+    evidence_refs: list[str] = Field(min_length=1, max_length=30)
+    delegation_receipts: list[dict] = Field(default_factory=list)
 
 
 ClientFactory = Callable[[], DeerFlowClient]
@@ -57,6 +59,9 @@ Complete the requested internal work, preserve evidence, and return ONLY JSON:
 }
 
 Do not claim an external action was performed. Do not wrap JSON in Markdown.
+Preserve supplied facts and sources. Label assumptions and unknowns explicitly.
+Never invent revenue, customers, team biographies, product capabilities, or test
+results. A completed artifact must include verifiable source references.
 """
 
 
@@ -66,9 +71,7 @@ def _parse_execution(text: str) -> RigorCompanyActionExecutionResult:
         payload = json.loads(cleaned)
         return RigorCompanyActionExecutionResult.model_validate(payload)
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-        raise RigorCompanyActionExecutionError(
-            "RIGOR company action executor returned invalid structured JSON"
-        ) from exc
+        raise RigorCompanyActionExecutionError("RIGOR company action executor returned invalid structured JSON") from exc
 
 
 class RigorCompanyActionExecutor:
@@ -98,22 +101,23 @@ class RigorCompanyActionExecutor:
         if decision.approval_required:
             raise RigorCompanyActionExecutionBlocked(decision.policy_reason)
         if proposal.action_type not in AUTO_ALLOWED_ACTIONS:
-            raise RigorCompanyActionExecutionBlocked(
-                "action is not executable in the automatic internal lane"
-            )
+            raise RigorCompanyActionExecutionBlocked("action is not executable in the automatic internal lane")
 
         context = (context or "").strip()[:20000]
-        prompt = (
-            f"{_ACTION_PROMPT}\n\n"
-            f"ACTION PROPOSAL:\n{proposal.model_dump_json()}\n\n"
-            f"COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
-        )
+        prompt = f"{_ACTION_PROMPT}\n\nACTION PROPOSAL:\n{proposal.model_dump_json()}\n\nCOMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
-        text = await asyncio.to_thread(
-            client.chat,
-            prompt,
-            thread_id="rigor-company-action",
-            subagent_enabled=True,
-            recursion_limit=100,
-        )
-        return _parse_execution(text)
+        try:
+            text, receipts = await asyncio.to_thread(
+                run_with_receipts,
+                client,
+                prompt,
+                mode="action",
+                owner=proposal.owner_agent,
+                subagent_enabled=True,
+                recursion_limit=100,
+            )
+        except ValueError as exc:
+            raise RigorCompanyActionExecutionError(str(exc)) from exc
+        result = _parse_execution(text)
+        result.delegation_receipts = receipts
+        return result

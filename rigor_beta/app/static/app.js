@@ -201,17 +201,17 @@ function renderSessionOne() {
   const nextRequirement = openRequirements[0];
   const reviewItems = showAllRequirements ? state.requirements : (nextRequirement ? [nextRequirement] : []);
   return `<div class="stage-head focused-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Verify what matters, resolve one decision, then move to the next.</p></div></div>
-    ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">${state.requirements.length ? "Work one requirement at a time. Open source evidence only when you need to verify what RIGOR saw." : "Upload a production document to begin extraction and source-backed review."}</div>`}
+    ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">${state.requirements.length ? "Work one requirement at a time. Check the complete source documents for missed or uncertain requirements before completing source review." : "Upload a production document to begin extraction and source-backed review."}</div>`}
     <div class="card requirement-focus">
       <div class="card-header requirement-focus-head">
-        <div><div class="eyebrow">Now</div><h3>Requirement review</h3><div class="muted small">${info.done} of ${state.requirements.length} verified${openRequirements.length ? ` · ${openRequirements.length} remaining` : ""}</div></div>
+        <div><div class="eyebrow">Now</div><h3>Requirement review</h3><div class="muted small">${info.done} of ${state.requirements.length} requirement candidates verified${openRequirements.length ? ` · ${openRequirements.length} remaining` : ""}</div></div>
         ${state.requirements.length > 1 ? `<button class="btn ghost small-button" onclick="toggleRequirementsView()">${showAllRequirements ? "Focus next" : "View all"}</button>` : ""}
       </div>
       ${showAllRequirements ? `<div class="requirement-tools"><select id="requirement-filter" aria-label="Filter department"><option value="ALL">All departments</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div>` : ""}
       <div id="requirements-list" class="stack requirement-stack">${state.requirements.length ? (reviewItems.length ? renderRequirements(reviewItems) : `<div class="callout success"><strong>All requirements reviewed.</strong> Technical Advance is ready when the remaining session conditions are complete.</div>`) : `<div class="callout">No extracted requirements yet. Upload the venue pack, rider, schedule, labor call, or other production source documents.</div>`}</div>
     </div>
     <div class="grid two source-grid" style="margin-top:16px">
-      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${badge(doc.status)}</div>`).join("")}</div></div>
+      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${doc.source_kind === "SAMPLE" || doc.review_status === "REVIEWED" ? badge("REVIEWED") : `<button class="btn small-button" onclick="reviewSource('${doc.document_id}')">Complete source review</button>`}</div>`).join("")}</div></div>
       <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
     </div>
     ${renderFeedback(1)}`;
@@ -225,7 +225,7 @@ function toggleRequirementsView() {
 
 function renderRequirements(items) {
   return items.map(item => `<article class="requirement-row" data-department="${escapeHtml(item.department)}">
-    <div><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.status)}</div><h3>${escapeHtml(item.title)}</h3><p class="muted small">${escapeHtml(item.detail)}</p><button class="btn ghost small-button" onclick='showEvidence(${JSON.stringify(item).replaceAll("'", "&#39;")})'>Source evidence ↗</button></div>
+    <div><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.status)}</div><h3>${escapeHtml(item.title)}</h3><p class="muted small">${escapeHtml(item.detail)}</p>${item.coverage_review_required ? '<p class="small">Source review candidate: check this statement against the original document before confirming.</p>' : ''}<button class="btn ghost small-button" onclick='showEvidence(${JSON.stringify(item).replaceAll("'", "&#39;")})'>Source evidence ↗</button></div>
     <div class="actions">${!["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status) ? `<button class="btn primary small-button" onclick="setRequirement('${item.requirement_id}','CONFIRMED')">Confirm</button><button class="btn danger small-button" onclick="setRequirement('${item.requirement_id}','REJECTED')">Reject</button>` : `<button class="btn small-button" onclick="setRequirement('${item.requirement_id}','NEEDS_CONFIRMATION')">Reopen</button>`}</div>
   </article>`).join("");
 }
@@ -443,6 +443,15 @@ async function resolveIncident(event) {
     button.disabled = false;
     showToast(error.message, true);
   }
+}
+
+async function reviewSource(documentId) {
+  if (!window.confirm("Have you checked the complete original document, accounted for all production requirements, and reviewed every requirement candidate?")) return;
+  try {
+    state = await api(`/api/documents/${documentId}/review`, { method: "POST", body: JSON.stringify({ complete_source_review: true }) });
+    showToast("Source review recorded. Readiness recalculated.");
+    renderWorkspace();
+  } catch (error) { showToast(error.message, true); }
 }
 
 async function uploadDocument(event) {

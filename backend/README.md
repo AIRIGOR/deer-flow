@@ -503,3 +503,5 @@ See the [LICENSE](../LICENSE) file in the project root.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+The company operator now reserves its six runtime delegations: five distinct specialist reviews, then Chief of Staff synthesis using the returned reports. Duplicate or early synthesis requests cannot spend the reserved slot; failed specialist execution still fails the command.
