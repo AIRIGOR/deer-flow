@@ -3,7 +3,7 @@
   publish = "app/static"
 
 [build.environment]
-  RIGOR_RELEASE_CHECKPOINT = "2026-09-30-service-alignment"
+  RIGOR_RELEASE_CHECKPOINT = "2026-09-30-live-gate-repair"
 
 [functions]
   directory = "netlify/functions"
