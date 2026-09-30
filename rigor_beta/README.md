@@ -35,6 +35,11 @@ The DeerFlow endpoint treats uploaded document text as untrusted source material
 
 ## Local checks
 
+Company health reports action counts from the current durable queue, including
+zero counts and failed actions. It falls back to pulse metadata only when the
+queue is unavailable. A pulse timestamp alone does not verify that action
+execution finished or that two clean operating cycles completed.
+
 ```bash
 npm ci
 npm run check
