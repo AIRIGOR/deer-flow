@@ -1,6 +1,6 @@
 import { normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
 import { timingSafeEqual } from "node:crypto";
-import { getDeployStore, getStore } from "@netlify/blobs";
+import {companyStore} from "./_shared/company-store.js";
 import type { Context } from "@netlify/functions";
 
 type ActionStatus =
@@ -40,12 +40,6 @@ function safeEqual(left: string, right: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function companyStore(context: Context) {
-  if (context.deploy.context === "production") {
-    return getStore({ name: "rigor-company", consistency: "strong" });
-  }
-  return getDeployStore("rigor-company");
-}
 
 function proposalFor(action: ActionQueueRecord) {
   return {
@@ -62,7 +56,7 @@ function proposalFor(action: ActionQueueRecord) {
 }
 
 async function persistQueue(
-  store: ReturnType<typeof getStore>,
+  store: Awaited<ReturnType<typeof companyStore>>,
   queue: ActionQueueRecord[],
 ) {
   await store.setJSON("actions/queue", queue);
@@ -123,7 +117,7 @@ export default async (request: Request, context: Context) => {
         0,
     ),
   );
-  const store = companyStore(context);
+  const store = await companyStore(context);
   const queue =
     ((await store.get("actions/queue", { type: "json" })) as
       | ActionQueueRecord[]

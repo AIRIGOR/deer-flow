@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { getDeployStore, getStore } from "@netlify/blobs";
+import {companyStore} from "./_shared/company-store.js";
 import type { Context } from "@netlify/functions";
 import { normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
 
@@ -120,12 +120,6 @@ function safeEqual(left: string, right: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function companyStore(context: Context) {
-  if (context.deploy.context === "production") {
-    return getStore({ name: "rigor-company", consistency: "strong" });
-  }
-  return getDeployStore("rigor-company");
-}
 
 async function publicJson(url: string) {
   try {
@@ -353,7 +347,7 @@ function contextDeployId(request: Request) {
   return request.headers.get("x-nf-deploy-id") || null;
 }
 
-async function trimHistory(store: ReturnType<typeof getStore>) {
+async function trimHistory(store: Awaited<ReturnType<typeof companyStore>>) {
   const listed = await store.list({ prefix: "pulse/history/" });
   const keys = listed.blobs.map((item) => item.key).sort();
   const excess = keys.slice(0, Math.max(0, keys.length - 30));
@@ -375,7 +369,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
     return;
   }
 
-  const store = companyStore(context);
+  const store = await companyStore(context);
   const startedAt = new Date().toISOString();
   await store.setJSON("pulse/last-attempt", { started_at: startedAt, status: "RUNNING" });
   try {

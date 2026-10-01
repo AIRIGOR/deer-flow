@@ -7,7 +7,7 @@ export default async (request: Request, context: Context) => {
   let id: unknown;
   try { id = (await request.json()).command_id; } catch { return; }
   if (!validCommandId(id)) return;
-  const store = founderStore(context), key = "founder/commands/" + id;
+  const store = await founderStore(context), key = "founder/commands/" + id;
   const stored = await store.getWithMetadata(key, {type: "json"});
   if (!stored || !stored.etag || stored.data.status !== "QUEUED") return;
   const command = stored.data as FounderCommand;

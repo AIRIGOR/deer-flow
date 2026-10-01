@@ -13,7 +13,7 @@ export default async (request: Request, context: Context) => {
     if (request.method === "POST" && !service) {
       try { verifyRequestOrigin(request); } catch { return founderJson({detail: "Same-origin founder request required"}, 403); }
     }
-    const store = founderStore(context);
+    const store = await founderStore(context);
     const path = new URL(request.url).pathname;
     const prefix = "founder/commands/";
     if (path === "/api/founder" && request.method === "GET") {

@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { getDeployStore, getStore } from "@netlify/blobs";
+import {companyStore} from "./company-store.js";
 import type { Context } from "@netlify/functions";
 
 export type CommandKind = "RELEASE_REVIEW" | "MOAT_REVIEW" | "COMPANY_REVIEW" | "RUN_COMPANY_PULSE";
@@ -34,11 +34,7 @@ export function serviceAuthorized(request: Request) {
   return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function founderStore(context: Context) {
-  return context.deploy.context === "production"
-    ? getStore({name: "rigor-company", consistency: "strong"})
-    : getDeployStore("rigor-company");
-}
+export const founderStore = companyStore;
 
 export function commandView(command: FounderCommand, time = Date.now()) {
   return {...command, request_hash: undefined,

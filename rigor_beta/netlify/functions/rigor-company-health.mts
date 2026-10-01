@@ -1,4 +1,4 @@
-import { getDeployStore, getStore } from "@netlify/blobs";
+import {companyStore} from "./_shared/company-store.js";
 import type { Config, Context } from "@netlify/functions";
 import { companyActionCounts, companyPulseHealth, type PulseAttempt } from "./_shared/company-health.js";
 
@@ -21,12 +21,6 @@ type ActionQueueRecord = {
   approval_required?: boolean;
 };
 
-function companyStore(context: Context) {
-  if (context.deploy.context === "production") {
-    return getStore({ name: "rigor-company", consistency: "strong" });
-  }
-  return getDeployStore("rigor-company");
-}
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -45,7 +39,7 @@ export default async (request: Request, context: Context) => {
   }
 
   try {
-    const store = companyStore(context);
+    const store = await companyStore(context);
     const [latest, records, actions, attempt] = await Promise.all([
       store.get("pulse/latest", { type: "json" }) as Promise<LatestPulse | null>,
       store.get("state/records", { type: "json" }) as Promise<unknown[] | null>,
