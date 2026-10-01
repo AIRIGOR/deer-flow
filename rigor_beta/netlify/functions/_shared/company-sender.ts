@@ -21,6 +21,8 @@ function providerDiagnostic(http_status: number, data: any) {
 export async function checkSender(request: Request, store: Store, actor: string) {
   if ((await request.text()).trim()) return founderJson({detail: 'The connection check accepts no custom payload'}, 422);
   if (!senderConnection().configured) return founderJson({detail: 'Cloudflare credentials are required'}, 503);
+  const token = Netlify.env.get('RIGOR_CLOUDFLARE_EMAIL_TOKEN')!.trim();
+  const formatIssues = [/^Bearer\s/i.test(token) && 'bearer_prefix', /[\s]/.test(token) && 'internal_whitespace', /["'`]/.test(token) && 'quotation_marks'].filter(Boolean);
   const attempts: {endpoint: string; http_status: number; provider_codes: number[]; token_status: string | null}[] = [];
   let result: Record<string, unknown> = {status: 'CHECK_UNAVAILABLE', explanation: 'Token verification could not complete. This does not prove delivery.'};
   try {
@@ -28,11 +30,12 @@ export async function checkSender(request: Request, store: Store, actor: string)
     const signal = AbortSignal.timeout(10000);
     for (const endpoint of ['user/tokens/verify', `accounts/${account}/tokens/verify`]) {
       const response = await fetch(`https://api.cloudflare.com/client/v4/${endpoint}`, {
-        headers: {Authorization: `Bearer ${Netlify.env.get('RIGOR_CLOUDFLARE_EMAIL_TOKEN')!.trim()}`}, signal,
+        headers: {Authorization: `Bearer ${token}`}, signal,
       });
       const data = await response.json().catch(() => null);
       const tokenStatus = ['active', 'disabled', 'expired'].includes(data?.result?.status) ? data.result.status : null;
-      const codes = Array.isArray(data?.errors) ? data.errors.map((item: {code?: number}) => item?.code).filter((code: number) => [1000, 10000, 6003, 6111, 9109].includes(code)) : [];
+      const errors = Array.isArray(data?.errors) ? data.errors.slice(0, 10) : [];
+      const codes = errors.flatMap((item: any) => [item?.code, ...(Array.isArray(item?.error_chain) ? item.error_chain.slice(0, 10).map((nested: any) => nested?.code) : [])]).filter((code: number) => [1000, 10000, 6003, 6111, 9109].includes(code));
       attempts.push({endpoint: endpoint.startsWith('user') ? 'user' : 'account', http_status: response.status, provider_codes: [...new Set<number>(codes)], token_status: tokenStatus});
       if (response.ok && data?.success === true && tokenStatus === 'active') {
         result = {status: 'TOKEN_ACTIVE', explanation: `Cloudflare confirms the ${endpoint.startsWith('user') ? 'user' : 'account'} API token is active. Email Sending permissions, activation and delivery remain unverified.`};
@@ -43,7 +46,8 @@ export async function checkSender(request: Request, store: Store, actor: string)
     }
   } catch { result = {status: 'CHECK_UNAVAILABLE', explanation: 'Token verification could not complete. This does not prove an invalid token or delivery.'}; }
   const summary = attempts.map(item => `${item.endpoint} check: HTTP ${item.http_status}${item.token_status ? `, ${item.token_status}` : ''}${item.provider_codes.length ? `, code ${item.provider_codes.join(', ')}` : ''}`).join('; ');
-  const saved = {...result, explanation: `${result.explanation}${summary ? ` ${summary}.` : ''}`, attempts, checked_at: new Date().toISOString(), issued_by: actor, emails_sent: 0};
+  const formatSummary = formatIssues.length ? ` Saved credential formatting includes: ${formatIssues.join(', ')}. Store only the token secret; RIGOR adds the authorization prefix.` : '';
+  const saved = {...result, explanation: `${result.explanation}${summary ? ` ${summary}.` : ''}${formatSummary}`, attempts, format_issues: formatIssues, checked_at: new Date().toISOString(), issued_by: actor, emails_sent: 0};
   await store.setJSON('founder/mail-check/latest', saved);
   return founderJson(saved);
 }

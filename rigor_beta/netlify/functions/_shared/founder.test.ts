@@ -338,6 +338,13 @@ describe('Sender diagnostics without email', () => {
     const data = await (await founder(check(), context)).json();
     expect(data.status).toBe('CHECK_UNAVAILABLE'); expect(JSON.stringify(data)).not.toContain('private');
   });
+  it('reports credential wrapper problems and nested header codes without revealing the secret', async () => {
+    vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'Bearer "private-token"'})[key]}});
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({errors: [{code: 6003, message: 'private-token', error_chain: [{code: 6111, message: 'private-token'}, {code: 99999}]}]}), {status: 400})));
+    const data = await (await founder(check(), context)).json();
+    expect(data.format_issues).toEqual(['bearer_prefix', 'internal_whitespace', 'quotation_marks']);
+    expect(data.attempts[0].provider_codes).toEqual([6003, 6111]); expect(JSON.stringify(data)).not.toContain('private-token');
+  });
   it('keeps only allowlisted provider error codes and fixed explanations on send failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({errors: [{code: 10105, message: 'private-mail-token'}, {code: 999999, message: 'secret'}]}), {status: 403})));
     const data = await (await founder(new Request('https://example.test/api/founder/sender-test', {method: 'POST'}), context)).json();
