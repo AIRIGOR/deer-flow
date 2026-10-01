@@ -996,6 +996,8 @@ RIGOR document analysis preserves numeric capacities and quantities returned by 
 
 Company sequencing labels inserted specialist and Chief of Staff calls with the runtime tool-call type so they execute through DeerFlow's tool runner.
 
+A bounded Founder action delegates exactly once to its assigned specialist before producing an evidence-backed internal artifact. Its executor does not load the multi-specialist company-cycle skill; failed or capped specialist work remains a blocked completion.
+
 This fork includes a bounded RIGOR operating team built on DeerFlow's native subagent system. The lead agent can delegate to specialized Chief of Staff, Product/Production Intelligence, Engineering, QA/Security, Market Intelligence, and Partnerships/Capital agents. These agents are designed for internal research, analysis, implementation, and release validation; external commitments, spending, credential changes, and production promotion remain human-approved actions.
 
 See [docs/rigor-ai-company-team.md](docs/rigor-ai-company-team.md) for the operating model and approval boundary.

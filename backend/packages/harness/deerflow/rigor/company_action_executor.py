@@ -12,12 +12,13 @@ from pydantic import BaseModel, Field, ValidationError
 from deerflow.client import DeerFlowClient
 from deerflow.utils.llm_text import strip_markdown_code_fence, strip_think_blocks
 
+from .company_action_sequence import CompanyActionSequenceMiddleware
 from .company_actions import (
     AUTO_ALLOWED_ACTIONS,
     CompanyActionProposal,
     decide_company_action,
 )
-from .company_receipts import run_with_receipts
+from .company_receipts import SPECIALISTS, run_with_receipts
 
 
 class RigorCompanyActionExecutionError(RuntimeError):
@@ -54,7 +55,7 @@ Complete the requested internal work, preserve evidence, and return ONLY JSON:
 {
   "status": "COMPLETE",
   "result_summary": "what was actually completed",
-  "artifact_markdown": "the draft/research/test artifact, or null",
+  "artifact_markdown": "the nonempty draft/research/test artifact with evidence and known limitations",
   "evidence_refs": ["source URL, commit, test, file, or other evidence"]
 }
 
@@ -78,15 +79,16 @@ class RigorCompanyActionExecutor:
     """Execute only actions that pass RIGOR's deterministic authority policy."""
 
     def __init__(self, *, client_factory: ClientFactory | None = None) -> None:
-        self._client_factory = client_factory or self._default_client_factory
+        self._client_factory = client_factory
 
     @staticmethod
-    def _default_client_factory() -> DeerFlowClient:
+    def _default_client_factory(owner: str | None = None) -> DeerFlowClient:
         return DeerFlowClient(
             subagent_enabled=True,
             thinking_enabled=False,
             plan_mode=False,
-            available_skills={"rigor-company-operator"},
+            available_skills=set(),
+            middlewares=[CompanyActionSequenceMiddleware(owner)],
             agent_name="rigor-company-action-executor",
             environment="production",
         )
@@ -103,9 +105,12 @@ class RigorCompanyActionExecutor:
         if proposal.action_type not in AUTO_ALLOWED_ACTIONS:
             raise RigorCompanyActionExecutionBlocked("action is not executable in the automatic internal lane")
 
+        if proposal.owner_agent and proposal.owner_agent not in SPECIALISTS | {"rigor-chief-of-staff"}:
+            raise RigorCompanyActionExecutionBlocked("action owner must be a registered RIGOR agent")
+
         context = (context or "").strip()[:20000]
         prompt = f"{_ACTION_PROMPT}\n\nACTION PROPOSAL:\n{proposal.model_dump_json()}\n\nCOMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
-        client = self._client_factory()
+        client = self._client_factory() if self._client_factory else self._default_client_factory(proposal.owner_agent)
         try:
             text, receipts = await asyncio.to_thread(
                 run_with_receipts,
