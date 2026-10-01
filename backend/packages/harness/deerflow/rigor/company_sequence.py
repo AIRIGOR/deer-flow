@@ -5,6 +5,7 @@ from uuid import uuid4
 from langchain.agents.middleware import AgentMiddleware
 
 from deerflow.agents.middlewares.tool_call_metadata import clone_ai_message_with_tool_calls
+from deerflow.rigor.company_objective import company_objective
 from deerflow.rigor.company_receipts import SPECIALISTS
 
 _FALLBACK_ROLES = (
@@ -37,7 +38,7 @@ class CompanySequenceMiddleware(AgentMiddleware):
         if "rigor-chief-of-staff" in used:
             return {"messages": [clone_ai_message_with_tool_calls(last, other_calls)]} if task_calls else None
 
-        objective = next((str(message.content) for message in messages if getattr(message, "type", None) == "human"), "")
+        objective = company_objective(messages)
         if len(used) == 5:
             reports = "\n\n".join(f"{previous_calls[call_id]}:\n{message.content}" for call_id, message in results.items() if call_id in previous_calls)
             selected = [
