@@ -1,3 +1,4 @@
+import {reviewableActions} from './outreach-review.js';
 import {createHash} from 'node:crypto';
 import {founderJson, type founderStore} from './founder.js';
 type Data = Record<string, any>;
@@ -29,7 +30,7 @@ export async function reviewAction(request: Request, store: Store, actor: string
   if (!['APPROVE', 'REJECT', 'REQUEST_CHANGES'].includes(body.decision)) return founderJson({detail: 'Choose Approve, Reject or Request changes'}, 422);
   const note = typeof body.note === 'string' ? body.note.trim() : '';
   if (note.length > 3900 || (body.decision === 'REQUEST_CHANGES' && note.length < 8)) return founderJson({detail: 'Requested changes need a note of 8–3,900 characters'}, 422);
-  const actions = await store.get('actions/queue', {type: 'json'});
+  const actions = await reviewableActions(store);
   const action = Array.isArray(actions) ? actions.find((row: Data) => row.action_key === body.action_key) : null;
   if (!action) return founderJson({detail: 'Action not found'}, 404);
   const fingerprint = actionFingerprint(action);

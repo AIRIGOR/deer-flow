@@ -27,6 +27,26 @@ async function refresh() {
   const viewer = currentUserId;
   const state = await api('/api/founder');
   if (!viewer || viewer !== currentUserId) return false;
+  const sender = state.sender;
+  say('sender-state', `${sender.address} · ${sender.provider} · ${sender.configured ? 'Credentials configured; delivery not verified.' : 'Account connection required.'} Sending is disabled.`);
+  say('sender-steps', sender.setup_steps.join('\n'));
+  say('sender-test-status', sender.test ? `Delivery test: ${sender.test.status.replaceAll('_', ' ').toLowerCase()} · ${sender.test.created_at}. Provider delivery does not prove inbox placement.` : 'No delivery test recorded.');
+  element<HTMLButtonElement>('sender-test').disabled = !sender.configured;
+  element<HTMLButtonElement>('sender-test').onclick = async () => {
+    element<HTMLButtonElement>('sender-test').disabled = true;
+    try {await api('/api/founder/sender-test', {method: 'POST'}); await refresh();}
+    catch (error) {say('sender-test-status', error instanceof Error ? error.message : 'Unable to read test result. Refresh before retrying.');}
+  };
+  const outreach = state.commands.find((c: {kind: string; status: string}) => c.kind === 'PREPARE_OUTREACH' && c.status === 'COMPLETE');
+  element<HTMLButtonElement>('prepare-review').disabled = !outreach;
+  element<HTMLButtonElement>('prepare-review').onclick = async () => {
+    element<HTMLButtonElement>('prepare-review').disabled = true;
+    try {
+      await api('/api/founder/outreach-proposals', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({command_id: outreach.command_id})});
+      say('approval-notice', 'Three exact drafts saved for review. Recipient addresses remain unverified; nothing was sent.');
+      await refresh();
+    } catch (error) {say('approval-notice', error instanceof Error ? error.message : 'Unable to prepare proposals.'); element<HTMLButtonElement>('prepare-review').disabled = false;}
+  };
   renderPulse(element('pulse'), state.pulse);
   renderState(element('state'), state.records, state.actions);
   renderCommands(element('commands'), state.commands);
@@ -74,7 +94,7 @@ element<HTMLFormElement>('login').addEventListener('submit', async event => {
   catch (error) { say('access', error instanceof Error ? error.message : 'Sign-in failed.'); }
 });
 element('logout').addEventListener('click', async () => {
-  try { await logout(); poller.stop(); activeCommandId = undefined; currentUserId = undefined; say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); say('approvals', 'Sign in to review actions.'); say('approval-notice', ''); await session(); }
+  try { await logout(); poller.stop(); activeCommandId = undefined; currentUserId = undefined; say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); say('approvals', 'Sign in to review actions.'); say('approval-notice', ''); say('sender-state', 'Sign in to view sender setup.'); say('sender-steps', ''); say('sender-test-status', ''); element<HTMLButtonElement>('sender-test').disabled = true; element<HTMLButtonElement>('prepare-review').disabled = true; await session(); }
   catch { say('access', 'Sign-out failed.'); }
 });
 element<HTMLFormElement>('set-password').addEventListener('submit', async event => {

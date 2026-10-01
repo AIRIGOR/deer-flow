@@ -87,3 +87,9 @@ Use **Prepare outreach** for prospect research and email drafting. It delegates 
 ### Founder decisions
 
 The Founder Command Center shows queued proposals with Approve proposal, Reject, and Request changes controls. Decisions store the authenticated Founder, time, note and exact proposal revision. Changed proposal content requires a fresh decision. Email approval requires explicit from, to, subject and body fields; broad outreach objectives cannot be approved as messages. Decisions are saved separately from the automatic queue and do not send email or execute external actions. External execution remains disconnected.
+
+### Cloudflare sender and outreach proposals
+
+The Company email panel reports configuration separately from provider delivery. Add `RIGOR_CLOUDFLARE_ACCOUNT_ID` and `RIGOR_CLOUDFLARE_EMAIL_TOKEN` as server-only Functions variables in deploy-preview context; never paste credentials into chat. The signed-in Founder can send only a fixed connection test from ausar@akhasha.com to ausar_bey@icloud.com, at most once per UTC day. The result distinguishes delivered, queued, bounced, rejected and unknown; timeouts never retry. Provider delivery does not prove inbox placement. No prospect sending endpoint is enabled.
+
+Prepare first three drafts for review creates immutable unsent proposals from a verified saved outreach package. Unverified recipients remain null and cannot be approved. Repeating preparation preserves decisions.

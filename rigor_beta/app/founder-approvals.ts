@@ -11,11 +11,15 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
     if (action.action_type === 'EMAIL_SEND') {
       for (const key of ['from', 'to', 'subject', 'body']) card.append(node('p', `${key}: ${text(payload[key]) || 'Not supplied — request changes before approval'}`));
     }
+    if (action.source_command_id) {
+      card.append(node('p', `Public contact route: ${text(payload.contact_route)}`), node('h4', 'Follow-up draft'), node('p', text(payload.follow_up)), node('h4', 'Verification gaps'));
+      const list = node('ul', ''); items(payload.verification_gaps).forEach(value => list.append(node('li', text(value)))); card.append(list);
+    }
     const details = document.createElement('details');
     details.append(node('summary', 'Exact proposal and evidence'), node('pre', JSON.stringify(Object.fromEntries(Object.entries(action).filter(([key]) => !['review', 'review_fingerprint'].includes(key))), null, 2))); card.append(details);
     const review = object(action.review);
     if (review.decision) {
-      card.append(node('p', `${label(review.decision)} · Saved ${text(review.decided_at)} · Founder ${text(review.decided_by)}`), node('p', text(review.note)), node('p', 'Not executed. Approval records a decision; sending and other external execution are not connected.'));
+      card.append(node('p', `${label(review.decision)} · Saved ${text(review.decided_at)} · Saved by Founder`), node('p', text(review.note)), node('p', 'Not executed. Approval records a decision; sending and other external execution are not connected.'));
     } else {
       const note = document.createElement('textarea'); note.setAttribute('aria-label', `Decision note for ${text(action.title)}`); note.placeholder = 'Describe requested changes or explain your decision'; card.append(note);
       const feedback = node('p', ''); feedback.setAttribute('role', 'status');

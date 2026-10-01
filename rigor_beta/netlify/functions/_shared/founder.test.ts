@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
       if (options?.onlyIfMatch && options.onlyIfMatch !== 'revision') return {modified: false};
       records.set(key, value); return {modified: true};
     }),
-    list: vi.fn(async () => ({blobs: [...records.keys()].filter(key => key.startsWith('founder/commands/')).map(key => ({key}))})),
+    list: vi.fn(async (options?: {prefix?: string}) => ({blobs: [...records.keys()].filter(key => key.startsWith(options?.prefix || 'founder/commands/')).map(key => ({key}))})),
   }};
 });
 vi.mock('@netlify/blobs', () => ({getStore: () => mocks.store, getDeployStore: () => mocks.store}));
@@ -231,5 +231,72 @@ describe('Founder proposal decisions', () => {
     expect((await founder(request('/api/founder/action-reviews', []), context)).status).toBe(400);
     expect((await decide(await packet(), 'SEND')).status).toBe(422);
     mocks.records.set('actions/queue', []); expect((await decide({action_key: 'missing', review_fingerprint: 'x'})).status).toBe(404);
+  });
+});
+
+
+describe('Saved outreach review proposals', () => {
+  const saved = () => ({...command(), kind: 'PREPARE_OUTREACH', status: 'COMPLETE', result: {outreach_package: outreachFixture()}, execution_receipt: {command_id: id, delegation_verified: true}});
+  it('prepares exactly three durable unsent drafts without inventing recipients; repeated requests preserve decisions', async () => {
+    mocks.records.set('founder/commands/' + id, saved());
+    const prepare = () => founder(request('/api/founder/outreach-proposals', {command_id: id}), context);
+    expect((await prepare()).status).toBe(201);
+    expect((await prepare()).status).toBe(201);
+    const state = await (await founder(request('/api/founder'), context)).json();
+    expect(state.actions).toHaveLength(3);
+    expect(state.actions.every((a: any) => a.payload.to === null && a.payload.sending_status === 'UNSENT')).toBe(true);
+    expect(state.actions[0].payload.body).toBeTruthy();
+    const a = state.actions[0];
+    expect((await founder(request('/api/founder/action-reviews', {action_key: a.action_key, fingerprint: a.review_fingerprint, decision: 'APPROVE'}), context)).status).toBe(422);
+    expect((await founder(request('/api/founder/action-reviews', {action_key: a.action_key, fingerprint: a.review_fingerprint, decision: 'REQUEST_CHANGES', note: 'Verify the exact email recipient first.'}), context)).status).toBe(201);
+    await prepare();
+    const reloaded = await (await founder(request('/api/founder'), context)).json();
+    expect(reloaded.actions[0].review.decision).toBe('REQUEST_CHANGES');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('requires real Founder authority and verified completed package', async () => {
+    mocks.records.set('founder/commands/' + id, {...saved(), status: 'FAILED'});
+    expect((await founder(request('/api/founder/outreach-proposals', {command_id: id}), context)).status).toBe(409);
+    expect((await founder(request('/api/founder/outreach-proposals', {command_id: id}, true), context)).status).toBe(403);
+    expect([...mocks.records.keys()].some(k => k.startsWith('founder/outreach-proposals/'))).toBe(false);
+  });
+  it('reports sender configuration separately from delivery and never exposes credential values', async () => {
+    vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-mail-token'})[key]}});
+    const response = await founder(request('/api/founder'), context); const raw = await response.text();
+    expect(JSON.parse(raw).sender).toMatchObject({configured: true, sending_enabled: false, delivery_verified: false});
+    expect(raw).not.toContain('private-mail-token'); expect(raw).not.toContain('a'.repeat(32));
+  });
+});
+
+describe('Cloudflare fixed Founder delivery test', () => {
+  const testRequest = () => new Request('https://example.test/api/founder/sender-test', {method: 'POST'});
+  beforeEach(() => {vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-mail-token', RIGOR_DEERFLOW_TOKEN: 'secret'})[key]}});});
+  it('sends only the fixed self-test, persists real provider status and blocks duplicates', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {delivered: ['ausar_bey@icloud.com']}}))));
+    const response = await founder(testRequest(), context); expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({status: 'PROVIDER_DELIVERED', prospect_messages_sent: 0});
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/' + 'b'.repeat(32) + '/email/sending/send');
+    expect(JSON.parse(String(init?.body))).toMatchObject({from: 'ausar@akhasha.com', to: 'ausar_bey@icloud.com', subject: 'RIGOR sender connection test'});
+    expect((await founder(testRequest(), context)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
+    const state = await (await founder(request('/api/founder'), context)).json(); expect(state.sender.delivery_verified).toBe(true); expect(state.sender.sending_enabled).toBe(false);
+  });
+  it.each(['QUEUED', 'DELIVERY_UNKNOWN', 'PROVIDER_REJECTED', 'BOUNCED'])('distinguishes %s from successful delivery and never retries', async status => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (status === 'DELIVERY_UNKNOWN') throw new Error('private upstream data');
+      if (status === 'PROVIDER_REJECTED') return new Response('private error', {status: 403});
+      return new Response(JSON.stringify({success: true, result: status === 'QUEUED' ? {queued: ['ausar_bey@icloud.com']} : {permanent_bounces: ['ausar_bey@icloud.com']}}));
+    }));
+    const result = await founder(testRequest(), context); const data = await result.json(); expect(data.status).toBe(status);
+    expect(JSON.stringify(data)).not.toContain('private');
+    expect((await founder(testRequest(), context)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
+    expect((await (await founder(request('/api/founder'), context)).json()).sender.delivery_verified).toBe(false);
+  });
+  it('blocks custom recipients, service callers, invalid credentials and competing reservations before sending', async () => {
+    expect((await founder(request('/api/founder/sender-test', {to: 'prospect@example.test'}), context)).status).toBe(422);
+    expect((await founder(request('/api/founder/sender-test', {}, true), context)).status).toBe(403);
+    mocks.store.setJSON.mockResolvedValueOnce({modified: false}); expect((await founder(testRequest(), context)).status).toBe(409);
+    vi.stubGlobal('Netlify', {env: {get: () => undefined}}); expect((await founder(testRequest(), context)).status).toBe(503);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

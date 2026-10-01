@@ -1,3 +1,5 @@
+import {senderStatus, testSender} from './_shared/company-sender.js';
+import {prepareOutreachReview, reviewableActions} from './_shared/outreach-review.js';
 import { createHash, randomUUID } from "node:crypto";
 import { getUser, verifyRequestOrigin } from "@netlify/identity";
 import type { Config, Context } from "@netlify/functions";
@@ -78,6 +80,14 @@ export default async (request: Request, context: Context) => {
     const store = await founderStore(context);
     const path = new URL(request.url).pathname;
     const prefix = "founder/commands/";
+    if (path === "/api/founder/sender-test" && request.method === "POST") {
+      if (service || !user) return founderJson({detail: "A signed-in Founder must initiate a delivery test"}, 403);
+      return await testSender(request, store, user.id);
+    }
+    if (path === "/api/founder/outreach-proposals" && request.method === "POST") {
+      if (service || !user) return founderJson({detail: "A signed-in Founder must prepare review proposals"}, 403);
+      return await prepareOutreachReview(request, store, user.id);
+    }
     if (path === "/api/founder/action-reviews" && request.method === "POST") {
       if (service || !user) return founderJson({detail: "A signed-in Founder must make approval decisions"}, 403);
       return await reviewAction(request, store, user.id);
@@ -85,14 +95,14 @@ export default async (request: Request, context: Context) => {
     if (path === "/api/founder" && request.method === "GET") {
       const [latest, records, actions, listed] = await Promise.all([
         store.get("pulse/latest", {type: "json"}), store.get("state/records", {type: "json"}),
-        store.get("actions/queue", {type: "json"}), store.list({prefix}),
+        reviewableActions(store), store.list({prefix}),
       ]);
       const recentKeys = listed.blobs.map((item) => item.key);
       await recoverQueuedCommands(store, request, recentKeys);
       const commands = (await Promise.all(recentKeys.map((key) => store.get(key, {type: "json"}))))
         .filter(Boolean).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50).map((command) => commandView(command));
       return founderJson({pulse: latest ? {generated_at: latest.generated_at, pulse: latest.pulse} : null,
-        records: Array.isArray(records) ? records : [], actions: await actionsForReview(store, actions), commands});
+        sender: await senderStatus(store), records: Array.isArray(records) ? records : [], actions: await actionsForReview(store, actions), commands});
     }
     if (path.startsWith("/api/founder/commands/") && request.method === "GET") {
       const id = path.slice("/api/founder/commands/".length);
@@ -145,4 +155,4 @@ export default async (request: Request, context: Context) => {
   }
 };
 
-export const config: Config = {path: ["/api/founder", "/api/founder/commands", "/api/founder/commands/:id", "/api/founder/action-reviews"]};
+export const config: Config = {path: ["/api/founder", "/api/founder/commands", "/api/founder/commands/:id", "/api/founder/action-reviews", "/api/founder/outreach-proposals", "/api/founder/sender-test"]};
