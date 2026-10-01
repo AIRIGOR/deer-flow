@@ -28,14 +28,22 @@ async function refresh() {
   const state = await api('/api/founder');
   if (!viewer || viewer !== currentUserId) return false;
   const sender = state.sender;
-  say('sender-state', `${sender.address} · ${sender.provider} · ${sender.configured ? 'Credentials configured; delivery not verified.' : 'Account connection required.'} Sending is disabled.`);
+  say('sender-state', `${sender.address} · ${sender.provider} · ${sender.configured ? (sender.delivery_verified ? 'Provider delivery verified.' : 'Credentials configured; delivery not verified.') : 'Account connection required.'} Sending is disabled.`);
   say('sender-steps', sender.setup_steps.join('\n'));
   say('sender-test-status', sender.test ? `Delivery test: ${sender.test.status.replaceAll('_', ' ').toLowerCase()} · ${sender.test.created_at}. Provider delivery does not prove inbox placement.` : 'No delivery test recorded.');
-  element<HTMLButtonElement>('sender-test').disabled = !sender.configured;
+  say('sender-check-status', sender.check ? sender.check.explanation : 'Connection check sends no email.');
+  element<HTMLButtonElement>('sender-check').disabled = !sender.configured;
+  element<HTMLButtonElement>('sender-check').onclick = async () => {
+    element<HTMLButtonElement>('sender-check').disabled = true;
+    try {await api('/api/founder/sender-check', {method: 'POST'}); await refresh();}
+    catch (error) {say('sender-check-status', error instanceof Error ? error.message : 'Connection check unavailable.');}
+  };
+  if (sender.test?.diagnostic) say('sender-test-status', `${sender.test.diagnostic.explanation} Saved provider status: ${sender.test.diagnostic.http_status}.`);
+  element<HTMLButtonElement>('sender-test').disabled = !sender.configured || sender.test?.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10);
   element<HTMLButtonElement>('sender-test').onclick = async () => {
     element<HTMLButtonElement>('sender-test').disabled = true;
     try {await api('/api/founder/sender-test', {method: 'POST'}); await refresh();}
-    catch (error) {say('sender-test-status', error instanceof Error ? error.message : 'Unable to read test result. Refresh before retrying.');}
+    catch (error) {await refresh().catch(() => say('sender-test-status', error instanceof Error ? error.message : 'Unable to read the saved test result.'));}
   };
   const outreach = state.commands.find((c: {kind: string; status: string}) => c.kind === 'PREPARE_OUTREACH' && c.status === 'COMPLETE');
   element<HTMLButtonElement>('prepare-review').disabled = !outreach;

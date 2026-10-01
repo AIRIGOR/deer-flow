@@ -1,4 +1,4 @@
-import {senderStatus, testSender} from './_shared/company-sender.js';
+import {senderStatus, testSender, checkSender} from './_shared/company-sender.js';
 import {prepareOutreachReview, reviewableActions} from './_shared/outreach-review.js';
 import { createHash, randomUUID } from "node:crypto";
 import { getUser, verifyRequestOrigin } from "@netlify/identity";
@@ -80,6 +80,10 @@ export default async (request: Request, context: Context) => {
     const store = await founderStore(context);
     const path = new URL(request.url).pathname;
     const prefix = "founder/commands/";
+    if (path === "/api/founder/sender-check" && request.method === "POST") {
+      if (service || !user) return founderJson({detail: "A signed-in Founder must check the sender"}, 403);
+      return await checkSender(request, store, user.id);
+    }
     if (path === "/api/founder/sender-test" && request.method === "POST") {
       if (service || !user) return founderJson({detail: "A signed-in Founder must initiate a delivery test"}, 403);
       return await testSender(request, store, user.id);
@@ -155,4 +159,4 @@ export default async (request: Request, context: Context) => {
   }
 };
 
-export const config: Config = {path: ["/api/founder", "/api/founder/commands", "/api/founder/commands/:id", "/api/founder/action-reviews", "/api/founder/outreach-proposals", "/api/founder/sender-test"]};
+export const config: Config = {path: ["/api/founder", "/api/founder/commands", "/api/founder/commands/:id", "/api/founder/action-reviews", "/api/founder/outreach-proposals", "/api/founder/sender-test", "/api/founder/sender-check"]};

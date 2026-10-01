@@ -300,3 +300,32 @@ describe('Cloudflare fixed Founder delivery test', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+
+describe('Sender diagnostics without email', () => {
+  beforeEach(() => {vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-mail-token', RIGOR_DEERFLOW_TOKEN: 'secret'})[key]}});});
+  const check = () => new Request('https://example.test/api/founder/sender-check', {method: 'POST'});
+  it('checks token activation with GET and saves no credential or false delivery proof', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {id: 'private-token-id', status: 'active'}}))));
+    const response = await founder(check(), context);
+    expect(await response.json()).toMatchObject({status: 'TOKEN_ACTIVE', emails_sent: 0});
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.cloudflare.com/client/v4/user/tokens/verify');
+    expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBeUndefined();
+    const state = await (await founder(request('/api/founder'), context)).text();
+    expect(state).not.toContain('private-token'); expect(JSON.parse(state).sender.delivery_verified).toBe(false);
+  });
+  it('does not send on invalid token or raw provider error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('private provider secret', {status: 401})));
+    const data = await (await founder(check(), context)).json();
+    expect(data.status).toBe('TOKEN_NOT_VERIFIED'); expect(JSON.stringify(data)).not.toContain('private');
+    expect((await founder(request('/api/founder/sender-check', {}, true), context)).status).toBe(403);
+    expect((await founder(request('/api/founder/sender-check', {recipient: 'other'}), context)).status).toBe(422);
+  });
+  it('keeps only allowlisted provider error codes and fixed explanations on send failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({errors: [{code: 10105, message: 'private-mail-token'}, {code: 999999, message: 'secret'}]}), {status: 403})));
+    const data = await (await founder(new Request('https://example.test/api/founder/sender-test', {method: 'POST'}), context)).json();
+    expect(data.diagnostic).toMatchObject({http_status: 403, provider_codes: [10105]});
+    expect(data.detail).toContain('not entitled'); expect(JSON.stringify(data)).not.toContain('private-mail-token');
+    expect((await founder(new Request('https://example.test/api/founder/sender-test', {method: 'POST'}), context)).status).toBe(409);
+  });
+});
