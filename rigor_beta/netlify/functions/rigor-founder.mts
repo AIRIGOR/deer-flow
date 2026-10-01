@@ -3,6 +3,64 @@ import { getUser, verifyRequestOrigin } from "@netlify/identity";
 import type { Config, Context } from "@netlify/functions";
 import { commandOwners, commandView, founderJson, founderStore, serviceAuthorized, validCommandId, type CommandKind, type FounderCommand } from "./_shared/founder.js";
 
+const launchRetryDelayMs = 10_000;
+const maxLaunchAttempts = 5;
+
+async function triggerFounderWorker(request: Request, commandId: string, token: string) {
+  const response = await fetch(new URL("/.netlify/functions/rigor-founder-command-background", request.url), {
+    method: "POST",
+    headers: {"X-RIGOR-Automation-Token": token, "Content-Type": "application/json"},
+    body: JSON.stringify({command_id: commandId}),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error("LAUNCH_REJECTED");
+}
+
+async function recoverQueuedCommands(
+  store: Awaited<ReturnType<typeof founderStore>>,
+  request: Request,
+  keys: string[],
+) {
+  const token = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
+  const serviceUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
+  if (!token || !serviceUrl) return;
+  const now = Date.now();
+
+  for (const key of keys) {
+    const stored = await store.getWithMetadata(key, {type: "json"});
+    const command = stored?.data as FounderCommand | undefined;
+    if (!stored?.etag || !command || command.status !== "QUEUED") continue;
+
+    const lastLaunch = Date.parse(command.last_launch_at || command.created_at);
+    if (Number.isFinite(lastLaunch) && now - lastLaunch < launchRetryDelayMs) continue;
+
+    const attempts = Number.isInteger(command.launch_attempts) ? command.launch_attempts! : 0;
+    if (attempts >= maxLaunchAttempts) {
+      await store.setJSON(key, {
+        ...command,
+        status: "FAILED",
+        failure_code: "LAUNCH_RETRY_EXHAUSTED",
+        completed_at: new Date().toISOString(),
+      }, {onlyIfMatch: stored.etag});
+      continue;
+    }
+
+    const retry = {
+      ...command,
+      launch_attempts: attempts + 1,
+      last_launch_at: new Date().toISOString(),
+    };
+    const reserved = await store.setJSON(key, retry, {onlyIfMatch: stored.etag});
+    if (!reserved.modified) continue;
+
+    try {
+      await triggerFounderWorker(request, command.command_id, token);
+    } catch {
+      // Leave the command QUEUED. Founder polling will retry after the bounded delay.
+    }
+  }
+}
+
 export default async (request: Request, context: Context) => {
   try {
     const service = serviceAuthorized(request);
@@ -22,6 +80,7 @@ export default async (request: Request, context: Context) => {
         store.get("actions/queue", {type: "json"}), store.list({prefix}),
       ]);
       const recentKeys = listed.blobs.map((item) => item.key);
+      await recoverQueuedCommands(store, request, recentKeys);
       const commands = (await Promise.all(recentKeys.map((key) => store.get(key, {type: "json"}))))
         .filter(Boolean).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50).map((command) => commandView(command));
       return founderJson({pulse: latest ? {generated_at: latest.generated_at, pulse: latest.pulse} : null,
@@ -48,8 +107,10 @@ export default async (request: Request, context: Context) => {
     if (!validCommandId(id)) return founderJson({detail: "Invalid idempotency key"}, 400);
     const actor = service ? "authenticated-company-service" : user!.id;
     const requestHash = createHash("sha256").update(JSON.stringify({kind, objective, actor})).digest("hex");
+    const createdAt = new Date().toISOString();
     const command: FounderCommand = {command_id: id, kind: kind as CommandKind, objective, issued_by: actor,
-      request_hash: requestHash, status: "QUEUED", created_at: new Date().toISOString(), owner_agent: owners[kind as CommandKind]};
+      request_hash: requestHash, status: "QUEUED", created_at: createdAt, owner_agent: owners[kind as CommandKind],
+      launch_attempts: 1, last_launch_at: createdAt};
     const created = await store.setJSON(prefix + id, command, {onlyIfNew: true});
     if (!created.modified) {
       const existing = await store.get(prefix + id, {type: "json"}) as FounderCommand;
@@ -62,11 +123,7 @@ export default async (request: Request, context: Context) => {
       return founderJson({detail: "Company execution service is not configured", command_id: id}, 503);
     }
     try {
-      const response = await fetch(new URL("/.netlify/functions/rigor-founder-command-background", request.url), {
-        method: "POST", headers: {"X-RIGOR-Automation-Token": token, "Content-Type": "application/json"},
-        body: JSON.stringify({command_id: id}), signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) throw new Error("LAUNCH_REJECTED");
+      await triggerFounderWorker(request, id, token);
     } catch {
       // A network timeout can occur after acceptance. Preserve QUEUED rather than
       // overwriting a background worker that may already have claimed the command.
