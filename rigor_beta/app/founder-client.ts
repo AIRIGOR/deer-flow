@@ -1,9 +1,14 @@
 import {acceptInvite, getUser, handleAuthCallback, login, logout, updateUser} from '@netlify/identity';
 import {invitationToken} from './invitation-link.js';
-import {renderCommands, renderPulse, renderState, report} from './founder-report.js';
+import {renderCommands, renderPulse, renderState} from './founder-report.js';
+import {commandNotice, createStatusPoller} from './founder-progress.js';
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const say = (id: string, value: unknown) => { element(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
-let timer: ReturnType<typeof setTimeout> | undefined;
+let activeCommandId: string | undefined;
+let currentUserId: string | undefined;
+const poller = createStatusPoller(refresh, retrying => say('notice', retrying
+  ? 'Status connection interrupted. Retrying; this does not mean the command failed.'
+  : 'Unable to read the saved status. Refresh this page to reconnect; do not submit a duplicate command.'));
 let invitation: string | undefined;
 let recovery = false;
 async function api(path: string, init?: RequestInit) {
@@ -13,15 +18,20 @@ async function api(path: string, init?: RequestInit) {
   return data;
 }
 async function refresh() {
+  const viewer = currentUserId;
   const state = await api('/api/founder');
+  if (!viewer || viewer !== currentUserId) return false;
   renderPulse(element('pulse'), state.pulse);
   renderState(element('state'), state.records, state.actions);
   renderCommands(element('commands'), state.commands);
-  if (state.commands.some((c: {status: string}) => ['QUEUED', 'RUNNING'].includes(c.status))) timer = setTimeout(() => refresh().catch(error => say('notice', error.message)), 5000);
+  const active = state.commands.find((c: {command_id: string; issued_by: string}) => activeCommandId ? c.command_id === activeCommandId : c.issued_by === viewer);
+  if (active) {activeCommandId = active.command_id; say('notice', commandNotice(active));}
+  return state.commands.some((c: {status: string}) => ['QUEUED', 'RUNNING'].includes(c.status));
 }
 async function session() {
-  clearTimeout(timer);
+  poller.stop();
   const user = await getUser();
+  currentUserId = user?.id;
   element('login').hidden = !!user;
   element('invitation-setup').hidden = !!user;
   element('logout').hidden = !user;
@@ -29,7 +39,7 @@ async function session() {
   element<HTMLButtonElement>('submit').disabled = !founder || recovery || !!invitation;
   say('access', user ? `${user.email} · ${founder ? 'Founder' : 'Founder role required'}` : 'Founder sign-in required.');
   say('notice', founder ? 'Founder access verified. Choose a command and describe the internal work.' : 'Sign in with the founder role to execute commands.');
-  if (founder && !recovery) await refresh();
+  if (founder && !recovery && await refresh()) poller.start();
 }
 element<HTMLFormElement>('accept-invitation').addEventListener('submit', event => {
   event.preventDefault();
@@ -52,7 +62,7 @@ element<HTMLFormElement>('login').addEventListener('submit', async event => {
   catch (error) { say('access', error instanceof Error ? error.message : 'Sign-in failed.'); }
 });
 element('logout').addEventListener('click', async () => {
-  try { await logout(); clearTimeout(timer); say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); await session(); }
+  try { await logout(); poller.stop(); activeCommandId = undefined; currentUserId = undefined; say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); await session(); }
   catch { say('access', 'Sign-out failed.'); }
 });
 element<HTMLFormElement>('set-password').addEventListener('submit', async event => {
@@ -67,7 +77,9 @@ element<HTMLFormElement>('command').addEventListener('submit', async event => {
   event.preventDefault(); element<HTMLButtonElement>('submit').disabled = true;
   try {
     const command = await api('/api/founder/commands', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID()}, body: JSON.stringify({kind: element<HTMLSelectElement>('kind').value, objective: element<HTMLTextAreaElement>('objective').value})});
-    say('notice', `${report(command).title}: ${report(command).status}.${command.launch_status === 'UNCONFIRMED' ? ' Start could not be confirmed; checking saved status.' : ' This page will update while the review runs.'}`); clearTimeout(timer); await refresh();
+    activeCommandId = command.command_id; say('notice', commandNotice(command)); poller.stop();
+    try {if (await refresh()) poller.start();}
+    catch {say('notice', 'Command saved. Reconnecting to its execution status; do not submit it again.'); poller.start();}
   } catch (error) { say('notice', error instanceof Error ? error.message : 'Command failed.'); }
   finally { element<HTMLButtonElement>('submit').disabled = false; }
 });
