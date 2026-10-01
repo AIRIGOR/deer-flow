@@ -11,7 +11,7 @@ const { store, records } = vi.hoisted(() => {
   }};
 });
 vi.mock("@netlify/blobs", () => ({getStore: () => store, getDeployStore: () => store}));
-import pulse, {runCompanyPulse} from "../rigor-company-pulse-background.mjs";
+import pulse, {runCompanyPulse, buildCompanyContext} from "../rigor-company-pulse-background.mjs";
 import health from "../rigor-company-health.mjs";
 
 const context = {deploy: {context: "production"}} as Context;
@@ -84,5 +84,27 @@ describe("company pulse durable failure reporting", () => {
     const response = await health(new Request("https://example.test/api/company/health"), context);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({status: "ok", latest_attempt_status: "COMPLETE"});
+  });
+});
+
+
+describe("deployment-scoped company evidence", () => {
+  it("uses the deployed commit and excludes workflow results for another commit", async () => {
+    const sha = "a".repeat(40);
+    const network = vi.fn(async (url: string) => new Response(JSON.stringify(
+      String(url).endsWith("/deploy-meta.json") ? {commit: sha, branch: "pull/11/head"} :
+      String(url).includes("/actions/runs") ? {workflow_runs: [{head_sha: sha, name: "current", conclusion: "success"}, {head_sha: "b".repeat(40), name: "stale", conclusion: "failure"}]} : {}
+    )));
+    vi.stubGlobal("fetch", network);
+    const evidence = await buildCompanyContext(authorized(), [], []);
+    expect(evidence).toMatchObject({deployed_commit: sha, branch: "pull/11/head", recent_workflow_runs: [{name: "current", head_sha: sha}]});
+    expect(network.mock.calls.some(([url]) => String(url).includes(`head_sha=${sha}`))).toBe(true);
+    expect(JSON.stringify(evidence)).not.toContain('"name":"stale"');
+  });
+  it("keeps missing deployment evidence unknown rather than checking a stale branch", async () => {
+    const network = vi.fn(async (url: string) => new Response("{}")); vi.stubGlobal("fetch", network);
+    const evidence = await buildCompanyContext(authorized(), [], []);
+    expect(evidence).toMatchObject({deployed_commit: null, branch: null, recent_workflow_runs: {error: "CI evidence unavailable without deployed commit"}});
+    expect(network.mock.calls.some(([url]) => String(url).includes("api.github.com"))).toBe(false);
   });
 });

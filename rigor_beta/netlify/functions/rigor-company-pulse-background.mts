@@ -143,30 +143,26 @@ async function publicJson(url: string) {
   }
 }
 
-async function buildCompanyContext(
+export async function buildCompanyContext(
   request: Request,
   priorState: CompanyStateRecord[],
   priorActions: ActionQueueRecord[],
 ) {
-  const branch = "feat/rigor-netlify-beta-v1";
+  const deployment = await publicJson(new URL("/deploy-meta.json", request.url).toString()) as Record<string, unknown>;
+  const commitRef = typeof deployment?.commit === "string" && /^[a-f0-9]{40}$/i.test(deployment.commit) ? deployment.commit : null;
+  const branch = typeof deployment?.branch === "string" ? deployment.branch : null;
   const [commit, runs, previewHealth, deerflowHealth] = await Promise.all([
-    publicJson(
-      `https://api.github.com/repos/AIRIGOR/deer-flow/commits/${encodeURIComponent(branch)}`,
-    ),
-    publicJson(
-      `https://api.github.com/repos/AIRIGOR/deer-flow/actions/runs?branch=${encodeURIComponent(branch)}&per_page=10`,
-    ),
+    commitRef ? publicJson(`https://api.github.com/repos/AIRIGOR/deer-flow/commits/${commitRef}`) : Promise.resolve({error: "Deployed commit unavailable"}),
+    commitRef ? publicJson(`https://api.github.com/repos/AIRIGOR/deer-flow/actions/runs?head_sha=${commitRef}&per_page=10`) : Promise.resolve({error: "CI evidence unavailable without deployed commit"}),
     publicJson(new URL("/api/health", request.url).toString()),
     (() => {
       const base = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
-      return base
-        ? publicJson(`${base.replace(/\/$/, "")}/health`)
-        : Promise.resolve({ error: "RIGOR_DEERFLOW_URL missing" });
+      return base ? publicJson(`${base.replace(/\/$/, "")}/health`) : Promise.resolve({error: "RIGOR_DEERFLOW_URL missing"});
     })(),
   ]);
 
   const recentRuns = Array.isArray((runs as any)?.workflow_runs)
-    ? (runs as any).workflow_runs.slice(0, 10).map((run: any) => ({
+    ? (runs as any).workflow_runs.filter((run: any) => run.head_sha === commitRef).slice(0, 10).map((run: any) => ({
         name: run.name,
         status: run.status,
         conclusion: run.conclusion,
@@ -178,6 +174,15 @@ async function buildCompanyContext(
   return {
     generated_at: new Date().toISOString(),
     branch,
+    deployed_commit: commitRef,
+    deployment,
+    evidence_rules: [
+      "CI results apply only to their exact head_sha. No test or audit failure is verified without a specific failing result and source.",
+      "Prior company state contains assessments, not independently verified facts; recheck claims against current evidence.",
+      "Current build completion excludes external tester participation and repeated real-world production validation. Those are later validation gates.",
+      "Capital pipeline and partnerships are business work, not product build-completion gates.",
+      "Review completion proves execution only, not release readiness. Unknown evidence remains unknown.",
+    ],
     branch_head:
       typeof (commit as any)?.sha === "string"
         ? (commit as any).sha
