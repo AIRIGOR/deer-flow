@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getUser, verifyRequestOrigin } from "@netlify/identity";
 import type { Config, Context } from "@netlify/functions";
+import {objectiveError} from '../../app/founder-objective.js';
 import { commandOwners, commandView, founderJson, founderStore, serviceAuthorized, validCommandId, type CommandKind, type FounderCommand } from "./_shared/founder.js";
 
 const launchRetryDelayMs = 10_000;
@@ -93,16 +94,17 @@ export default async (request: Request, context: Context) => {
       return command ? founderJson(commandView(command)) : founderJson({detail: "Command not found"}, 404);
     }
     if (path !== "/api/founder/commands" || request.method !== "POST") return founderJson({detail: "Not found"}, 404);
-    if ((Number(request.headers.get("content-length")) || 0) > 12000) return founderJson({detail: "Command too large"}, 413);
+    if ((Number(request.headers.get("content-length")) || 0) > 32000) return founderJson({detail: "Command too large"}, 413);
     let body: Record<string, unknown>;
-    try { const text = await request.text(); if (text.length > 12000) return founderJson({detail: "Command too large"}, 413); body = JSON.parse(text); }
+    try { const text = await request.text(); if (text.length > 32000) return founderJson({detail: "Command too large"}, 413); body = JSON.parse(text); }
     catch { return founderJson({detail: "Invalid command JSON"}, 400); }
     if (!body || typeof body !== "object" || Array.isArray(body)) return founderJson({detail: "Invalid command"}, 400);
     const owners = commandOwners();
     const kind = body.kind;
     if (typeof kind !== "string" || !Object.hasOwn(owners, kind)) return founderJson({detail: "Choose a bounded internal command"}, 422);
     const objective = typeof body.objective === "string" ? body.objective.trim() : "";
-    if (objective.length < 8 || objective.length > 2000) return founderJson({detail: "Objective must be 8–2000 characters"}, 422);
+    const invalidObjective = objectiveError(objective);
+    if (invalidObjective) return founderJson({detail: invalidObjective}, 422);
     const id = request.headers.get("Idempotency-Key") || randomUUID();
     if (!validCommandId(id)) return founderJson({detail: "Invalid idempotency key"}, 400);
     const actor = service ? "authenticated-company-service" : user!.id;

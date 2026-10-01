@@ -31,6 +31,34 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {status: 202})));
 });
 describe('Founder authority and durable command execution', () => {
+  it('accepts a 4,000-character objective and forwards its ending unchanged', async () => {
+    const objective = 'x'.repeat(3979) + ' KEEP OUTREACH UNSENT';
+    expect(objective).toHaveLength(4000);
+    const accepted = await founder(request(undefined, {kind: 'COMPANY_REVIEW', objective}), context);
+    expect(accepted.status).toBe(202);
+    expect(mocks.records.get('founder/commands/' + id).objective).toBe(objective);
+    let forwarded: any;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (!String(url).includes('/execute')) return new Response('{}');
+      forwarded = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({status: 'COMPLETE', delegation_receipts: [{status: 'completed', call_id: 'actual-task', agent: 'rigor-chief-of-staff', result_sha256: 'a'.repeat(64)}]}));
+    }));
+    await worker(request(undefined, {command_id: id}, true), context);
+    expect(forwarded.proposal.summary).toBe(objective);
+    expect(forwarded.proposal.payload.objective).toBe(objective);
+  });
+  it('rejects oversized objectives before saving or launching work', async () => {
+    const result = await founder(request(undefined, {kind: 'COMPANY_REVIEW', objective: 'x'.repeat(4001)}), context);
+    expect(result.status).toBe(422);
+    expect((await result.json()).detail).toContain('Your text has been kept');
+    expect(mocks.store.setJSON).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('accepts multibyte objectives that fit the character limit', async () => {
+    const req = request(undefined, {kind: 'COMPANY_REVIEW', objective: '界'.repeat(4000)});
+    req.headers.set('content-length', String(new TextEncoder().encode(await req.clone().text()).length));
+    expect((await founder(req, context)).status).toBe(202);
+  });
   it('requires authenticated founder role and same origin', async () => {
     mocks.user.mockResolvedValue(null); expect((await founder(request('/api/founder'), context)).status).toBe(401);
     mocks.user.mockResolvedValue({id: 'other', roles: ['user'], user_metadata: {roles: ['founder']}}); expect((await founder(request('/api/founder'), context)).status).toBe(403);

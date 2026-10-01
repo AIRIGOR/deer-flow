@@ -2,6 +2,7 @@ import {acceptInvite, getUser, handleAuthCallback, login, logout, updateUser} fr
 import {invitationToken} from './invitation-link.js';
 import {renderCommands, renderPulse, renderState} from './founder-report.js';
 import {commandNotice, createStatusPoller} from './founder-progress.js';
+import {objectiveError} from './founder-objective.js';
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const say = (id: string, value: unknown) => { element(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
 let activeCommandId: string | undefined;
@@ -11,6 +12,10 @@ const poller = createStatusPoller(refresh, retrying => say('notice', retrying
   : 'Unable to read the saved status. Refresh this page to reconnect; do not submit a duplicate command.'));
 let invitation: string | undefined;
 let recovery = false;
+const objectiveInput = element<HTMLTextAreaElement>('objective');
+objectiveInput.addEventListener('input', () => {
+  say('objective-count', objectiveError(objectiveInput.value) || `${objectiveInput.value.trim().length.toLocaleString('en-US')} characters · Up to 4,000. Your full pasted text is kept.`);
+});
 async function api(path: string, init?: RequestInit) {
   const response = await fetch(path, {...init, credentials: 'same-origin', cache: 'no-store'});
   const data = await response.json();
@@ -76,6 +81,8 @@ element<HTMLFormElement>('set-password').addEventListener('submit', async event 
 element<HTMLFormElement>('command').addEventListener('submit', async event => {
   event.preventDefault(); element<HTMLButtonElement>('submit').disabled = true;
   try {
+    const invalid = objectiveError(objectiveInput.value);
+    if (invalid) throw new Error(invalid);
     const command = await api('/api/founder/commands', {method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID()}, body: JSON.stringify({kind: element<HTMLSelectElement>('kind').value, objective: element<HTMLTextAreaElement>('objective').value})});
     activeCommandId = command.command_id; say('notice', commandNotice(command)); poller.stop();
     try {if (await refresh()) poller.start();}

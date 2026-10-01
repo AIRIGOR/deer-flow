@@ -31,3 +31,5 @@ Company preview history now uses an isolated, branch-scoped site store with stro
 Founder status polling is implemented in `app/founder-progress.ts`. Keep the notice synchronized with the active persisted command; stop polling at terminal status or sign-out, bound transport-error retries, and never use a POST acceptance response as completion proof. Ignore stale loads after the authenticated viewer changes.
 
 Company pulse requests use `_shared/company-context.ts` to enforce the backend's 30,000-character context contract. Keep valid JSON and fixed deployment/evidence rules; disclose omitted payloads and history entries. Never mutate persisted records to satisfy the request budget or silently truncate serialized JSON.
+
+Founder objective validation is shared by UI and API in `app/founder-objective.ts` and matches the backend's 4,000-character contract. Do not apply textarea maxlength or slice accepted objectives; retain oversized pasted text and explain validation errors. Allow multibyte JSON request bodies within the separate byte budget.

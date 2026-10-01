@@ -400,7 +400,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
         },
         body: JSON.stringify({
           objective:
-            founderObjective?.trim().slice(0, 2000) || "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
+            founderObjective?.trim() || "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
           context: boundedCompanyContext(companyContext),
         }),
         signal: AbortSignal.timeout(13 * 60 * 1000),

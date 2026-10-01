@@ -79,3 +79,5 @@ Company preview history now uses an isolated, branch-scoped site store with stro
 Founder command status above the form now follows the persisted command through waiting, execution and completion. Refresh restores the latest Founder-issued status. Temporary polling failures retry twice; repeated failure asks for a page refresh rather than implying execution failed or inviting a duplicate submission.
 
 Company cycles keep their model request within the backend's 30,000-character context limit as history grows. Oversized requests omit record payloads and then oldest context entries, with explicit omission counts. Full saved records remain unchanged; a partial context must not be treated as proof that omitted work was completed.
+
+The Founder objective field keeps the full pasted text and displays its character count. Commands accept 8–4,000 characters, matching the execution service; longer text stays in the field with a clear validation message. Both company cycles and assigned reviews receive the complete accepted objective.
