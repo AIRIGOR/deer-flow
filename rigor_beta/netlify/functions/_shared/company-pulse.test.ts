@@ -26,6 +26,22 @@ beforeEach(() => {
 });
 
 describe("company pulse durable failure reporting", () => {
+  it("submits growing saved history within the backend context limit", async () => {
+    const saved = {record_key: 'OBJECTIVE:outreach', record_type: 'OBJECTIVE', title: 'Outreach', payload: {artifact: 'x'.repeat(40000)}};
+    records.set('state/records', [saved]);
+    let sentContext: string | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (!String(url).endsWith('/api/rigor/company/pulse')) return new Response('{}');
+      sentContext = JSON.parse(String(init?.body)).context;
+      if (sentContext!.length > 30000) return new Response('{}', {status: 422});
+      return new Response(JSON.stringify({execution_receipts: ['rigor-product-ops', 'rigor-engineering', 'rigor-qa-security', 'rigor-market-intel', 'rigor-finance-runway', 'rigor-chief-of-staff'].map((agent, index) => ({agent, task_id: `task-${index}`, status: 'COMPLETE'})), state_updates: [], action_proposals: [], top_priorities: []}));
+    }));
+    await runCompanyPulse(authorized(), context, 'Prepare the first outreach package without sending');
+    expect(sentContext!.length).toBeLessThanOrEqual(30000);
+    expect(JSON.parse(sentContext!).context_budget.partial_context).toBe(true);
+    expect(records.get('pulse/last-attempt')).toMatchObject({status: 'COMPLETE'});
+    expect(records.get('state/records')).toContainEqual(saved);
+  });
   it("propagates the sanitized upstream failure to a Founder command", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(
       JSON.stringify({detail: "private model output"}), {status: String(url).endsWith("/api/rigor/company/pulse") ? 502 : 200}

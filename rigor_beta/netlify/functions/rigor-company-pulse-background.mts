@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import {companyStore} from "./_shared/company-store.js";
+import {boundedCompanyContext} from "./_shared/company-context.js";
 import type { Context } from "@netlify/functions";
 import { normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
 
@@ -400,7 +401,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
         body: JSON.stringify({
           objective:
             founderObjective?.trim().slice(0, 2000) || "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
-          context: JSON.stringify(companyContext),
+          context: boundedCompanyContext(companyContext),
         }),
         signal: AbortSignal.timeout(13 * 60 * 1000),
       },
@@ -497,7 +498,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
     return {...envelope, durable_state_records: nextState.length, action_queue: counts};
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
+    const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED|COMPANY_CONTEXT_TOO_LARGE)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
     await store.setJSON("pulse/last-attempt", {
       started_at: startedAt,
       completed_at: new Date().toISOString(),

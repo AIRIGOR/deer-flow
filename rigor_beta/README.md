@@ -77,3 +77,5 @@ Company-cycle evidence is scoped to `/deploy-meta.json`'s exact deployed commit,
 Company preview history now uses an isolated, branch-scoped site store with strong consistency, distinct from production. All company readers/workers share `_shared/company-store.ts`. PR 11 history is conditionally recovered from its prior deploy once; migration never overwrites newer data, reruns completed commands, or automatically resumes recovered actions. Unknown branch contexts retain deploy isolation.
 
 Founder command status above the form now follows the persisted command through waiting, execution and completion. Refresh restores the latest Founder-issued status. Temporary polling failures retry twice; repeated failure asks for a page refresh rather than implying execution failed or inviting a duplicate submission.
+
+Company cycles keep their model request within the backend's 30,000-character context limit as history grows. Oversized requests omit record payloads and then oldest context entries, with explicit omission counts. Full saved records remain unchanged; a partial context must not be treated as proof that omitted work was completed.

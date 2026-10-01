@@ -29,3 +29,5 @@ Founder presentation uses text-only DOM rendering in `app/founder-report.ts`; ne
 Company preview history now uses an isolated, branch-scoped site store with strong consistency, distinct from production. All company readers/workers share `_shared/company-store.ts`. PR 11 history is conditionally recovered from its prior deploy once; migration never overwrites newer data, reruns completed commands, or automatically resumes recovered actions. Unknown branch contexts retain deploy isolation.
 
 Founder status polling is implemented in `app/founder-progress.ts`. Keep the notice synchronized with the active persisted command; stop polling at terminal status or sign-out, bound transport-error retries, and never use a POST acceptance response as completion proof. Ignore stale loads after the authenticated viewer changes.
+
+Company pulse requests use `_shared/company-context.ts` to enforce the backend's 30,000-character context contract. Keep valid JSON and fixed deployment/evidence rules; disclose omitted payloads and history entries. Never mutate persisted records to satisfy the request budget or silently truncate serialized JSON.
