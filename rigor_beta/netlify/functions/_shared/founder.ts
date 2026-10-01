@@ -14,6 +14,8 @@ export type FounderCommand = {
   started_at?: string;
   completed_at?: string;
   owner_agent: string;
+  launch_attempts?: number;
+  last_launch_at?: string;
   failure_code?: string;
   result?: Record<string, unknown>;
   execution_receipt?: Record<string, unknown>;
