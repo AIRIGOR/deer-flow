@@ -5,8 +5,9 @@ const mocks = vi.hoisted(() => {
   return {records, user: vi.fn(), origin: vi.fn(), pulse: vi.fn(), store: {
     get: vi.fn(async (key: string) => records.get(key) ?? null),
     getWithMetadata: vi.fn(async (key: string) => records.has(key) ? {data: records.get(key), etag: 'revision'} : null),
-    setJSON: vi.fn(async (key: string, value: unknown, options?: {onlyIfNew?: boolean}) => {
+    setJSON: vi.fn(async (key: string, value: unknown, options?: {onlyIfNew?: boolean; onlyIfMatch?: string}) => {
       if (options?.onlyIfNew && records.has(key)) return {modified: false};
+      if (options?.onlyIfMatch && options.onlyIfMatch !== 'revision') return {modified: false};
       records.set(key, value); return {modified: true};
     }),
     list: vi.fn(async () => ({blobs: [...records.keys()].filter(key => key.startsWith('founder/commands/')).map(key => ({key}))})),
@@ -51,7 +52,21 @@ describe('Founder authority and durable command execution', () => {
     vi.stubGlobal('fetch', vi.fn(async () => {throw new Error('private diagnostic');}));
     const result = await founder(request(undefined, {kind: 'MOAT_REVIEW', objective: 'review evidence'}), context);
     expect(await result.json()).toMatchObject({status: 'QUEUED', launch_status: 'UNCONFIRMED'});
-    expect(mocks.records.get('founder/commands/' + id).status).toBe('QUEUED');
+    expect(mocks.records.get('founder/commands/' + id)).toMatchObject({status: 'QUEUED', launch_attempts: 1});
+  });
+  it('retries stale queued commands when the Founder dashboard polls', async () => {
+    mocks.records.set('founder/commands/' + id, {...command(), launch_attempts: 1, last_launch_at: '2020-01-01T00:00:00Z'});
+    const result = await founder(request('/api/founder'), context);
+    expect(result.status).toBe(200);
+    expect(mocks.records.get('founder/commands/' + id)).toMatchObject({status: 'QUEUED', launch_attempts: 2});
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({pathname: '/.netlify/functions/rigor-founder-command-background'}), expect.objectContaining({method: 'POST'}));
+  });
+  it('fails a command instead of waiting forever after bounded launch retries', async () => {
+    mocks.records.set('founder/commands/' + id, {...command(), launch_attempts: 5, last_launch_at: '2020-01-01T00:00:00Z'});
+    const result = await founder(request('/api/founder'), context);
+    expect(result.status).toBe(200);
+    expect(mocks.records.get('founder/commands/' + id)).toMatchObject({status: 'FAILED', failure_code: 'LAUNCH_RETRY_EXHAUSTED'});
+    expect(fetch).not.toHaveBeenCalled();
   });
   it('does not execute an unauthorized or duplicate background invocation', async () => {
     mocks.records.set('founder/commands/' + id, command());
