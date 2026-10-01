@@ -321,6 +321,23 @@ describe('Sender diagnostics without email', () => {
     expect((await founder(request('/api/founder/sender-check', {}, true), context)).status).toBe(403);
     expect((await founder(request('/api/founder/sender-check', {recipient: 'other'}), context)).status).toBe(422);
   });
+  it('verifies an account token after a user endpoint rejection without sending mail', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({success: false, errors: [{code: 1000, message: 'private-mail-token'}]}), {status: 401}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({success: true, result: {id: 'private-id', status: 'active'}}))));
+    const data = await (await founder(check(), context)).json();
+    expect(data.status).toBe('TOKEN_ACTIVE'); expect(data.emails_sent).toBe(0);
+    expect(data.attempts).toEqual([{endpoint: 'user', http_status: 401, provider_codes: [1000], token_status: null}, {endpoint: 'account', http_status: 200, provider_codes: [], token_status: 'active'}]);
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe(`https://api.cloudflare.com/client/v4/accounts/${'b'.repeat(32)}/tokens/verify`);
+    expect(JSON.stringify(data)).not.toContain('private');
+    expect(vi.mocked(fetch).mock.calls.every(call => !call[1]?.method && !call[1]?.body)).toBe(true);
+  });
+  it('does not retry a throttled endpoint or classify an incomplete check as an invalid token', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('private', {status: 429})));
+    expect((await (await founder(check(), context)).json()).attempts).toHaveLength(1); expect(fetch).toHaveBeenCalledTimes(1);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('{}', {status: 401})).mockRejectedValueOnce(new Error('private token')));
+    const data = await (await founder(check(), context)).json();
+    expect(data.status).toBe('CHECK_UNAVAILABLE'); expect(JSON.stringify(data)).not.toContain('private');
+  });
   it('keeps only allowlisted provider error codes and fixed explanations on send failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({errors: [{code: 10105, message: 'private-mail-token'}, {code: 999999, message: 'secret'}]}), {status: 403})));
     const data = await (await founder(new Request('https://example.test/api/founder/sender-test', {method: 'POST'}), context)).json();

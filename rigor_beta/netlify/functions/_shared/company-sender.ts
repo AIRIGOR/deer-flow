@@ -21,17 +21,29 @@ function providerDiagnostic(http_status: number, data: any) {
 export async function checkSender(request: Request, store: Store, actor: string) {
   if ((await request.text()).trim()) return founderJson({detail: 'The connection check accepts no custom payload'}, 422);
   if (!senderConnection().configured) return founderJson({detail: 'Cloudflare credentials are required'}, 503);
+  const attempts: {endpoint: string; http_status: number; provider_codes: number[]; token_status: string | null}[] = [];
   let result: Record<string, unknown> = {status: 'CHECK_UNAVAILABLE', explanation: 'Token verification could not complete. This does not prove delivery.'};
   try {
-    const response = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
-      headers: {Authorization: `Bearer ${Netlify.env.get('RIGOR_CLOUDFLARE_EMAIL_TOKEN')!.trim()}`}, signal: AbortSignal.timeout(10000),
-    });
-    const data = await response.json().catch(() => null);
-    result = response.ok && data?.success === true && data.result?.status === 'active'
-      ? {status: 'TOKEN_ACTIVE', explanation: 'Cloudflare confirms the user API token is active. Account permissions, Email Sending activation and delivery remain unverified.'}
-      : {status: 'TOKEN_NOT_VERIFIED', http_status: response.status, explanation: 'Cloudflare did not verify this user API token. Confirm the full token secret was saved in the preview. Account-owned tokens require their account verification endpoint.'};
-  } catch { /* Never expose raw errors or secrets. */ }
-  const saved = {...result, checked_at: new Date().toISOString(), issued_by: actor, emails_sent: 0};
+    const account = Netlify.env.get('RIGOR_CLOUDFLARE_ACCOUNT_ID')!.trim();
+    const signal = AbortSignal.timeout(10000);
+    for (const endpoint of ['user/tokens/verify', `accounts/${account}/tokens/verify`]) {
+      const response = await fetch(`https://api.cloudflare.com/client/v4/${endpoint}`, {
+        headers: {Authorization: `Bearer ${Netlify.env.get('RIGOR_CLOUDFLARE_EMAIL_TOKEN')!.trim()}`}, signal,
+      });
+      const data = await response.json().catch(() => null);
+      const tokenStatus = ['active', 'disabled', 'expired'].includes(data?.result?.status) ? data.result.status : null;
+      const codes = Array.isArray(data?.errors) ? data.errors.map((item: {code?: number}) => item?.code).filter((code: number) => [1000, 10000, 6003, 6111, 9109].includes(code)) : [];
+      attempts.push({endpoint: endpoint.startsWith('user') ? 'user' : 'account', http_status: response.status, provider_codes: [...new Set<number>(codes)], token_status: tokenStatus});
+      if (response.ok && data?.success === true && tokenStatus === 'active') {
+        result = {status: 'TOKEN_ACTIVE', explanation: `Cloudflare confirms the ${endpoint.startsWith('user') ? 'user' : 'account'} API token is active. Email Sending permissions, activation and delivery remain unverified.`};
+        break;
+      }
+      result = {status: 'TOKEN_NOT_VERIFIED', explanation: 'Cloudflare has not verified this token. This result does not establish that it was entered incorrectly.'};
+      if (tokenStatus || response.status === 429 || response.status >= 500) break;
+    }
+  } catch { result = {status: 'CHECK_UNAVAILABLE', explanation: 'Token verification could not complete. This does not prove an invalid token or delivery.'}; }
+  const summary = attempts.map(item => `${item.endpoint} check: HTTP ${item.http_status}${item.token_status ? `, ${item.token_status}` : ''}${item.provider_codes.length ? `, code ${item.provider_codes.join(', ')}` : ''}`).join('; ');
+  const saved = {...result, explanation: `${result.explanation}${summary ? ` ${summary}.` : ''}`, attempts, checked_at: new Date().toISOString(), issued_by: actor, emails_sent: 0};
   await store.setJSON('founder/mail-check/latest', saved);
   return founderJson(saved);
 }
