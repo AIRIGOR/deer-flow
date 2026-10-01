@@ -3,7 +3,7 @@ export const object = (value: unknown): Data => value && typeof value === 'objec
 export const text = (value: unknown): string => typeof value === 'string' ? value : '';
 export const items = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const names: Record<string, string> = {
-  RUN_COMPANY_PULSE: 'Company cycle', RELEASE_REVIEW: 'Release review', MOAT_REVIEW: 'Product moat review', COMPANY_REVIEW: 'Company review',
+  RUN_COMPANY_PULSE: 'Company cycle', RELEASE_REVIEW: 'Release review', MOAT_REVIEW: 'Product moat review', COMPANY_REVIEW: 'Company review', PREPARE_OUTREACH: 'Outreach preparation',
   'rigor-product-ops': 'Product operations', 'rigor-engineering': 'Engineering', 'rigor-qa-security': 'QA and security',
   'rigor-market-intel': 'Market intelligence', 'rigor-partnerships-capital': 'Partnerships and capital', 'rigor-chief-of-staff': 'Chief of Staff',
 };
@@ -12,6 +12,7 @@ export function report(commandValue: unknown) {
   const command = object(commandValue), result = object(command.result), receipt = object(command.execution_receipt);
   const status = text(command.status);
   const statuses: Record<string, string> = {COMPLETE: 'Review completed', QUEUED: 'Waiting to start', RUNNING: 'Review in progress', FAILED: 'Review failed', TIMED_OUT: 'Review timed out'};
+  if (command.kind === 'PREPARE_OUTREACH') Object.assign(statuses, {COMPLETE: 'Draft package prepared', RUNNING: 'Preparing outreach', FAILED: 'Preparation incomplete'});
   const start = Date.parse(text(command.started_at)), end = Date.parse(text(command.completed_at));
   return {
     title: label(command.kind), status: statuses[status] || 'Status unavailable', rawStatus: status,
@@ -39,6 +40,8 @@ function section(parent: HTMLElement, title: string, value: unknown) {
   const list = document.createElement('ul'); entries.forEach(item => list.append(node('li', text(item)))); parent.append(list);
 }
 function assessment(parent: HTMLElement, result: Data) {
+  const packet = object(result.outreach_package);
+  if (packet.version === 'RIGOR_OUTREACH_V1') {renderOutreach(parent, packet); return;}
   parent.append(node('p', 'Company assessment · Findings and proposed actions require supporting evidence. A completed review does not mean the product is cleared for release.', 'assessment-note'));
   section(parent, 'Priorities', result.top_priorities);
   section(parent, 'Reported risks to verify', result.blockers_risks);
@@ -53,6 +56,33 @@ function assessment(parent: HTMLElement, result: Data) {
       content.append(node(heading ? 'h4' : 'p', heading ? heading[1] : block));
     }
     parent.append(content);
+  }
+}
+function renderOutreach(parent: HTMLElement, packet: Data) {
+  parent.append(node('p', 'Ten prospects · Ten introductory drafts · Ten follow-ups · UNSENT. Source claims require verification; preparation does not approve sending.', 'assessment-note'));
+  section(parent, 'Three proposed first approaches', packet.top_three);
+  section(parent, 'Missing evidence', packet.missing_evidence);
+  const table = document.createElement('table'); table.className = 'prospect-table';
+  const head = document.createElement('tr');
+  ['Organization', 'Category', 'Geography', 'Priority'].forEach(title => head.append(node('th', title)));
+  table.append(head);
+  for (const value of items(packet.prospects)) {
+    const p = object(value), row = document.createElement('tr');
+    [text(p.organization), label(p.category), text(p.geography), label(p.priority)].forEach(cell => row.append(node('td', cell)));
+    table.append(row);
+  }
+  const wrap = document.createElement('div'); wrap.className = 'prospect-table-wrap'; wrap.append(table); parent.append(wrap);
+  for (const value of items(packet.prospects)) {
+    const p = object(value), draft = document.createElement('details'); draft.className = 'written-report';
+    draft.append(node('summary', `${text(p.organization)} · ${label(p.category)} · ${label(p.priority)}`));
+    draft.append(node('p', `Geography: ${text(p.geography)}`));
+    draft.append(node('p', `Decision-maker: ${text(p.decision_maker) || 'Unknown'} · ${text(p.decision_maker_role) || 'Role unverified'}`));
+    draft.append(node('p', `Public contact route: ${text(p.contact_route)}`));
+    draft.append(node('h4', 'Fit and operational problem'), node('p', text(p.fit)), node('p', text(p.operational_problem)));
+    section(draft, 'Sources and reported support', items(p.sources).map(object).map(s => `${text(s.supports)} — ${text(s.url)}`));
+    section(draft, 'Verification gaps', p.verification_gaps);
+    draft.append(node('h4', `Subject: ${text(p.subject)}`), node('p', text(p.introduction)), node('h4', 'Follow-up draft'), node('p', text(p.follow_up)));
+    parent.append(draft);
   }
 }
 export function renderCommands(parent: HTMLElement, values: unknown) {
@@ -71,7 +101,9 @@ export function renderCommands(parent: HTMLElement, values: unknown) {
       const list = document.createElement('ul'); list.className = 'delegate-list';
       view.delegates.forEach(row => list.append(node('li', `${row.name} · ${row.status}`))); article.append(list);
     }
-    if (['FAILED', 'TIMED_OUT'].includes(view.rawStatus)) article.append(node('p', 'This review did not complete. Check the technical evidence for its failure code.', 'assessment-note'));
+    if (['FAILED', 'TIMED_OUT'].includes(view.rawStatus)) article.append(node('p', command.failure_code === 'OUTREACH_DELIVERABLES_MISSING'
+      ? 'Outreach preparation is incomplete: the specialist did not return the required ten prospects and complete drafts. Any partial output below is not an approved outreach package.'
+      : 'This review did not complete. Check the technical evidence for its failure code.', 'assessment-note'));
     if (Object.keys(view.result).length) assessment(article, view.result);
     evidence(article, command); parent.append(article);
   }

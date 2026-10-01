@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import {companyStore} from "./company-store.js";
 import type { Context } from "@netlify/functions";
 
-export type CommandKind = "RELEASE_REVIEW" | "MOAT_REVIEW" | "COMPANY_REVIEW" | "RUN_COMPANY_PULSE";
+export type CommandKind = "RELEASE_REVIEW" | "MOAT_REVIEW" | "COMPANY_REVIEW" | "RUN_COMPANY_PULSE" | "PREPARE_OUTREACH";
 export type FounderCommand = {
   command_id: string;
   kind: CommandKind;
@@ -22,7 +22,7 @@ export type FounderCommand = {
 };
 
 export function commandOwners(): Record<CommandKind, string> {
-  return {RELEASE_REVIEW: "rigor-qa-security", MOAT_REVIEW: "rigor-product-ops", COMPANY_REVIEW: "rigor-chief-of-staff", RUN_COMPANY_PULSE: "rigor-chief-of-staff"};
+  return {RELEASE_REVIEW: "rigor-qa-security", MOAT_REVIEW: "rigor-product-ops", COMPANY_REVIEW: "rigor-chief-of-staff", RUN_COMPANY_PULSE: "rigor-chief-of-staff", PREPARE_OUTREACH: "rigor-partnerships-capital"};
 }
 
 export function validCommandId(value: unknown): value is string {

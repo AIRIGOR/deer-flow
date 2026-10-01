@@ -19,6 +19,7 @@ vi.mock('../rigor-company-pulse-background.mjs', () => ({runCompanyPulse: mocks.
 import founder from '../rigor-founder.mjs';
 import worker from '../rigor-founder-command-background.mjs';
 import {commandView, delegationVerified, normalizeExecutionResult} from './founder.js';
+import {outreachFixture} from './outreach-fixture.js';
 const context = {deploy: {context: 'production'}} as Context;
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const request = (path = '/api/founder/commands', body?: unknown, service = false) => new Request(`https://example.test${path}`, {
@@ -31,6 +32,36 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {status: 202})));
 });
 describe('Founder authority and durable command execution', () => {
+  it('requires explicit outreach routing rather than accepting a mismatched review', async () => {
+    const rejected = await founder(request(undefined, {kind: 'RELEASE_REVIEW', objective: 'Prepare the first outreach package with prospects and drafts.'}), context);
+    expect(rejected.status).toBe(422);
+    expect((await rejected.json()).detail).toContain('Choose Prepare outreach');
+    expect(mocks.store.setJSON).not.toHaveBeenCalled();
+    const accepted = await founder(request(undefined, {kind: 'PREPARE_OUTREACH', objective: 'Prepare the first outreach package with prospects and drafts.'}), context);
+    expect(accepted.status).toBe(202);
+    expect(mocks.records.get('founder/commands/' + id).owner_agent).toBe('rigor-partnerships-capital');
+  });
+  it.each([false, true])('requires saved outreach deliverables as well as real specialist receipts: %s', complete => {
+    return (async () => {
+      mocks.records.set('founder/commands/' + id, {...command(), kind: 'PREPARE_OUTREACH', owner_agent: 'rigor-partnerships-capital'});
+      let proposed: any;
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+        if (!String(url).includes('/execute')) return new Response('{}');
+        proposed = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({status: 'COMPLETE', result_summary: 'claimed completion',
+          artifact_markdown: complete ? JSON.stringify(outreachFixture()) : 'QA readiness passed; drafts reportedly archived.',
+          delegation_receipts: [{status: 'completed', call_id: 'capital-task', agent: 'rigor-partnerships-capital', result_sha256: 'a'.repeat(64)}]}));
+      }));
+      await worker(request(undefined, {command_id: id}, true), context);
+      expect(proposed.proposal.action_type).toBe('OUTREACH_DRAFT');
+      expect(proposed.proposal.payload.output_contract).toContain('RIGOR_OUTREACH_V1');
+      expect(proposed.context).not.toContain('latest_company_pulse');
+      const saved = mocks.records.get('founder/commands/' + id);
+      expect(saved.status).toBe(complete ? 'COMPLETE' : 'FAILED');
+      if (complete) expect(saved.result.outreach_package.prospects).toHaveLength(10);
+      else {expect(saved.failure_code).toBe('OUTREACH_DELIVERABLES_MISSING'); expect(saved.result.artifact_markdown).toContain('QA readiness');}
+    })();
+  });
   it('accepts a 4,000-character objective and forwards its ending unchanged', async () => {
     const objective = 'x'.repeat(3979) + ' KEEP OUTREACH UNSENT';
     expect(objective).toHaveLength(4000);

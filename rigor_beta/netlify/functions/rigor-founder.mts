@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { getUser, verifyRequestOrigin } from "@netlify/identity";
 import type { Config, Context } from "@netlify/functions";
 import {objectiveError} from '../../app/founder-objective.js';
+import {requestsOutreachPackage} from '../../app/outreach-package.js';
 import { commandOwners, commandView, founderJson, founderStore, serviceAuthorized, validCommandId, type CommandKind, type FounderCommand } from "./_shared/founder.js";
 
 const launchRetryDelayMs = 10_000;
@@ -105,6 +106,7 @@ export default async (request: Request, context: Context) => {
     const objective = typeof body.objective === "string" ? body.objective.trim() : "";
     const invalidObjective = objectiveError(objective);
     if (invalidObjective) return founderJson({detail: invalidObjective}, 422);
+    if (kind !== 'PREPARE_OUTREACH' && requestsOutreachPackage(objective)) return founderJson({detail: 'Choose Prepare outreach for a prospect table and email drafts. Review commands do not execute this outreach workflow.'}, 422);
     const id = request.headers.get("Idempotency-Key") || randomUUID();
     if (!validCommandId(id)) return founderJson({detail: "Invalid idempotency key"}, 400);
     const actor = service ? "authenticated-company-service" : user!.id;
