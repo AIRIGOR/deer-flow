@@ -419,12 +419,14 @@ export async function runCompanyPulse(request: Request, context: Context, founde
         response.status,
         "Upstream execution rejected",
       );
+      if (founderObjective) throw new Error(`UPSTREAM_HTTP_${response.status}`);
       return;
     }
 
     const pulse = normalizeExecutionResult(await response.json()) as PulsePayload;
     if (!delegationVerified(pulse as unknown as Record<string, unknown>, undefined, true)) {
       await store.setJSON("pulse/last-attempt", {started_at: startedAt, completed_at: new Date().toISOString(), status: "FAILED", failure_code: "DELEGATION_NOT_VERIFIED"});
+      if (founderObjective) throw new Error("DELEGATION_NOT_VERIFIED");
       return;
     }
     const nextState = mergeState(companyState, pulse.state_updates || []);
@@ -495,13 +497,16 @@ export async function runCompanyPulse(request: Request, context: Context, founde
     }
     return {...envelope, durable_state_records: nextState.length, action_queue: counts};
   } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
     await store.setJSON("pulse/last-attempt", {
       started_at: startedAt,
       completed_at: new Date().toISOString(),
       status: "FAILED",
-      failure_code: "PULSE_EXECUTION_FAILED",
+      failure_code: failureCode,
     });
     console.error("RIGOR company pulse execution failed", error instanceof Error ? error.name : "UnknownError");
+    if (founderObjective) throw new Error(failureCode);
   }
 }
 

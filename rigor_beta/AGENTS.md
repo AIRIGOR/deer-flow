@@ -21,3 +21,5 @@ Pod 2 rules: canonicalize source facts before building conflicts. Keep original 
 Company pulse attempts must persist RUNNING/COMPLETE/FAILED independently of pulse/latest; health must degrade after a newer failed or timed-out attempt. Never use a background 202 response or configured=true as execution proof. Run scripts/live-pod-proof.py for live product gates; a fallback result does not pass the DeerFlow bridge gate. Keep synthetic evidence and cookies out of commits.
 
 Founder invitation workaround: `/founder` accepts a pasted HTTPS invitation link from the current deployment host or the project production host. Parse locally, clear the input immediately, and keep the token only in memory until `@netlify/identity` accepts it. Never navigate to a pasted URL, log it, or persist it in browser storage. Cover rejected hosts, protocols, and missing/duplicate tokens.
+
+For Founder-triggered company cycles, propagate sanitized execution failure codes to the command receipt while maintaining last-attempt health. Scheduled/background invocations retain their durable failure behavior. Never publish raw upstream response bodies.

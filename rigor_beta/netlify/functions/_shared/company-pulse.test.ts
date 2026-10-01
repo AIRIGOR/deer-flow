@@ -11,7 +11,7 @@ const { store, records } = vi.hoisted(() => {
   }};
 });
 vi.mock("@netlify/blobs", () => ({getStore: () => store, getDeployStore: () => store}));
-import pulse from "../rigor-company-pulse-background.mjs";
+import pulse, {runCompanyPulse} from "../rigor-company-pulse-background.mjs";
 import health from "../rigor-company-health.mjs";
 
 const context = {deploy: {context: "production"}} as Context;
@@ -26,6 +26,14 @@ beforeEach(() => {
 });
 
 describe("company pulse durable failure reporting", () => {
+  it("propagates the sanitized upstream failure to a Founder command", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(
+      JSON.stringify({detail: "private model output"}), {status: String(url).endsWith("/api/rigor/company/pulse") ? 502 : 200}
+    )));
+    await expect(runCompanyPulse(authorized(), context, "Review release evidence")).rejects.toThrow("UPSTREAM_HTTP_502");
+    expect(records.get("pulse/last-attempt")).toMatchObject({status: "FAILED", failure_code: "UPSTREAM_HTTP_502"});
+    expect(JSON.stringify(records.get("pulse/last-attempt"))).not.toContain("private model output");
+  });
   it("keeps unauthorized invocations out of durable attempt state", async () => {
     const network = vi.fn();
     vi.stubGlobal("fetch", network);

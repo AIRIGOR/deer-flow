@@ -85,6 +85,12 @@ describe('Founder authority and durable command execution', () => {
     expect(mocks.pulse.mock.calls[0][2]).toBe(command().objective);
     expect(mocks.records.get('founder/commands/' + id)).toMatchObject({status: 'FAILED', failure_code: 'PULSE_DID_NOT_COMPLETE'});
   });
+  it('preserves a sanitized cycle failure in the command receipt', async () => {
+    mocks.records.set('founder/commands/' + id, {...command(), kind: 'RUN_COMPANY_PULSE'});
+    mocks.pulse.mockRejectedValueOnce(new Error('UPSTREAM_HTTP_502'));
+    await worker(request(undefined, {command_id: id}, true), context);
+    expect(mocks.records.get('founder/commands/' + id)).toMatchObject({status: 'FAILED', failure_code: 'UPSTREAM_HTTP_502'});
+  });
   it('redacts request hashes and shows expired running work', () => {
     expect(commandView({...command(), status: 'RUNNING', started_at: '2020-01-01T00:00:00Z'} as any)).toMatchObject({status: 'TIMED_OUT', request_hash: undefined});
     expect(delegationVerified({execution_receipts: [{status: 'COMPLETE', task_id: 'task', agent: 'wrong'}]}, 'rigor-product-ops')).toBe(false);

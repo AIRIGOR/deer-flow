@@ -34,6 +34,7 @@ async function session() {
   const founder = !!user?.roles?.includes('founder');
   element<HTMLButtonElement>('submit').disabled = !founder || recovery || !!invitation;
   say('access', user ? `${user.email} · ${founder ? 'Founder' : 'Founder role required'}` : 'Founder sign-in required.');
+  say('notice', founder ? 'Founder access verified. Choose a command and describe the internal work.' : 'Sign in with the founder role to execute commands.');
   if (founder && !recovery) await refresh();
 }
 element<HTMLFormElement>('accept-invitation').addEventListener('submit', event => {
