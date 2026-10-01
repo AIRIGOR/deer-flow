@@ -5,6 +5,7 @@ from uuid import uuid4
 from langchain.agents.middleware import AgentMiddleware
 
 from deerflow.agents.middlewares.tool_call_metadata import clone_ai_message_with_tool_calls
+from deerflow.rigor.company_objective import company_objective
 from deerflow.rigor.company_receipts import SPECIALISTS
 
 _ACTION_OWNERS = SPECIALISTS | {"rigor-chief-of-staff"}
@@ -43,7 +44,7 @@ class CompanyActionSequenceMiddleware(AgentMiddleware):
             first = task_calls[0] if task_calls else {}
             suggested = first.get("args", {}).get("subagent_type")
             role = self.owner or (suggested if suggested in _ACTION_OWNERS else "rigor-product-ops")
-            objective = next((str(message.content) for message in messages if getattr(message, "type", None) == "human"), "")
+            objective = company_objective(messages)
             selected = [
                 {
                     "id": first.get("id") or f"company-action-{uuid4()}",

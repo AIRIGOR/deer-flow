@@ -100,3 +100,7 @@ The final founder brief must distinguish:
 - durable state updates.
 
 This is the default operating loop for recurring company pulses and strategic operating reviews.
+
+## Command and memory separation
+
+Company delegation carries the actual current command to specialists. Hidden memory/reminder HumanMessages are context, not the assigned objective. The shared command selector rejects missing real input so old readiness memories cannot replace a requested outreach package. Runtime receipts prove execution; the saved outreach package must separately pass its deliverable contract.
