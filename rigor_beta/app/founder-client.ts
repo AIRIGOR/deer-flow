@@ -1,4 +1,5 @@
 import {acceptInvite, getUser, handleAuthCallback, login, logout, updateUser} from '@netlify/identity';
+import {invitationToken} from './invitation-link.js';
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const say = (id: string, value: unknown) => { element(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -28,12 +29,28 @@ async function session() {
   clearTimeout(timer);
   const user = await getUser();
   element('login').hidden = !!user;
+  element('invitation-setup').hidden = !!user;
   element('logout').hidden = !user;
   const founder = !!user?.roles?.includes('founder');
   element<HTMLButtonElement>('submit').disabled = !founder || recovery || !!invitation;
   say('access', user ? `${user.email} · ${founder ? 'Founder' : 'Founder role required'}` : 'Founder sign-in required.');
   if (founder && !recovery) await refresh();
 }
+element<HTMLFormElement>('accept-invitation').addEventListener('submit', event => {
+  event.preventDefault();
+  const input = element<HTMLInputElement>('invite-link');
+  const link = input.value;
+  input.value = '';
+  try {
+    invitation = invitationToken(link, window.location.origin);
+    recovery = false;
+    element('invitation-setup').hidden = true;
+    element('login').hidden = true;
+    element('set-password').hidden = false;
+    say('access', 'Set your password to complete access.');
+    element<HTMLInputElement>('new-password').focus();
+  } catch { say('access', 'Paste the full invitation link copied from your RIGOR invitation email.'); }
+});
 element<HTMLFormElement>('login').addEventListener('submit', async event => {
   event.preventDefault();
   try { await login(element<HTMLInputElement>('email').value, element<HTMLInputElement>('password').value); element<HTMLInputElement>('password').value = ''; await session(); }
@@ -62,5 +79,5 @@ element<HTMLFormElement>('command').addEventListener('submit', async event => {
 try {
   const callback = await handleAuthCallback(); invitation = callback?.type === 'invite' ? callback.token : undefined; recovery = callback?.type === 'recovery';
   element('set-password').hidden = !invitation && !recovery;
-  if (invitation || recovery) { element('login').hidden = true; say('access', 'Set your password to complete access.'); } else await session();
+  if (invitation || recovery) { element('invitation-setup').hidden = true; element('login').hidden = true; say('access', 'Set your password to complete access.'); } else await session();
 } catch (error) { say('access', error instanceof Error ? error.message : 'Founder access unavailable.'); }
