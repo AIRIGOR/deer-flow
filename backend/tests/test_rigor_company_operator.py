@@ -148,3 +148,21 @@ async def test_company_operator_rejects_empty_objective():
 
     with pytest.raises(ValueError, match="objective"):
         await operator.run(objective="   ")
+
+
+def test_pulse_quarantines_invalid_actions_without_granting_execution():
+    from deerflow.rigor.company_operator import _parse_pulse
+    rejected = {"action_type": "DEPLOY_NOW", "scope": "INTERNAL_EXECUTE", "title": "Promote production"}
+    reserved = {"action_type": "PRODUCTION_PROMOTE", "scope": "FOUNDER_RESERVED", "title": "Review production promotion"}
+    result = _parse_pulse(json.dumps({"current_state": "Reviews completed; release blocked.", "top_priorities": ["Resolve release blockers"], "next_actions": ["Review rejected proposal"], "action_proposals": [rejected, reserved]}))
+    assert len(result.action_proposals) == 1
+    assert decide_company_action(result.action_proposals[0]).approval_required is True
+    assert result.rejected_action_proposals == [{"proposal": rejected, "failure_code": "INVALID_ACTION_PROPOSAL", "status": "BLOCKED"}]
+    assert "outside the executable action queue" in result.blockers_risks[-1]
+
+
+@pytest.mark.parametrize("proposals", ["not a list", ["not an object"], [{}] * 13])
+def test_pulse_rejects_malformed_action_collections(proposals):
+    from deerflow.rigor.company_operator import _parse_pulse
+    with pytest.raises(RigorCompanyPulseError):
+        _parse_pulse(json.dumps({"current_state": "Reviewed", "top_priorities": ["Check"], "next_actions": ["Review"], "action_proposals": proposals}))

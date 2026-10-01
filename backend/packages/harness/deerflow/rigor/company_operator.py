@@ -56,6 +56,7 @@ class RigorCompanyPulseResult(BaseModel):
         default_factory=list,
         max_length=12,
     )
+    rejected_action_proposals: list[dict[str, Any]] = Field(default_factory=list, max_length=12)
 
 
 ClientFactory = Callable[[], DeerFlowClient]
@@ -117,6 +118,8 @@ CREDENTIAL_CHANGE, DATA_DELETE.
 
 Use these exact scopes:
 OBSERVE, PREPARE, INTERNAL_EXECUTE, EXTERNAL_EXECUTE, FOUNDER_RESERVED.
+INTERNAL_EXECUTE is a scope, never an action_type. For example, a test proposal
+uses action_type INTERNAL_TEST with scope INTERNAL_EXECUTE.
 
 Do not hide a Founder-reserved action as a draft or internal action. Drafting an
 email is OUTREACH_DRAFT/PREPARE; actually sending it is
@@ -192,7 +195,25 @@ def _parse_pulse(text: str) -> RigorCompanyPulseResult:
     cleaned = strip_markdown_code_fence(strip_think_blocks(text)).strip()
     try:
         payload = json.loads(cleaned)
-        return RigorCompanyPulseResult.model_validate(payload)
+        if not isinstance(payload, dict):
+            raise TypeError("Invalid company report")
+        # Validate the report independently from proposed executable actions.
+        # Unknown action labels/scopes must never enter the automatic queue.
+        proposals = payload.get("action_proposals", [])
+        if not isinstance(proposals, list) or len(proposals) > 12:
+            raise TypeError("Invalid action proposal collection")
+        accepted, rejected = [], []
+        for proposal in proposals:
+            try:
+                accepted.append(CompanyActionProposal.model_validate(proposal))
+            except ValidationError:
+                if not isinstance(proposal, dict):
+                    raise TypeError("Invalid action proposal")
+                rejected.append({"proposal": proposal, "failure_code": "INVALID_ACTION_PROPOSAL", "status": "BLOCKED"})
+        result = RigorCompanyPulseResult.model_validate({**payload, "action_proposals": accepted, "rejected_action_proposals": rejected})
+        if rejected:
+            result.blockers_risks = result.blockers_risks[:11] + [f"{len(rejected)} action proposal(s) failed schema validation and remain BLOCKED outside the executable action queue."]
+        return result
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
         raise RigorCompanyPulseError("RIGOR company operator returned invalid structured JSON") from exc
 

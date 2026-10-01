@@ -505,3 +505,5 @@ See the [LICENSE](../LICENSE) file in the project root.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 The company operator now reserves its six runtime delegations: five distinct specialist reviews, then Chief of Staff synthesis using the returned reports. Duplicate or early synthesis requests cannot spend the reserved slot; failed specialist execution still fails the command.
+
+RIGOR company cycles retain schema-invalid action proposals as `rejected_action_proposals` with `BLOCKED` status and an explicit report blocker. They never enter the executable action queue. Valid reports still require all six verified runtime delegation receipts; malformed reports or action collections fail the cycle.
