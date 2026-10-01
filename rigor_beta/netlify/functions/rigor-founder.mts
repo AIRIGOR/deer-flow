@@ -5,6 +5,8 @@ import {objectiveError} from '../../app/founder-objective.js';
 import {requestsOutreachPackage} from '../../app/outreach-package.js';
 import { commandOwners, commandView, founderJson, founderStore, serviceAuthorized, validCommandId, type CommandKind, type FounderCommand } from "./_shared/founder.js";
 
+import {actionsForReview, reviewAction} from "./_shared/action-review.js";
+
 const launchRetryDelayMs = 10_000;
 const maxLaunchAttempts = 5;
 
@@ -76,6 +78,10 @@ export default async (request: Request, context: Context) => {
     const store = await founderStore(context);
     const path = new URL(request.url).pathname;
     const prefix = "founder/commands/";
+    if (path === "/api/founder/action-reviews" && request.method === "POST") {
+      if (service || !user) return founderJson({detail: "A signed-in Founder must make approval decisions"}, 403);
+      return await reviewAction(request, store, user.id);
+    }
     if (path === "/api/founder" && request.method === "GET") {
       const [latest, records, actions, listed] = await Promise.all([
         store.get("pulse/latest", {type: "json"}), store.get("state/records", {type: "json"}),
@@ -86,7 +92,7 @@ export default async (request: Request, context: Context) => {
       const commands = (await Promise.all(recentKeys.map((key) => store.get(key, {type: "json"}))))
         .filter(Boolean).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50).map((command) => commandView(command));
       return founderJson({pulse: latest ? {generated_at: latest.generated_at, pulse: latest.pulse} : null,
-        records: Array.isArray(records) ? records : [], actions: Array.isArray(actions) ? actions : [], commands});
+        records: Array.isArray(records) ? records : [], actions: await actionsForReview(store, actions), commands});
     }
     if (path.startsWith("/api/founder/commands/") && request.method === "GET") {
       const id = path.slice("/api/founder/commands/".length);
@@ -139,4 +145,4 @@ export default async (request: Request, context: Context) => {
   }
 };
 
-export const config: Config = {path: ["/api/founder", "/api/founder/commands", "/api/founder/commands/:id"]};
+export const config: Config = {path: ["/api/founder", "/api/founder/commands", "/api/founder/commands/:id", "/api/founder/action-reviews"]};

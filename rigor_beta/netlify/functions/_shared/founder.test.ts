@@ -184,3 +184,52 @@ describe('deployed runtime receipt compatibility', () => {
     }
   });
 });
+
+
+describe('Founder proposal decisions', () => {
+  const action = () => ({action_key: 'EMAIL_SEND:outreach', action_type: 'EMAIL_SEND', scope: 'EXTERNAL', title: 'Synthetic test draft', summary: 'A test proposal; do not send.', owner_agent: 'rigor-partnerships-capital', status: 'NEEDS_APPROVAL', approval_required: true, payload: {from: 'sender@example.test', to: 'recipient@example.test', subject: 'Synthetic', body: 'Test only'}});
+  async function packet() {
+    const state = await (await founder(request('/api/founder'), context)).json(); return state.actions[0];
+  }
+  const decide = (row: any, decision = 'APPROVE', note = '') => founder(request('/api/founder/action-reviews', {action_key: row.action_key, fingerprint: row.review_fingerprint, decision, note}), context);
+  beforeEach(() => {mocks.records.set('actions/queue', [action()]);});
+  it('persists exact proposal and Founder identity without launching execution; replays safely', async () => {
+    const row = await packet();
+    const result = await decide(row); expect(result.status).toBe(201);
+    expect(await result.json()).toMatchObject({decision: 'APPROVE', decided_by: 'founder', proposal: {payload: action().payload}, execution_status: 'NOT_EXECUTED', external_action_performed: false});
+    expect((await decide(row)).status).toBe(200);
+    expect((await decide(row, 'REJECT')).status).toBe(409);
+    expect((await packet()).review.decision).toBe('APPROVE');
+    expect(mocks.records.get('actions/queue')[0].status).toBe('NEEDS_APPROVAL');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('invalidates stale approval when message or scope changes', async () => {
+    const row = await packet(); await decide(row);
+    mocks.records.set('actions/queue', [{...action(), payload: {...action().payload, to: 'different@example.test'}}]);
+    expect((await decide(row)).status).toBe(409);
+    expect((await packet()).review).toBeNull();
+  });
+  it('requires concrete email details before approving but permits rejection or requested changes', async () => {
+    mocks.records.set('actions/queue', [{...action(), payload: {objective: 'Send outreach'}}]);
+    const row = await packet(); expect((await decide(row)).status).toBe(422);
+    expect((await decide(row, 'REQUEST_CHANGES')).status).toBe(422);
+    expect((await decide(row, 'REQUEST_CHANGES', 'Supply the exact recipient and email.')).status).toBe(201);
+    expect((await packet()).review.note).toContain('exact recipient');
+  });
+  it('requires a real signed-in Founder and verifies origin for every decision', async () => {
+    const row = await packet();
+    expect((await founder(request('/api/founder/action-reviews', {action_key: row.action_key, fingerprint: row.review_fingerprint, decision: 'APPROVE'}, true), context)).status).toBe(403);
+    mocks.origin.mockImplementation(() => {throw new Error('origin');}); expect((await decide(row)).status).toBe(403);
+    mocks.origin.mockImplementation(() => {}); mocks.user.mockResolvedValue({id: 'member', roles: ['member']}); expect((await decide(row)).status).toBe(403);
+  });
+  it('uses conditional writes to reject competing decisions and blocks executing actions', async () => {
+    const row = await packet();
+    mocks.store.setJSON.mockResolvedValueOnce({modified: false}); expect((await decide(row)).status).toBe(409);
+    mocks.records.set('actions/queue', [{...action(), status: 'EXECUTING'}]); expect((await decide(row)).status).toBe(409);
+  });
+  it('rejects malformed decision bodies and missing actions', async () => {
+    expect((await founder(request('/api/founder/action-reviews', []), context)).status).toBe(400);
+    expect((await decide(await packet(), 'SEND')).status).toBe(422);
+    mocks.records.set('actions/queue', []); expect((await decide({action_key: 'missing', review_fingerprint: 'x'})).status).toBe(404);
+  });
+});

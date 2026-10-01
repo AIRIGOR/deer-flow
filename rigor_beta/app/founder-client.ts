@@ -1,3 +1,4 @@
+import {renderApprovals} from './founder-approvals.js';
 import {acceptInvite, getUser, handleAuthCallback, login, logout, updateUser} from '@netlify/identity';
 import {invitationToken} from './invitation-link.js';
 import {renderCommands, renderPulse, renderState} from './founder-report.js';
@@ -29,6 +30,12 @@ async function refresh() {
   renderPulse(element('pulse'), state.pulse);
   renderState(element('state'), state.records, state.actions);
   renderCommands(element('commands'), state.commands);
+  renderApprovals(element('approvals'), state.actions, async body => {
+    if (viewer !== currentUserId) throw new Error('Founder session changed. Refresh before deciding.');
+    await api('/api/founder/action-reviews', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    say('approval-notice', 'Decision saved. No action was executed or sent.');
+    try {await refresh();} catch {say('approval-notice', 'Decision saved. Refresh to reconnect and read its status.');}
+  });
   const active = state.commands.find((c: {command_id: string; issued_by: string}) => activeCommandId ? c.command_id === activeCommandId : c.issued_by === viewer);
   if (active) {activeCommandId = active.command_id; say('notice', commandNotice(active));}
   return state.commands.some((c: {status: string}) => ['QUEUED', 'RUNNING'].includes(c.status));
@@ -67,7 +74,7 @@ element<HTMLFormElement>('login').addEventListener('submit', async event => {
   catch (error) { say('access', error instanceof Error ? error.message : 'Sign-in failed.'); }
 });
 element('logout').addEventListener('click', async () => {
-  try { await logout(); poller.stop(); activeCommandId = undefined; currentUserId = undefined; say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); await session(); }
+  try { await logout(); poller.stop(); activeCommandId = undefined; currentUserId = undefined; say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); say('approvals', 'Sign in to review actions.'); say('approval-notice', ''); await session(); }
   catch { say('access', 'Sign-out failed.'); }
 });
 element<HTMLFormElement>('set-password').addEventListener('submit', async event => {

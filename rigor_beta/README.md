@@ -83,3 +83,7 @@ Company cycles keep their model request within the backend's 30,000-character co
 The Founder objective field keeps the full pasted text and displays its character count. Commands accept 8–4,000 characters, matching the execution service; longer text stays in the field with a clear validation message. Both company cycles and assigned reviews receive the complete accepted objective.
 
 Use **Prepare outreach** for prospect research and email drafting. It delegates to Partnerships and Capital and requires a saved structured package containing five partners, five investors, source/contact routes, ten introductions and ten follow-ups. Generic readiness reports fail this command's deliverable check even with valid execution receipts; partial output remains visible. A table and expandable drafts render the saved package. All outreach remains unsent, and source claims still require review. Review commands reject requests for an outreach package instead of routing them to QA or a general synthesis.
+
+### Founder decisions
+
+The Founder Command Center shows queued proposals with Approve proposal, Reject, and Request changes controls. Decisions store the authenticated Founder, time, note and exact proposal revision. Changed proposal content requires a fresh decision. Email approval requires explicit from, to, subject and body fields; broad outreach objectives cannot be approved as messages. Decisions are saved separately from the automatic queue and do not send email or execute external actions. External execution remains disconnected.
