@@ -9,10 +9,16 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
     card.append(node('h3', text(action.title)), node('p', `${label(action.action_type)} · ${label(action.scope)} · ${label(action.owner_agent)}`), node('p', text(action.summary)), node('p', `Target: ${text(action.target) || 'Not specified'}`));
     const payload = object(action.payload);
     if (action.action_type === 'EMAIL_SEND') {
-      for (const key of ['from', 'to', 'subject', 'body']) card.append(node('p', `${key}: ${text(payload[key]) || 'Not supplied — request changes before approval'}`));
+      for (const key of ['from', 'to', 'subject', 'body']) {
+        const line = node('p', `${key}: ${text(payload[key]) || 'Not supplied — request changes before approval'}`);
+        if (key === 'body') line.style.whiteSpace = 'pre-wrap';
+        card.append(line);
+      }
     }
     if (action.source_command_id || payload.recipient_evidence) {
-      card.append(node('p', `Public contact route: ${text(payload.contact_route)}`), node('h4', 'Follow-up draft'), node('p', text(payload.follow_up)), node('h4', 'Verification gaps'));
+      card.append(node('p', `Public contact route: ${text(payload.contact_route) || text(object(payload.recipient_evidence).url)}`));
+      if (payload.follow_up) card.append(node('h4', 'Follow-up draft'), node('p', text(payload.follow_up)));
+      card.append(node('h4', 'Verification gaps'));
       const list = node('ul', ''); items(payload.verification_gaps).forEach(value => list.append(node('li', text(value)))); card.append(list);
     }
     const details = document.createElement('details');
