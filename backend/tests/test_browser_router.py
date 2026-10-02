@@ -250,7 +250,7 @@ def test_browser_frames_dirname_shared_between_tools_and_scanner():
     assert BROWSER_FRAMES_DIRNAME in EXCLUDED_DIR_NAMES
 
 
-def test_validate_browser_url_rejects_private_and_non_http(monkeypatch):
+def test_validate_browser_url_rejects_private_and_non_http(monkeypatch, public_web_dns):
     """WS seed / navigate events reuse the same SSRF policy as the agent tools.
 
     With no ``allow_private_addresses`` override the shared validator must reject

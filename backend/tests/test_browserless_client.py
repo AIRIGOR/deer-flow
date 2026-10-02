@@ -307,6 +307,7 @@ class TestBrowserlessClient:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("public_web_dns")
 class TestBrowserlessTools:
     """Tests for the Browserless tool functions."""
 

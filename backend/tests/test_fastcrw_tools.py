@@ -4,6 +4,8 @@ import ipaddress
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestWebSearchTool:
     @patch.dict("os.environ", {}, clear=True)
@@ -65,6 +67,7 @@ class TestWebSearchTool:
         assert web_search_tool.invoke({"query": "q"}) == "Error: boom"
 
 
+@pytest.mark.usefixtures("public_web_dns")
 class TestWebFetchTool:
     @patch.dict("os.environ", {}, clear=True)
     @patch("deerflow.community.fastcrw.tools.FirecrawlApp")

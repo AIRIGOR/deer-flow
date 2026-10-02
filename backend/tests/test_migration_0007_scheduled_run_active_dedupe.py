@@ -51,7 +51,8 @@ def _seed_pre_0007_with_duplicates(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     sync_engine = sa.create_engine(f"sqlite:///{db_path.as_posix()}")
     try:
-        Base.metadata.create_all(sync_engine)
+        # This historical core schema predates every RIGOR migration.
+        Base.metadata.create_all(sync_engine, tables=[t for t in Base.metadata.sorted_tables if not t.name.startswith("rigor_")])
         with sync_engine.begin() as conn:
             # Drop only the partial unique index — its absence is what permits
             # duplicate active rows to exist in the first place.
@@ -169,7 +170,7 @@ async def test_migration_supersedes_duplicate_active_runs_before_unique_index(tm
 
         with sqlite3.connect(db_path) as raw:
             version_row = raw.execute("SELECT version_num FROM alembic_version").fetchone()
-        assert version_row[0] == "0007_scheduled_run_active_index"
+        assert version_row[0] == "c8e7d9a1f203"
 
         # Sanity: the invariant the index enforces now holds — at most one
         # active row per task_id.

@@ -31,6 +31,9 @@ def test_filter_excludes_langgraph_checkpoint_tables() -> None:
         "checkpoint_blobs",
         "checkpoint_writes",
         "checkpoint_migrations",
+        "writes",
+        "store",
+        "store_migrations",
     ):
         assert include_object(_table(owned), owned, "table", True, None) is False
 
@@ -66,6 +69,9 @@ def test_langgraph_owned_tables_set_is_complete() -> None:
             "checkpoint_blobs",
             "checkpoint_writes",
             "checkpoint_migrations",
+            "writes",
+            "store",
+            "store_migrations",
         }
     )
 

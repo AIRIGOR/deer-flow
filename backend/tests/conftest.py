@@ -161,3 +161,21 @@ def _auto_user_context(request):
         yield
     finally:
         reset_current_user(token)
+
+
+@pytest.fixture()
+def public_web_dns(monkeypatch):
+    """Keep mocked public web-tool tests independent of the host DNS service.
+
+    Only the two explicit public test hosts resolve here. Unknown names fail;
+    URL validation and the tests' private/mixed-address overrides still run.
+    Real browser integration tests do not opt in to this fixture.
+    """
+    import socket
+
+    def getaddrinfo(host, port, *args, **kwargs):
+        if host not in {"example.com", "github.com"}:
+            raise socket.gaierror("unmapped unit-test host")
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
