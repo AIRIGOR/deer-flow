@@ -142,15 +142,30 @@ export default async (request: Request, context: Context) => {
   }
 
   const rawBatch = Netlify.env.get("RIGOR_APPROVED_OUTREACH_BATCH")?.trim() || "";
-  if (!rawBatch) {
-    return json({ detail: "Approved outreach batch is not configured" }, 503);
-  }
 
   let batch: ApprovedBatch;
-  try {
-    batch = JSON.parse(rawBatch) as ApprovedBatch;
-  } catch {
-    return json({ detail: "Approved outreach batch is invalid" }, 500);
+  if (rawBatch) {
+    try {
+      batch = JSON.parse(rawBatch) as ApprovedBatch;
+    } catch {
+      return json({ detail: "Approved outreach batch is invalid" }, 500);
+    }
+  } else {
+    const emails: ApprovedEmail[] = [];
+    for (let index = 1; index <= 20; index += 1) {
+      const key = `RIGOR_APPROVED_OUTREACH_EMAIL_${String(index).padStart(2, "0")}`;
+      const rawEmail = Netlify.env.get(key)?.trim() || "";
+      if (!rawEmail) continue;
+      try {
+        emails.push(JSON.parse(rawEmail) as ApprovedEmail);
+      } catch {
+        return json({ detail: `Approved outreach email ${index} is invalid` }, 500);
+      }
+    }
+    if (!emails.length) {
+      return json({ detail: "Approved outreach batch is not configured" }, 503);
+    }
+    batch = { batch_id: expectedBatchId, emails };
   }
 
   if (batch.batch_id !== expectedBatchId || !Array.isArray(batch.emails)) {
