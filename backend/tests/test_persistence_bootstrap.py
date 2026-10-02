@@ -48,7 +48,7 @@ from deerflow.persistence.migrations._helpers import _normalize_default
 asyncio_test = pytest.mark.asyncio
 
 
-HEAD = "0007_scheduled_run_active_index"
+HEAD = "c8e7d9a1f203"
 BASELINE = "0001_baseline"
 
 
@@ -87,9 +87,9 @@ async def _alembic_version(engine) -> str | None:
 
 
 async def _seed_legacy_without_column(engine) -> None:
-    """Build the pre-#3658 schema: create_all, then drop the new column."""
+    """Seed pre-RIGOR core tables, then remove the newer token column."""
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[t for t in Base.metadata.sorted_tables if not t.name.startswith("rigor_")]))
     async with engine.begin() as conn:
         # SQLite supports DROP COLUMN from 3.35.0; the test runner pins recent
         # Python which bundles a 3.40+ sqlite, so this is safe.
@@ -98,11 +98,11 @@ async def _seed_legacy_without_column(engine) -> None:
 
 async def _seed_legacy_with_column(engine) -> None:
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[t for t in Base.metadata.sorted_tables if not t.name.startswith("rigor_")]))
 
 
 async def _seed_legacy_missing_channel_tables(engine) -> None:
-    """Build a pre-#1930 schema: baseline tables exist but ``channel_*`` do not.
+    """Build a pre-RIGOR/pre-#1930 schema: core tables exist but ``channel_*`` do not.
 
     Models the worst-case legacy DB the bootstrap layer has to repair -- a
     user who upgraded across multiple releases and never had the channel_*
@@ -111,7 +111,7 @@ async def _seed_legacy_missing_channel_tables(engine) -> None:
     order (credentials/conversations reference channel_connections).
     """
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[t for t in Base.metadata.sorted_tables if not t.name.startswith("rigor_")]))
     async with engine.begin() as conn:
         for table in (
             "channel_credentials",
@@ -144,6 +144,10 @@ async def test_empty_branch_creates_all_and_stamps_head(tmp_path: Path) -> None:
             "channel_conversations",
             "channel_oauth_states",
             "alembic_version",
+            "rigor_shows",
+            "rigor_documents",
+            "rigor_requirements",
+            "rigor_company_records",
         }:
             assert required in tables, f"missing table: {required}"
         assert "token_usage_by_model" in await _runs_columns(engine)
@@ -168,6 +172,7 @@ async def test_legacy_without_column_branch_upgrades(tmp_path: Path) -> None:
     engine = create_async_engine(_url(tmp_path))
     try:
         await _seed_legacy_without_column(engine)
+        assert "rigor_shows" not in await _table_names(engine)
         assert "token_usage_by_model" not in await _runs_columns(engine)
         assert "alembic_version" not in await _table_names(engine)
 
@@ -847,7 +852,7 @@ class TestDecideState:
 # ---------------------------------------------------------------------------
 
 
-def test_head_revision_is_token_usage_revision() -> None:
+def test_head_revision_includes_rigor_company_state() -> None:
     assert _get_head_revision() == HEAD
 
 

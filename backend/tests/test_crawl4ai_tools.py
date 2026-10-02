@@ -160,6 +160,7 @@ class TestCrawl4AiClient:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("public_web_dns")
 class TestCrawl4AiTools:
     """Tests for the Crawl4AI tool functions."""
 

@@ -1201,3 +1201,8 @@ CompanySequenceMiddleware is enabled only for rigor-company-operator and runs be
 RIGOR company pulse parsing validates the report separately from action proposals. Preserve invalid object proposals in `rejected_action_proposals` with BLOCKED status, never map unknown types into allowed automatic actions, and add an explicit blocker. Malformed collections and invalid report fields still fail. Runtime receipt verification remains mandatory before parsing.
 
 Company delegations must select the actual visible human command with `rigor.company_objective.company_objective`, never the hidden HumanMessage injected for memory by DynamicContextMiddleware. Both bounded actions and company cycles share this selector; missing command input fails closed. Regression tests use the real dynamic-context message transformation in `tests/test_rigor_company_objective.py`.
+
+
+### Deterministic release test fixtures
+
+Mocked browser/fetch unit tests explicitly opt into `public_web_dns`; only example.com and github.com resolve to a fixed public address. Unknown names fail, the normal URL validator remains active, and individual private/mixed-address security tests override resolution. Real browser integration tests do not use this fixture. Historical core database seeds exclude later `rigor_*` tables; fresh-schema and full Alembic parity tests still include all RIGOR tables. Bootstrap tests pin the company-state migration head and subagent visibility tests use an isolated configuration containing all nine built-in company roles. A green unit suite does not substitute for live release gates.

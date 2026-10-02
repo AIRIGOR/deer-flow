@@ -1,23 +1,37 @@
 """Tests for subagent availability and prompt exposure under local bash hardening."""
 
+from types import SimpleNamespace
+
 from deerflow.agents.lead_agent import prompt as prompt_module
 from deerflow.subagents import registry as registry_module
+
+RIGOR_ROLES = [
+    "rigor-chief-of-staff",
+    "rigor-product-ops",
+    "rigor-engineering",
+    "rigor-qa-security",
+    "rigor-market-intel",
+    "rigor-partnerships-capital",
+    "rigor-growth-revenue",
+    "rigor-customer-success",
+    "rigor-finance-runway",
+]
 
 
 def test_get_available_subagent_names_hides_bash_when_host_bash_disabled(monkeypatch) -> None:
     monkeypatch.setattr(registry_module, "is_host_bash_allowed", lambda: False)
 
-    names = registry_module.get_available_subagent_names()
+    names = registry_module.get_available_subagent_names(app_config=SimpleNamespace(custom_agents={}))
 
-    assert names == ["general-purpose"]
+    assert names == ["general-purpose", *RIGOR_ROLES]
 
 
 def test_get_available_subagent_names_keeps_bash_when_allowed(monkeypatch) -> None:
     monkeypatch.setattr(registry_module, "is_host_bash_allowed", lambda: True)
 
-    names = registry_module.get_available_subagent_names()
+    names = registry_module.get_available_subagent_names(app_config=SimpleNamespace(custom_agents={}))
 
-    assert names == ["general-purpose", "bash"]
+    assert names == ["general-purpose", "bash", *RIGOR_ROLES]
 
 
 def test_build_subagent_section_hides_bash_examples_when_unavailable(monkeypatch) -> None:

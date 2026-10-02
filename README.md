@@ -1018,3 +1018,8 @@ The isolated proof lane accepts authenticated `VERIFY_PUBLIC_HEALTH` at `POST /a
 Runtime receipt validation uses structured task-result metadata from DeerFlow stream values. Missing, failed, capped, duplicate or incorrectly ordered delegations fail closed. Model-authored receipt claims are replaced with server-derived receipts. Artifacts containing unsupported additions fail the exact evidence check. Command storage is separate from existing company memory and deploy-isolated for drafts. `RIGOR_COMPANY_ADMIN_TOKEN` is required; the existing service token stays server-side. Backend and Netlify functions must be deployed together before a live completion claim.
 
 RIGOR company cycles retain schema-invalid action proposals as `rejected_action_proposals` with `BLOCKED` status and an explicit report blocker. They never enter the executable action queue. Valid reports still require all six verified runtime delegation receipts; malformed reports or action collections fail the cycle.
+
+
+#### RIGOR backend release checks
+
+Run `cd backend && make test` before release. Mocked web-tool unit tests use explicit public DNS fixtures so a restricted development environment does not turn a client-behavior check into a live network dependency; URL safety checks remain active. Database tests distinguish historical core schemas from current RIGOR schemas and verify the complete fresh-versus-migrated schema. Passing these checks is build evidence; production promotion still requires the independent live command, readiness and report gates.
