@@ -2,6 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
 
+// Approved outreach records are supplied at runtime through protected Netlify env values.
+
 type ApprovedEmail = {
   id: string;
   to: string;
