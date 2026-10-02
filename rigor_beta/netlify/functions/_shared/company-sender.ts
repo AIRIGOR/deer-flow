@@ -13,7 +13,7 @@ const errorReasons: Record<number, string> = {
   10000: 'Cloudflare could not find the sending account or resource.',
   10004: 'Cloudflare rate limited this request. Do not repeatedly retry.',
 };
-function providerDiagnostic(http_status: number, data: any) {
+export function providerDiagnostic(http_status: number, data: any) {
   const codes = Array.isArray(data?.errors) ? data.errors.map((e: any) => e?.code).filter((c: any) => Number.isInteger(c) && Object.hasOwn(errorReasons, c)) : [];
   return {http_status, provider_codes: [...new Set<number>(codes)],
     explanation: codes.length ? errorReasons[codes[0]] : 'Cloudflare rejected the request. Check token permissions, account access and Email Sending activation.'};
@@ -68,8 +68,19 @@ export async function senderStatus(store: Store) {
   const test = await store.get('founder/mail-test/latest', {type: 'json'});
   const account = Netlify.env.get('RIGOR_CLOUDFLARE_ACCOUNT_ID')?.trim() || '';
   const current = test?.connection_digest === createHash('sha256').update(account + ':' + from + ':' + to).digest('hex');
+  const confirmation = current ? await store.get('founder/mail-confirmations/' + test.created_at, {type: 'json'}) : null;
+  const verified = !!(connection.configured && current && (test?.status === 'PROVIDER_DELIVERED' || confirmation?.connection_digest === test.connection_digest));
   return {...connection, check: await store.get('founder/mail-check/latest', {type: 'json'}), test: current ? test : null,
-    delivery_verified: connection.configured && current && test?.status === 'PROVIDER_DELIVERED'};
+    confirmation, delivery_verified: verified, sending_enabled: verified && !!confirmation};
+}
+export async function confirmSenderReceipt(request: Request, store: Store, actor: string) {
+  let body: any; try {body = JSON.parse(await request.text());} catch {return founderJson({detail: 'Choose the saved delivery test'}, 400);}
+  const sender = await senderStatus(store);
+  if (!sender.configured || !sender.test || sender.test.created_at !== body?.test_created_at || !['QUEUED', 'PROVIDER_DELIVERED'].includes(sender.test.status)) return founderJson({detail: 'A current accepted test is required before confirming receipt'}, 409);
+  const confirmation = {test_created_at: sender.test.created_at, connection_digest: sender.test.connection_digest,
+    confirmed_at: new Date().toISOString(), confirmed_by: actor, evidence: 'FOUNDER_CONFIRMED_MAILBOX_RECEIPT'};
+  await store.setJSON('founder/mail-confirmations/' + sender.test.created_at, confirmation, {onlyIfNew: true});
+  return founderJson({status: 'RECEIPT_CONFIRMED', emails_sent: 0});
 }
 export async function testSender(request: Request, store: Store, actor: string) {
   if ((await request.text()).trim()) return founderJson({detail: 'The delivery test accepts no custom recipients or messages'}, 422);

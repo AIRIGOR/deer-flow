@@ -28,8 +28,8 @@ async function refresh() {
   const state = await api('/api/founder');
   if (!viewer || viewer !== currentUserId) return false;
   const sender = state.sender;
-  say('sender-state', `${sender.address} · ${sender.provider} · ${sender.configured ? (sender.delivery_verified ? 'Provider delivery verified.' : 'Credentials configured; delivery not verified.') : 'Account connection required.'} Sending is disabled.`);
-  say('sender-steps', sender.setup_steps.join('\n'));
+  say('sender-state', `${sender.address} · ${sender.provider} · ${sender.confirmation ? 'Founder confirmed mailbox receipt.' : sender.delivery_verified ? 'Provider delivery verified.' : sender.configured ? 'Credentials configured; delivery not verified.' : 'Account connection required.'} ${sender.sending_enabled ? 'Exact approved emails can be sent individually.' : 'Outreach sending is disabled.'}`);
+  say('sender-steps', sender.delivery_verified ? 'Review a concrete draft, approve that exact proposal, then use Send approved email. No automatic follow-ups. Initial limit: three individual emails per UTC day.' : sender.setup_steps.join('\n'));
   say('sender-test-status', sender.test ? `Delivery test: ${sender.test.status.replaceAll('_', ' ').toLowerCase()} · ${sender.test.created_at}. Provider delivery does not prove inbox placement.` : 'No delivery test recorded.');
   say('sender-check-status', sender.check ? sender.check.explanation : 'Connection check sends no email.');
   element<HTMLButtonElement>('sender-check').disabled = !sender.configured;
@@ -44,6 +44,20 @@ async function refresh() {
     element<HTMLButtonElement>('sender-test').disabled = true;
     try {await api('/api/founder/sender-test', {method: 'POST'}); await refresh();}
     catch (error) {await refresh().catch(() => say('sender-test-status', error instanceof Error ? error.message : 'Unable to read the saved test result.'));}
+  };
+  const confirm = element<HTMLButtonElement>('sender-confirm');
+  confirm.hidden = !!sender.confirmation;
+  confirm.disabled = !sender.test || !['QUEUED', 'PROVIDER_DELIVERED'].includes(sender.test.status);
+  confirm.onclick = async () => {
+    confirm.disabled = true;
+    try {await api('/api/founder/sender-confirm', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({test_created_at: sender.test.created_at})}); await refresh();}
+    catch (error) {say('sender-test-status', error instanceof Error ? error.message : 'Unable to save mailbox confirmation.');}
+  };
+  element<HTMLButtonElement>('prepare-funding').disabled = false;
+  element<HTMLButtonElement>('prepare-funding').onclick = async () => {
+    element<HTMLButtonElement>('prepare-funding').disabled = true;
+    try {await api('/api/founder/funding-draft', {method: 'POST'}); await refresh(); say('approval-notice', 'First Round draft saved. Review the exact recipient and message before approving. Nothing sent.');}
+    catch (error) {say('approval-notice', error instanceof Error ? error.message : 'Unable to prepare funding draft.');}
   };
   const outreach = state.commands.find((c: {kind: string; status: string}) => c.kind === 'PREPARE_OUTREACH' && c.status === 'COMPLETE');
   element<HTMLButtonElement>('prepare-review').disabled = !outreach;
@@ -63,7 +77,12 @@ async function refresh() {
     await api('/api/founder/action-reviews', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     say('approval-notice', 'Decision saved. No action was executed or sent.');
     try {await refresh();} catch {say('approval-notice', 'Decision saved. Refresh to reconnect and read its status.');}
-  });
+  }, {enabled: sender.sending_enabled, send: async body => {
+    if (viewer !== currentUserId) throw new Error('Founder session changed. Refresh before sending.');
+    const receipt = await api('/api/founder/email-send', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    say('approval-notice', `Email result saved: ${receipt.status.replaceAll('_', ' ').toLowerCase()}. Read the receipt; do not submit a duplicate.`);
+    await refresh();
+  }});
   const active = state.commands.find((c: {command_id: string; issued_by: string}) => activeCommandId ? c.command_id === activeCommandId : c.issued_by === viewer);
   if (active) {activeCommandId = active.command_id; say('notice', commandNotice(active));}
   return state.commands.some((c: {status: string}) => ['QUEUED', 'RUNNING'].includes(c.status));
@@ -102,7 +121,7 @@ element<HTMLFormElement>('login').addEventListener('submit', async event => {
   catch (error) { say('access', error instanceof Error ? error.message : 'Sign-in failed.'); }
 });
 element('logout').addEventListener('click', async () => {
-  try { await logout(); poller.stop(); activeCommandId = undefined; currentUserId = undefined; say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); say('approvals', 'Sign in to review actions.'); say('approval-notice', ''); say('sender-state', 'Sign in to view sender setup.'); say('sender-steps', ''); say('sender-test-status', ''); element<HTMLButtonElement>('sender-test').disabled = true; element<HTMLButtonElement>('prepare-review').disabled = true; await session(); }
+  try { await logout(); poller.stop(); activeCommandId = undefined; currentUserId = undefined; say('pulse', 'Sign in to view company state.'); say('state', 'Sign in to view company state.'); say('commands', 'Sign in to view command receipts.'); say('approvals', 'Sign in to review actions.'); say('approval-notice', ''); say('sender-state', 'Sign in to view sender setup.'); say('sender-steps', ''); say('sender-test-status', ''); element<HTMLButtonElement>('sender-test').disabled = true; element<HTMLButtonElement>('sender-confirm').disabled = true; element<HTMLButtonElement>('sender-check').disabled = true; element<HTMLButtonElement>('prepare-funding').disabled = true; element<HTMLButtonElement>('prepare-review').disabled = true; await session(); }
   catch { say('access', 'Sign-out failed.'); }
 });
 element<HTMLFormElement>('set-password').addEventListener('submit', async event => {

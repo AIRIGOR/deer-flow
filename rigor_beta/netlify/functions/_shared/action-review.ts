@@ -5,7 +5,7 @@ type Data = Record<string, any>;
 type Store = Awaited<ReturnType<typeof founderStore>>;
 // Bind the decision to every proposal field except worker lifecycle metadata.
 export function actionSnapshot(action: Data) {
-  return Object.fromEntries(Object.entries(action).filter(([key]) => !['status', 'created_at', 'updated_at', 'execution_started_at', 'completed_at', 'review', 'review_fingerprint'].includes(key)));
+  return Object.fromEntries(Object.entries(action).filter(([key]) => !['status', 'created_at', 'updated_at', 'execution_started_at', 'completed_at', 'review', 'review_fingerprint', 'email_execution'].includes(key)));
 }
 function canonical(value: any): any {
   if (Array.isArray(value)) return value.map(canonical);
@@ -18,7 +18,7 @@ export async function actionsForReview(store: Store, actions: unknown) {
   if (!Array.isArray(actions)) return [];
   return Promise.all(actions.map(async (action: Data) => {
     const fingerprint = actionFingerprint(action);
-    return {...action, review_fingerprint: fingerprint, review: await store.get(keyFor(fingerprint), {type: 'json'})};
+    return {...action, review_fingerprint: fingerprint, review: await store.get(keyFor(fingerprint), {type: 'json'}), email_execution: await store.get('founder/email-executions/' + fingerprint, {type: 'json'})};
   }));
 }
 export async function reviewAction(request: Request, store: Store, actor: string) {

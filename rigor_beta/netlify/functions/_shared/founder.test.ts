@@ -353,3 +353,103 @@ describe('Sender diagnostics without email', () => {
     expect((await founder(new Request('https://example.test/api/founder/sender-test', {method: 'POST'}), context)).status).toBe(409);
   });
 });
+
+describe('Controlled approved email execution', () => {
+  const post = (path: string, body?: unknown, service = false) => new Request('https://example.test/api/founder/' + path, {method: 'POST', headers: {'Content-Type': 'application/json', ...(service ? {'X-RIGOR-Automation-Token': 'secret'} : {})}, ...(body ? {body: JSON.stringify(body)} : {})});
+  const state = async () => (await (await founder(request('/api/founder'), context)).json());
+  async function ready() {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: ['ausar_bey@icloud.com']}}))));
+    await founder(post('sender-test'), context);
+    const test = mocks.records.get('founder/mail-test/latest');
+    await founder(post('sender-confirm', {test_created_at: test.created_at}), context);
+    await founder(post('funding-draft'), context);
+    const row = (await state()).actions[0];
+    return row;
+  }
+  async function approve(row: any) {
+    return founder(post('action-reviews', {action_key: row.action_key, fingerprint: row.review_fingerprint, decision: 'APPROVE'}), context);
+  }
+  const send = (row: any, service = false) => founder(post('email-send', {action_key: row.action_key, fingerprint: row.review_fingerprint}, service), context);
+  beforeEach(() => {
+    vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_DEERFLOW_TOKEN: 'secret', RIGOR_CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-token'})[key]}});
+  });
+  it('records mailbox evidence separately from queued provider outcome; never sends on confirmation or approval', async () => {
+    const row = await ready();
+    const sender = (await state()).sender;
+    expect(sender.test.status).toBe('QUEUED'); expect(sender.confirmation.evidence).toBe('FOUNDER_CONFIRMED_MAILBOX_RECEIPT'); expect(sender.sending_enabled).toBe(true);
+    expect(await approve(row)).toMatchObject({status: 201}); expect(fetch).toHaveBeenCalledTimes(1);
+    expect((await state()).actions[0].email_execution).toBeNull();
+  });
+  it('blocks missing approval, rejects service access and verifies same origin before a send', async () => {
+    const row = await ready(); vi.mocked(fetch).mockClear();
+    expect((await send(row)).status).toBe(409);
+    await approve(row); expect((await send(row, true)).status).toBe(403);
+    mocks.origin.mockImplementation(() => {throw Error('origin');}); expect((await send(row)).status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('requires mailbox receipt confirmation and rejects a stale test reference', async () => {
+    const row = await ready(); await approve(row);
+    mocks.records.delete('founder/mail-confirmations/' + mocks.records.get('founder/mail-test/latest').created_at);
+    vi.mocked(fetch).mockClear(); expect((await send(row)).status).toBe(409);
+    expect((await founder(post('sender-confirm', {test_created_at: 'old'}), context)).status).toBe(409);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('sends only the approved stored envelope once under parallel/repeated clicks', async () => {
+    const row = await ready(); await approve(row);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: [row.payload.to]}}))));
+    await Promise.all([send(row), send(row)]); await send(row);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toEqual({from: row.payload.from, to: row.payload.to, subject: row.payload.subject, text: row.payload.body});
+    const execution = (await state()).actions[0].email_execution;
+    expect(execution.status).toBe('QUEUED'); expect(execution.issued_by).toBe('founder'); expect(execution.approved_by).toBe('founder');
+    expect(JSON.stringify(execution)).not.toContain('private-token');
+  });
+  it('invalidates approval after changes and rejects custom message overrides', async () => {
+    const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
+    expect((await founder(post('email-send', {action_key: row.action_key, fingerprint: row.review_fingerprint, to: 'other@test.com'}), context)).status).toBe(422);
+    const key = [...mocks.records.keys()].find(k => k.startsWith('founder/outreach-proposals/'))!;
+    const proposal = mocks.records.get(key); mocks.records.set(key, {...proposal, payload: {...proposal.payload, body: 'Changed'}});
+    expect((await send(row)).status).toBe(409); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('rejects forged approval snapshots and requires the exact recipient source', async () => {
+    const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
+    const key = 'founder/action-reviews/' + row.review_fingerprint;
+    const review = mocks.records.get(key); mocks.records.set(key, {...review, proposal: {...review.proposal, payload: {...review.proposal.payload, to: 'forged@test.com'}}});
+    expect((await send(row)).status).toBe(409); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('retains uncertain outcomes without retry and blocks identical envelopes across proposal revisions', async () => {
+    const row = await ready(); await approve(row);
+    vi.stubGlobal('fetch', vi.fn(async () => {throw Error('private-token');}));
+    expect((await (await send(row)).json()).status).toBe('DELIVERY_UNKNOWN'); await send(row); expect(fetch).toHaveBeenCalledTimes(1);
+    const key = [...mocks.records.keys()].find(k => k.startsWith('founder/outreach-proposals/'))!;
+    const original = mocks.records.get(key); mocks.records.set(key, {...original, summary: 'A revised description'});
+    const revision = (await state()).actions[0]; await approve(revision);
+    expect((await (await send(revision)).json()).status).toBe('DUPLICATE_BLOCKED'); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each(['PROVIDER_DELIVERED', 'BOUNCED', 'SUPPRESSED', 'PROVIDER_REJECTED'])('saves the precise provider outcome %s', async status => {
+    const row = await ready(); await approve(row);
+    const field = {PROVIDER_DELIVERED: 'delivered', BOUNCED: 'permanent_bounces', SUPPRESSED: 'suppressed_recipients'}[status];
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(status === 'PROVIDER_REJECTED' ? {success: false, errors: [{code: 10102, message: 'private-token'}]} : {success: true, result: {[field!]: [row.payload.to]}}), {status: status === 'PROVIDER_REJECTED' ? 403 : 200})));
+    const receipt = await (await send(row)).json(); expect(receipt.status).toBe(status); expect(JSON.stringify(receipt)).not.toContain('private-token');
+    await send(row); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('enforces three attempts per UTC day before provider request', async () => {
+    const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
+    for (let i = 0; i < 3; i++) mocks.records.set('founder/email-limits/' + new Date().toISOString().slice(0, 10) + '/' + i, {fingerprint: 'prior'});
+    expect((await (await send(row)).json()).status).toBe('DAILY_LIMIT'); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('prepares an immutable sourced funding draft without sending or approving it', async () => {
+    await founder(post('funding-draft'), context); const row = (await state()).actions[0];
+    expect(row.payload.to).toBe('liz.wessel@firstround.com'); expect(row.payload.recipient_evidence.email).toBe(row.payload.to); expect(row.review).toBeNull();
+    await approve(row); await founder(post('funding-draft'), context); expect((await state()).actions[0].review.decision).toBe('APPROVE');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('blocks non-Founder receipt confirmation and a changed sending account', async () => {
+    const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
+    expect((await founder(post('sender-confirm', {test_created_at: mocks.records.get('founder/mail-test/latest').created_at}, true), context)).status).toBe(403);
+    mocks.user.mockResolvedValue({id: 'member', roles: ['member']}); expect((await send(row)).status).toBe(403);
+    mocks.user.mockResolvedValue({id: 'founder', roles: ['founder']});
+    vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'c'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-token'})[key]}});
+    expect((await send(row)).status).toBe(409); expect(fetch).not.toHaveBeenCalled();
+  });
+});
