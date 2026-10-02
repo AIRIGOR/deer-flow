@@ -2,6 +2,9 @@
   command = "npm run netlify:build"
   publish = "app/static"
 
+[build.environment]
+  RIGOR_RELEASE_CHECKPOINT = "2026-09-30-live-gate-repair"
+
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
@@ -19,3 +22,13 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=3600"
+
+[[redirects]]
+from = "/founder"
+to = "/founder.html"
+status = 200
+
+[[redirects]]
+from = "/founder/"
+to = "/founder.html"
+status = 200

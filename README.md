@@ -992,6 +992,8 @@ Your unwavering commitment and expertise have been the driving force behind Deer
 
 ## RIGOR AI Company Team
 
+RIGOR document analysis preserves numeric capacities and quantities returned by the model as text, with their units and source excerpts intact. Malformed or nonfinite values remain rejected.
+
 This fork includes a bounded RIGOR operating team built on DeerFlow's native subagent system. The lead agent can delegate to specialized Chief of Staff, Product/Production Intelligence, Engineering, QA/Security, Market Intelligence, and Partnerships/Capital agents. These agents are designed for internal research, analysis, implementation, and release validation; external commitments, spending, credential changes, and production promotion remain human-approved actions.
 
 See [docs/rigor-ai-company-team.md](docs/rigor-ai-company-team.md) for the operating model and approval boundary.

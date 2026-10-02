@@ -597,7 +597,7 @@ export function rebuildConflicts(input: WorkspaceState | ProductionState) {
 
 export function extractRequirements(input: WorkspaceState | ProductionState, documentName: string, pages: string[]) {
   const state = resolveProduction(input);
-  const trigger = /\b(must|required|requires|provide|minimum|maximum|shall|confirm|available|limited|rated|load[- ]?in|voltage|amp(?:s|ere)?|capacity|only|opens?|closes?)\b/i;
+  const trigger = /\b(must|required|requires|provid(?:e|es|ed|ing)|minimum|maximum|shall|confirm(?:s|ed)?|available|limited|rated|load[- ]?in|voltage|amp(?:s|ere)?|capacity|only|opens?|closes?)\b/i;
   const created: RecordMap[] = [];
   const seen = new Set(state.requirements.map((item) => `${item.document_name}|${item.excerpt}`));
 

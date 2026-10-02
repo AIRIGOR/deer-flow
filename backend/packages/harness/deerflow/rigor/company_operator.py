@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -16,6 +17,7 @@ from deerflow.utils.llm_text import (
 )
 
 from .company_actions import CompanyActionProposal
+from .execution_receipts import ExecutionReceipt, collect_execution
 
 
 class RigorCompanyPulseError(RuntimeError):
@@ -23,9 +25,7 @@ class RigorCompanyPulseError(RuntimeError):
 
 
 class CompanyStateUpdate(BaseModel):
-    record_type: str = Field(
-        pattern="^(OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY)$"
-    )
+    record_type: str = Field(pattern="^(OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY)$")
     title: str = Field(min_length=1, max_length=255)
     summary: str | None = Field(default=None, max_length=4000)
     status: str = Field(
@@ -43,6 +43,7 @@ class CompanyStateUpdate(BaseModel):
 
 
 class RigorCompanyPulseResult(BaseModel):
+    execution_receipts: list[ExecutionReceipt] = Field(default_factory=list)
     current_state: str = Field(min_length=1, max_length=8000)
     top_priorities: list[str] = Field(min_length=1, max_length=3)
     blockers_risks: list[str] = Field(default_factory=list, max_length=12)
@@ -190,9 +191,7 @@ def _parse_pulse(text: str) -> RigorCompanyPulseResult:
         payload = json.loads(cleaned)
         return RigorCompanyPulseResult.model_validate(payload)
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-        raise RigorCompanyPulseError(
-            "RIGOR company operator returned invalid structured JSON"
-        ) from exc
+        raise RigorCompanyPulseError("RIGOR company operator returned invalid structured JSON") from exc
 
 
 class RigorCompanyOperator:
@@ -226,17 +225,20 @@ class RigorCompanyOperator:
         if not objective:
             raise ValueError("objective must not be empty")
         context = (context or "").strip()[:30000]
-        prompt = (
-            f"{_COMPANY_PROMPT}\n\n"
-            f"FOUNDER OBJECTIVE:\n{objective}\n\n"
-            f"CURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
-        )
+        prompt = f"{_COMPANY_PROMPT}\n\nFOUNDER OBJECTIVE:\n{objective}\n\nCURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
-        text = await asyncio.to_thread(
-            client.chat,
-            prompt,
-            thread_id="rigor-company-pulse",
-            subagent_enabled=True,
-            recursion_limit=180,
-        )
-        return _parse_pulse(text)
+        try:
+            text, receipts = await asyncio.to_thread(
+                collect_execution,
+                client,
+                prompt,
+                pulse=True,
+                thread_id="rigor-company-pulse-" + str(uuid4()),
+                subagent_enabled=True,
+                recursion_limit=180,
+            )
+        except ValueError as exc:
+            raise RigorCompanyPulseError("Specialist runtime execution was not verified") from exc
+        result = _parse_pulse(text)
+        result.execution_receipts = receipts
+        return result

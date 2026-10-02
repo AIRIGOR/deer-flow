@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
-import { getDeployStore, getStore } from "@netlify/blobs";
+import {companyStore} from "./_shared/company-store.js";
+import {boundedCompanyContext} from "./_shared/company-context.js";
 import type { Context } from "@netlify/functions";
+import { normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
 
 type StateUpdate = {
   record_type: "OBJECTIVE" | "MILESTONE" | "RELATIONSHIP" | "FEEDBACK" | "RISK" | "EXPERIMENT" | "RUNWAY";
@@ -76,6 +78,7 @@ type ActionQueueRecord = ActionProposal & {
 };
 
 type PulsePayload = {
+  execution_receipts?: unknown[];
   current_state: string;
   top_priorities: string[];
   blockers_risks: string[];
@@ -118,12 +121,6 @@ function safeEqual(left: string, right: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function companyStore(context: Context) {
-  if (context.deploy.context === "production") {
-    return getStore({ name: "rigor-company", consistency: "strong" });
-  }
-  return getDeployStore("rigor-company");
-}
 
 async function publicJson(url: string) {
   try {
@@ -141,30 +138,26 @@ async function publicJson(url: string) {
   }
 }
 
-async function buildCompanyContext(
+export async function buildCompanyContext(
   request: Request,
   priorState: CompanyStateRecord[],
   priorActions: ActionQueueRecord[],
 ) {
-  const branch = "feat/rigor-netlify-beta-v1";
+  const deployment = await publicJson(new URL("/deploy-meta.json", request.url).toString()) as Record<string, unknown>;
+  const commitRef = typeof deployment?.commit === "string" && /^[a-f0-9]{40}$/i.test(deployment.commit) ? deployment.commit : null;
+  const branch = typeof deployment?.branch === "string" ? deployment.branch : null;
   const [commit, runs, previewHealth, deerflowHealth] = await Promise.all([
-    publicJson(
-      `https://api.github.com/repos/AIRIGOR/deer-flow/commits/${encodeURIComponent(branch)}`,
-    ),
-    publicJson(
-      `https://api.github.com/repos/AIRIGOR/deer-flow/actions/runs?branch=${encodeURIComponent(branch)}&per_page=10`,
-    ),
+    commitRef ? publicJson(`https://api.github.com/repos/AIRIGOR/deer-flow/commits/${commitRef}`) : Promise.resolve({error: "Deployed commit unavailable"}),
+    commitRef ? publicJson(`https://api.github.com/repos/AIRIGOR/deer-flow/actions/runs?head_sha=${commitRef}&per_page=10`) : Promise.resolve({error: "CI evidence unavailable without deployed commit"}),
     publicJson(new URL("/api/health", request.url).toString()),
     (() => {
       const base = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
-      return base
-        ? publicJson(`${base.replace(/\/$/, "")}/health`)
-        : Promise.resolve({ error: "RIGOR_DEERFLOW_URL missing" });
+      return base ? publicJson(`${base.replace(/\/$/, "")}/health`) : Promise.resolve({error: "RIGOR_DEERFLOW_URL missing"});
     })(),
   ]);
 
   const recentRuns = Array.isArray((runs as any)?.workflow_runs)
-    ? (runs as any).workflow_runs.slice(0, 10).map((run: any) => ({
+    ? (runs as any).workflow_runs.filter((run: any) => run.head_sha === commitRef).slice(0, 10).map((run: any) => ({
         name: run.name,
         status: run.status,
         conclusion: run.conclusion,
@@ -176,6 +169,15 @@ async function buildCompanyContext(
   return {
     generated_at: new Date().toISOString(),
     branch,
+    deployed_commit: commitRef,
+    deployment,
+    evidence_rules: [
+      "CI results apply only to their exact head_sha. No test or audit failure is verified without a specific failing result and source.",
+      "Prior company state contains assessments, not independently verified facts; recheck claims against current evidence.",
+      "Current build completion excludes external tester participation and repeated real-world production validation. Those are later validation gates.",
+      "Capital pipeline and partnerships are business work, not product build-completion gates.",
+      "Review completion proves execution only, not release readiness. Unknown evidence remains unknown.",
+    ],
     branch_head:
       typeof (commit as any)?.sha === "string"
         ? (commit as any).sha
@@ -346,14 +348,14 @@ function contextDeployId(request: Request) {
   return request.headers.get("x-nf-deploy-id") || null;
 }
 
-async function trimHistory(store: ReturnType<typeof getStore>) {
+async function trimHistory(store: Awaited<ReturnType<typeof companyStore>>) {
   const listed = await store.list({ prefix: "pulse/history/" });
   const keys = listed.blobs.map((item) => item.key).sort();
   const excess = keys.slice(0, Math.max(0, keys.length - 30));
   await Promise.all(excess.map((key) => store.delete(key)));
 }
 
-export default async (request: Request, context: Context) => {
+export async function runCompanyPulse(request: Request, context: Context, founderObjective?: string) {
   const expected = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim() || "";
   const provided =
     request.headers.get("x-rigor-automation-token")?.trim() || "";
@@ -368,109 +370,146 @@ export default async (request: Request, context: Context) => {
     return;
   }
 
-  const store = companyStore(context);
-  const [priorState, priorActions] = await Promise.all([
-    store.get("state/records", { type: "json" }) as Promise<
-      CompanyStateRecord[] | null
-    >,
-    store.get("actions/queue", { type: "json" }) as Promise<
-      ActionQueueRecord[] | null
-    >,
-  ]);
-  const companyState = priorState || [];
-  const actionQueue = priorActions || [];
-  const companyContext = await buildCompanyContext(
-    request,
-    companyState,
-    actionQueue,
-  );
-
-  const response = await fetch(
-    `${baseUrl.replace(/\/$/, "")}/api/rigor/company/pulse`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-RIGOR-Service-Token": expected,
-      },
-      body: JSON.stringify({
-        objective:
-          "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
-        context: JSON.stringify(companyContext),
-      }),
-      signal: AbortSignal.timeout(13 * 60 * 1000),
-    },
-  );
-
-  if (!response.ok) {
-    console.error(
-      "RIGOR company pulse failed",
-      response.status,
-      (await response.text()).slice(0, 1000),
+  const store = await companyStore(context);
+  const startedAt = new Date().toISOString();
+  await store.setJSON("pulse/last-attempt", { started_at: startedAt, status: "RUNNING" });
+  try {
+    const [priorState, priorActions] = await Promise.all([
+      store.get("state/records", { type: "json" }) as Promise<
+        CompanyStateRecord[] | null
+      >,
+      store.get("actions/queue", { type: "json" }) as Promise<
+        ActionQueueRecord[] | null
+      >,
+    ]);
+    const companyState = priorState || [];
+    const actionQueue = priorActions || [];
+    const companyContext = await buildCompanyContext(
+      request,
+      companyState,
+      actionQueue,
     );
-    return;
-  }
 
-  const pulse = (await response.json()) as PulsePayload;
-  const nextState = mergeState(companyState, pulse.state_updates || []);
-  const nextActions = mergeActions(actionQueue, pulse.action_proposals || []);
-  const counts = actionCounts(nextActions);
-  const envelope = {
-    generated_at: new Date().toISOString(),
-    source: "RIGOR_AI_COMPANY_V1",
-    context: companyContext,
-    pulse,
-  };
-
-  const timestamp = envelope.generated_at.replace(/[:.]/g, "-");
-  await store.setJSON("state/records", nextState);
-  await store.setJSON("actions/queue", nextActions);
-  await store.setJSON("pulse/latest", {
-    ...envelope,
-    durable_state_records: nextState.length,
-    action_queue: counts,
-  });
-  await store.setJSON(`pulse/history/${timestamp}.json`, {
-    ...envelope,
-    durable_state_records: nextState.length,
-    action_queue: counts,
-  });
-  await trimHistory(store);
-  console.log(
-    "RIGOR company pulse stored",
-    envelope.generated_at,
-    pulse.top_priorities?.length ?? 0,
-    "actions",
-    counts,
-  );
-
-  if (counts.approved > 0) {
-    try {
-      const runnerResponse = await fetch(
-        new URL(
-          "/.netlify/functions/rigor-company-action-runner-background",
-          request.url,
-        ),
-        {
-          method: "POST",
-          headers: {
-            "X-RIGOR-Automation-Token": expected,
-            "X-RIGOR-Action-Depth": "0",
-          },
-          signal: AbortSignal.timeout(10000),
+    const response = await fetch(
+      `${baseUrl.replace(/\/$/, "")}/api/rigor/company/pulse`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-RIGOR-Service-Token": expected,
         },
+        body: JSON.stringify({
+          objective:
+            founderObjective?.trim() || "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
+          context: boundedCompanyContext(companyContext),
+        }),
+        signal: AbortSignal.timeout(13 * 60 * 1000),
+      },
+    );
+
+    if (!response.ok) {
+      await store.setJSON("pulse/last-attempt", {
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        status: "FAILED",
+        failure_code: `UPSTREAM_HTTP_${response.status}`,
+      });
+      console.error(
+        "RIGOR company pulse failed",
+        response.status,
+        "Upstream execution rejected",
       );
-      if (!runnerResponse.ok) {
+      if (founderObjective) throw new Error(`UPSTREAM_HTTP_${response.status}`);
+      return;
+    }
+
+    const pulse = normalizeExecutionResult(await response.json()) as PulsePayload;
+    if (!delegationVerified(pulse as unknown as Record<string, unknown>, undefined, true)) {
+      await store.setJSON("pulse/last-attempt", {started_at: startedAt, completed_at: new Date().toISOString(), status: "FAILED", failure_code: "DELEGATION_NOT_VERIFIED"});
+      if (founderObjective) throw new Error("DELEGATION_NOT_VERIFIED");
+      return;
+    }
+    const nextState = mergeState(companyState, pulse.state_updates || []);
+    const nextActions = mergeActions(actionQueue, pulse.action_proposals || []);
+    const counts = actionCounts(nextActions);
+    const envelope = {
+      generated_at: new Date().toISOString(),
+      source: "RIGOR_AI_COMPANY_V1",
+      context: companyContext,
+      pulse,
+    };
+
+    const timestamp = envelope.generated_at.replace(/[:.]/g, "-");
+    await store.setJSON("state/records", nextState);
+    await store.setJSON("actions/queue", nextActions);
+    await store.setJSON("pulse/latest", {
+      ...envelope,
+      durable_state_records: nextState.length,
+      action_queue: counts,
+    });
+    await store.setJSON(`pulse/history/${timestamp}.json`, {
+      ...envelope,
+      durable_state_records: nextState.length,
+      action_queue: counts,
+    });
+    await trimHistory(store);
+    await store.setJSON("pulse/last-attempt", {
+      started_at: startedAt,
+      completed_at: envelope.generated_at,
+      status: "COMPLETE",
+    });
+    console.log(
+      "RIGOR company pulse stored",
+      envelope.generated_at,
+      pulse.top_priorities?.length ?? 0,
+      "actions",
+      counts,
+    );
+
+    if (counts.approved > 0) {
+      try {
+        const runnerResponse = await fetch(
+          new URL(
+            "/.netlify/functions/rigor-company-action-runner-background",
+            request.url,
+          ),
+          {
+            method: "POST",
+            headers: {
+              "X-RIGOR-Automation-Token": expected,
+              "X-RIGOR-Action-Depth": "0",
+            },
+            signal: AbortSignal.timeout(10000),
+          },
+        );
+        if (!runnerResponse.ok) {
+          console.warn(
+            "RIGOR action runner launch rejected",
+            runnerResponse.status,
+          );
+        }
+      } catch (error) {
         console.warn(
-          "RIGOR action runner launch rejected",
-          runnerResponse.status,
+          "RIGOR action runner launch failed",
+          error instanceof Error ? error.message : error,
         );
       }
-    } catch (error) {
-      console.warn(
-        "RIGOR action runner launch failed",
-        error instanceof Error ? error.message : error,
-      );
     }
+    return {...envelope, durable_state_records: nextState.length, action_queue: counts};
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED|COMPANY_CONTEXT_TOO_LARGE)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
+    await store.setJSON("pulse/last-attempt", {
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      status: "FAILED",
+      failure_code: failureCode,
+    });
+    console.error("RIGOR company pulse execution failed", error instanceof Error ? error.name : "UnknownError");
+    if (founderObjective) throw new Error(failureCode);
   }
+}
+
+export default async (request: Request, context: Context) => {
+  await runCompanyPulse(request, context);
 };

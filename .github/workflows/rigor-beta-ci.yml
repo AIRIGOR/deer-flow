@@ -60,6 +60,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Bundle Founder client
+        run: npm run build:founder
+
   rigor-core:
     runs-on: ubuntu-latest
     defaults:
@@ -92,3 +95,4 @@ jobs:
           tests/test_rigor_company_operator.py
           tests/test_rigor_company_action_executor.py
           tests/test_rigor_company_state.py
+          tests/test_rigor_execution_receipts.py
