@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "@netlify/functions";
-import { deerFlowRequest, integrationHealth } from "./deerflow.js";
+import { coherentFlowCheck, deerFlowRequest, integrationHealth } from "./deerflow.js";
 const { records } = vi.hoisted(() => ({ records: new Map<string, any>() }));
 vi.mock("@netlify/blobs", () => { const store = () => ({ setJSON: async (key: string, value: any) => records.set(key, structuredClone(value)), get: async (key: string) => records.get(key) ?? null }); return { getStore: store, getDeployStore: store }; });
 const context = { deploy: { context: "production" } } as Context;
 const candidate = { department: "Video", category: "VIDEO_POWER", requirement_text: "Provide 400 amps.", source_excerpt: "Provide 400 amps.", source_page: 90, confidence: .95 };
 beforeEach(() => { records.clear(); vi.restoreAllMocks(); vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } }); });
 describe("shared DeerFlow execution contract", () => {
+  it("queues only an internal evidence review after both real prerequisites verify", async () => {
+    expect(coherentFlowCheck(await integrationHealth(context), "deploy-1")).toBeNull();
+    records.set("latest/document_analysis", { status: "VERIFIED", execution_id: "document-proof" });
+    expect(coherentFlowCheck(await integrationHealth(context), "deploy-1")).toBeNull();
+    records.set("latest/company_pulse", { status: "VERIFIED", execution_id: "pulse-proof" });
+    expect(coherentFlowCheck(await integrationHealth(context), "deploy-1")).toMatchObject({ action_type: "INTERNAL_TEST", scope: "OBSERVE", owner_agent: "rigor-qa-security", evidence_refs: ["document-proof", "pulse-proof"] });
+  });
   it("submits every page with a background budget and a durable receipt", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ requirements: [candidate] })); vi.stubGlobal("fetch", fetcher); const deadline = vi.spyOn(AbortSignal, "timeout");
     const response = await deerFlowRequest(context, "document_analysis", { pages: Array.from({ length: 90 }, () => "Provide 400 amps.") });

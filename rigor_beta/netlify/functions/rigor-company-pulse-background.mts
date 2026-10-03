@@ -1,4 +1,4 @@
-import { deerFlowRequest } from "./_shared/deerflow.js";
+import { coherentFlowCheck, deerFlowRequest, integrationHealth } from "./_shared/deerflow.js";
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
@@ -398,6 +398,8 @@ export default async (request: Request, context: Context) => {
   }
 
   const pulse = (await response.json()) as PulsePayload;
+  const flowCheck = coherentFlowCheck(await integrationHealth(context), context.deploy.id);
+  if (flowCheck) pulse.action_proposals = [...(pulse.action_proposals || []), flowCheck];
   const nextState = mergeState(companyState, pulse.state_updates || []);
   const nextActions = mergeActions(actionQueue, pulse.action_proposals || []);
   const counts = actionCounts(nextActions);

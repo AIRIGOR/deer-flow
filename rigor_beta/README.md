@@ -61,3 +61,5 @@ New source contradictions reopen affected department checkpoints. Record the ope
 ## Durable document intake
 
 PDF/TXT uploads persist the file and a PROCESSING document before returning HTTP 202. A capability-protected background job parses page text and performs analysis. The production packet shows processing, failure, and retry states; file picker and drag/drop use the same upload path. Status polling is read-only. Failed and processing sources block readiness and cannot be source-reviewed. A worker reloads current workspace state after analysis to retain decisions and production selection. Retry is available after failure or a 16-minute processing timeout. Structured fallback is labeled separately from DeerFlow and still requires full-source review.
+
+After document analysis and company pulse both have verified receipts, the next pulse proposes one bounded INTERNAL_TEST / OBSERVE evidence review per deployment to `rigor-qa-security`. The existing action-policy gate and action runner execute it; terminal action keys prevent repeated execution for the same deployment. The check cannot authorize external actions or replace human source review.
