@@ -23,3 +23,5 @@ Document intake must save raw bytes and PROCESSING metadata before parsing/model
 Integration contract: `_shared/deerflow.ts` owns the gateway URL/token, operation routes, deadlines, sanitized errors, and durable receipts for RIGOR and 3NETRA. Uploaded documents must not silently fall back from DeerFlow or complete source review without verified analysis. Preserve pending/failed readiness gates, page provenance, and human approvals. Run deerflow.test.ts and rigor-upload.test.ts; verify the real 90-page upload against production before claiming live integration.
 
 Coherent-flow proof: `coherentFlowCheck` may propose only an INTERNAL_TEST/OBSERVE evidence review after both analysis and pulse verify. Preserve the per-deployment action key, terminal-action deduplication, and Founder-reserved gates.
+
+Company action execution uses a bounded pulse context excerpt to satisfy DeerFlow’s 20,000-character request limit while preserving the full proposal evidence.

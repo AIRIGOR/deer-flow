@@ -99,3 +99,8 @@ export function coherentFlowCheck(integration: Awaited<ReturnType<typeof integra
     payload: { motto: OPERATING_MOTTO, document_analysis: analysis, company_pulse: pulse },
   };
 }
+
+// Keep action context within the backend 20,000-character limit.
+export function companyActionContext(actionKey: string, latest: unknown) {
+  return JSON.stringify({ action_key: actionKey, latest_company_pulse_excerpt: JSON.stringify(latest ?? null).slice(0, 8000) });
+}
