@@ -5,6 +5,9 @@ const toastNode = document.getElementById("toast");
 let state = null;
 let selectedSession = Number(sessionStorage.getItem("rigorSelectedSession") || 1);
 let toastTimer = null;
+let uploadMessage = "";
+let uploading = false;
+let documentPollTimer = null;
 let showAllRequirements = sessionStorage.getItem("rigorShowAllRequirements") === "1";
 
 const departments = ["Audio", "Backline", "Communications", "Hospitality", "Labor", "Lighting", "Medical", "Merchandise", "Power", "Production", "Rigging", "Security", "Stage Management", "Video"];
@@ -187,6 +190,7 @@ function renderWorkspace() {
     <footer class="footer"><div class="wrap">RIGOR · Operational intelligence for live production.</div></footer>
   </div>`;
   bindSessionEvents();
+  scheduleDocumentPoll();
 }
 
 function renderSession() {
@@ -211,8 +215,8 @@ function renderSessionOne() {
       <div id="requirements-list" class="stack requirement-stack">${state.requirements.length ? (reviewItems.length ? renderRequirements(reviewItems) : `<div class="callout success"><strong>All requirements reviewed.</strong> Technical Advance is ready when the remaining session conditions are complete.</div>`) : `<div class="callout">No extracted requirements yet. Upload the venue pack, rider, schedule, labor call, or other production source documents.</div>`}</div>
     </div>
     <div class="grid two source-grid" style="margin-top:16px">
-      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + doc.page_count, 0)} pages</div></div>${badge(state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${doc.source_kind === "SAMPLE" || doc.review_status === "REVIEWED" ? badge("REVIEWED") : `<button class="btn small-button" onclick="reviewSource('${doc.document_id}')">Complete source review</button>`}</div>`).join("")}</div></div>
-      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label></div>
+      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + (doc.page_count || 0), 0)} pages</div></div>${badge(state.documents.some(doc => doc.status === "PROCESSING") ? "PROCESSING" : state.documents.some(doc => doc.status === "FAILED") ? "FAILED" : state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${doc.status === "PROCESSING" ? `<div class="muted small">Saved · analysis in progress${Date.now() - Date.parse(doc.processing_started_at) >= 16 * 60 * 1000 ? `<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button>` : ""}</div>` : doc.status === "FAILED" ? `<div role="alert">${escapeHtml(doc.processing_error)}<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button></div>` : doc.source_kind === "SAMPLE" || doc.review_status === "REVIEWED" ? badge("REVIEWED") : `<button class="btn small-button" onclick="reviewSource('${doc.document_id}')">Complete source review</button>`}</div>`).join("")}</div></div>
+      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label><div id="upload-status" role="status" aria-live="polite">${escapeHtml(uploadMessage)}</div></div>
     </div>
     ${renderFeedback(1)}`;
 }
@@ -290,6 +294,11 @@ function bindSessionEvents() {
   document.querySelectorAll("form[data-incident-resolution]").forEach(form => form.addEventListener("submit", resolveIncident));
   const upload = document.getElementById("document-upload");
   if (upload) upload.addEventListener("change", uploadDocument);
+  const zone = document.getElementById("upload-zone");
+  if (zone) {
+    zone.addEventListener("dragover", event => { event.preventDefault(); });
+    zone.addEventListener("drop", event => { event.preventDefault(); uploadDocument({ target: { files: event.dataTransfer.files } }); });
+  }
   const filter = document.getElementById("requirement-filter");
   if (filter) filter.addEventListener("change", event => {
     document.querySelectorAll(".requirement-row").forEach(row => { row.classList.toggle("hidden", event.target.value !== "ALL" && row.dataset.department !== event.target.value); });
@@ -456,17 +465,60 @@ async function reviewSource(documentId) {
 
 async function uploadDocument(event) {
   const file = event.target.files[0];
-  if (!file) return;
+  if (!file || uploading) return;
+  const status = document.getElementById("upload-status");
   const zone = document.getElementById("upload-zone");
+  const message = text => { uploadMessage = text; if (status) status.textContent = text; };
+  if (!/\.(pdf|txt)$/i.test(file.name)) { message("Choose a PDF or TXT document."); return; }
+  if (!file.size || file.size > 5 * 1024 * 1024) { message("Choose a nonempty document under 5 MB."); return; }
+  uploading = true;
   zone.classList.add("busy");
-  const form = new FormData();
-  form.append("file", file);
+  message(`Uploading ${file.name} — waiting for save confirmation…`);
+  const form = new FormData(); form.append("file", file);
   try {
     const result = await api("/api/documents", { method: "POST", body: form });
     state = result.workspace;
-    showToast(`${result.result.name}: ${result.result.requirements_added} requirement candidates extracted.`);
+    uploadMessage = `${result.result.name} saved. Analysis is running; this page will update automatically.`;
     renderWorkspace();
-  } catch (error) { zone.classList.remove("busy"); showToast(error.message, true); }
+  } catch (error) {
+    message(`Upload was not confirmed: ${error.message}. Refresh to check the production packet before retrying.`);
+    zone.classList.remove("busy");
+  } finally {
+    uploading = false;
+    if (event.target.value !== undefined) event.target.value = "";
+  }
+}
+
+async function retryDocument(documentId) {
+  try {
+    state = await api(`/api/documents/${documentId}/retry`, { method: "POST", body: "{}" });
+    uploadMessage = "Saved document queued for analysis again.";
+    renderWorkspace();
+  } catch (error) { uploadMessage = error.message; renderWorkspace(); }
+}
+
+function scheduleDocumentPoll() {
+  clearTimeout(documentPollTimer);
+  if (!state?.documents.some(doc => doc.status === "PROCESSING")) return;
+  const productionId = state.production.production_id;
+  documentPollTimer = setTimeout(async () => {
+    try {
+      const latest = await api("/api/workspace");
+      if (!state || state.production.production_id !== productionId) return;
+      // Only replace the screen when document progress changes, preserving edits in progress.
+      const before = JSON.stringify(state.documents);
+      state = latest;
+      if (before !== JSON.stringify(latest.documents)) {
+        uploadMessage = latest.documents.some(doc => doc.status === "FAILED") ? "Document saved, but analysis failed. See the production packet to retry." : latest.documents.some(doc => doc.status === "PROCESSING") ? "Documents saved. Analysis in progress…" : "Analysis complete. Review the extracted requirements and complete source review.";
+        renderWorkspace();
+      } else scheduleDocumentPoll();
+    } catch (error) {
+      if (!state) return;
+      uploadMessage = `Cannot refresh analysis status: ${error.message}. Your saved document remains in the packet.`;
+      const status = document.getElementById("upload-status"); if (status) status.textContent = uploadMessage;
+      scheduleDocumentPoll();
+    }
+  }, 3000);
 }
 
 async function addIncident(event) {
