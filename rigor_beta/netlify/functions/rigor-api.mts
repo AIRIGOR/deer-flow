@@ -3,6 +3,7 @@ import { getStore } from "@netlify/blobs";
 import type { Context, Config } from "@netlify/functions";
 import pdfParse from "pdf-parse";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./_shared/deerflow.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
 import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
@@ -58,37 +59,16 @@ type DeerFlowRequirement = {
   confidence?: number;
 };
 
-async function analyzeWithDeerFlow(documentName: string, pages: string[]) {
-  const baseUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
-  if (!baseUrl) return null;
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const token = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
-  if (token) headers["X-RIGOR-Service-Token"] = token;
-
-  try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/rigor/analyze`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ document_name: documentName, pages }),
-      signal: AbortSignal.timeout(45000),
-    });
-    if (!response.ok) {
-      console.warn("RIGOR DeerFlow analysis failed", response.status, await response.text());
-      return null;
-    }
-    const payload = await response.json() as { requirements?: DeerFlowRequirement[] };
-    return Array.isArray(payload.requirements) ? payload.requirements : null;
-  } catch (error) {
-    console.warn("RIGOR DeerFlow analysis unavailable; using local extraction", error);
-    return null;
-  }
+async function analyzeWithDeerFlow(context: Context, documentName: string, pages: string[]) {
+  const response = await deerFlowRequest(context, "document_analysis", { document_name: documentName, pages });
+  const payload = await response.json() as { requirements: DeerFlowRequirement[] };
+  return { requirements: payload.requirements, receiptId: response.headers.get("X-RIGOR-Execution-Id") };
 }
 
 function ingestDeerFlowRequirements(production: ProductionState, documentName: string, items: DeerFlowRequirement[]) {
   const seen = new Set(production.requirements.map((item) => `${item.document_name}|${item.excerpt}`));
   const created: Record<string, any>[] = [];
-  for (const candidate of items.slice(0, 250)) {
+  for (const candidate of items) {
     const detail = String(candidate.requirement_text || "").trim();
     const excerpt = String(candidate.source_excerpt || detail).trim();
     if (!detail || !excerpt) continue;
@@ -346,21 +326,22 @@ export async function processUpload(request: Request, context: Context) {
       } });
     } else pages.push(new TextDecoder().decode(raw));
     if (!pages.some(page => page.trim())) throw new Error("No readable text found. Use a text PDF or TXT document.");
-    const deerFlowRequirements = await analyzeWithDeerFlow(initial.document.name, pages);
+    const analysis = await analyzeWithDeerFlow(context, initial.document.name, pages);
+    const deerFlowRequirements = analysis.requirements;
     // Rebase on current state after slow analysis, preserving production selection and human decisions.
     const { state, production, document } = await load();
     if (document.status !== "PROCESSING") return;
-    const extracted = deerFlowRequirements ? ingestDeerFlowRequirements(production, document.name, deerFlowRequirements) : extractRequirements(production, document.name, pages);
-    const recovered = deerFlowRequirements ? reconcileSourceRequirements(production, document.name, pages) : [];
+    const extracted = ingestDeerFlowRequirements(production, document.name, deerFlowRequirements);
+    const recovered = reconcileSourceRequirements(production, document.name, pages);
     extracted.push(...recovered); invalidateChangedCheckpoints(production, extracted);
-    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: deerFlowRequirements ? "DEERFLOW" : "STRUCTURED_EXTRACTION_V1", source_review_candidates: recovered.length, processed_at: now() });
+    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now() });
     delete document.processing_error;
     event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, requirements: extracted.length, analysis_engine: document.analysis_engine });
     await save(store, state);
   } catch (error) {
     const { state, production, document } = await load();
     if (document.status === "PROCESSING") {
-      document.status = "FAILED"; document.processing_error = "Analysis failed. Retry analysis or upload a readable PDF/TXT.";
+      document.status = "FAILED"; document.processing_error = error instanceof DeerFlowIntegrationError ? error.message : "Analysis failed. Retry analysis or upload a readable PDF/TXT.";
       event(production, "DOCUMENT_PROCESSING_FAILED", { document_id: job.documentId });
       await save(store, state);
     }
@@ -380,6 +361,7 @@ export default async (request: Request, context: Context) => {
         service: "rigor",
         version: "partner-demo-v1",
         deerflow: { configured: Boolean(deerFlowUrl && deerFlowToken) },
+        integration: await integrationHealth(context),
       });
     }
     if (path === "/api/start" && request.method === "POST") {
@@ -402,6 +384,7 @@ export default async (request: Request, context: Context) => {
       const document = production.documents.find((doc) => doc.document_id === documentReviewMatch[1]);
       if (!document) return fail("Document not found", 404);
       if (document.status !== "PROCESSED") return fail("Wait for document analysis to complete before source review");
+      if (document.doc_type === "UPLOADED" && document.analysis_engine !== "DEERFLOW") return fail("Verified DeerFlow analysis is required. Retry analysis before completing source review.");
       const data = await body(request);
       if (data.complete_source_review !== true) return fail("Confirm the complete source document has been reviewed");
       const candidates = production.requirements.filter((req) => req.document_name === document.name);
@@ -522,9 +505,9 @@ export default async (request: Request, context: Context) => {
     if (retryMatch && request.method === "POST") {
       const document = production.documents.find(doc => doc.document_id === retryMatch[1]);
       if (!document) return fail("Document not found", 404);
-      if (document.status === "PROCESSED") return fail("Document is already processed");
+      if (document.status === "PROCESSED" && (document.source_kind === "SAMPLE" || document.analysis_engine === "DEERFLOW")) return fail("Document is already processed");
       if (document.status === "PROCESSING" && Date.now() - Date.parse(document.processing_started_at) < 16 * 60 * 1000) return fail("Analysis is still running");
-      document.status = "PROCESSING"; document.processing_started_at = now(); delete document.processing_error;
+      document.status = "PROCESSING"; document.review_status = "PENDING"; document.processing_started_at = now(); delete document.processing_error;
       await save(store, state);
       await queueUpload(request, context, state, production, document.document_id);
       return json(snapshot(state), 202);

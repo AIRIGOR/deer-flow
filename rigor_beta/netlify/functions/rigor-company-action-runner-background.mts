@@ -1,3 +1,4 @@
+import { deerFlowRequest } from "./_shared/deerflow.js";
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
@@ -149,47 +150,16 @@ export default async (request: Request, context: Context) => {
 
   try {
     const latest = await store.get("pulse/latest", { type: "json" });
-    const response = await fetch(
-      `${baseUrl.replace(/\/$/, "")}/api/rigor/company/action/execute`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-RIGOR-Service-Token": expected,
-        },
-        body: JSON.stringify({
-          proposal: proposalFor(action),
-          context: JSON.stringify({
-            latest_company_pulse: latest,
-            action_key: action.action_key,
-          }),
-        }),
-        signal: AbortSignal.timeout(10 * 60 * 1000),
-      },
-    );
-
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 2000);
-      queue[index] = {
-        ...queue[index],
-        status: "FAILED",
-        last_error: `HTTP ${response.status}: ${detail}`,
-        updated_at: new Date().toISOString(),
-      };
-      await persistQueue(store, queue);
-      console.error(
-        "RIGOR action execution failed",
-        action.action_key,
-        response.status,
-        detail,
-      );
-      return;
-    }
+    const response = await deerFlowRequest(context, "company_action", {
+      proposal: proposalFor(action),
+      context: JSON.stringify({ latest_company_pulse: latest, action_key: action.action_key }),
+    });
 
     const result = await response.json();
     const resultRef = `actions/results/${encodeURIComponent(action.action_key)}.json`;
     await store.setJSON(resultRef, {
       action_key: action.action_key,
+      deerflow_execution_id: response.headers.get("X-RIGOR-Execution-Id"),
       completed_at: new Date().toISOString(),
       proposal: proposalFor(action),
       result,

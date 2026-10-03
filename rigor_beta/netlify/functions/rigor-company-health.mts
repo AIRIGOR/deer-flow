@@ -1,3 +1,4 @@
+import { integrationHealth } from "./_shared/deerflow.js";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
 import { companyActionCounts } from "./_shared/company-health.js";
@@ -61,6 +62,7 @@ export default async (request: Request, context: Context) => {
       service: "rigor-company",
       version: "v1",
       company_automation: "v1",
+      integration: await integrationHealth(context),
       action_layer: "v1",
       has_latest_pulse: Boolean(latest?.generated_at),
       latest_pulse_at: latest?.generated_at || null,
