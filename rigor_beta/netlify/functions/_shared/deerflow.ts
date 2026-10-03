@@ -82,3 +82,20 @@ export async function integrationHealth(context: Context) {
     configured: Boolean(Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim() && Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim()),
     operations: Object.fromEntries(operations.map((operation, index) => [operation, receipts[index] || { status: "UNVERIFIED" }])) };
 }
+
+export function coherentFlowCheck(integration: Awaited<ReturnType<typeof integrationHealth>>, deployId: string) {
+  const analysis = integration.operations.document_analysis;
+  const pulse = integration.operations.company_pulse;
+  if (analysis?.status !== "VERIFIED" || pulse?.status !== "VERIFIED") return null;
+  return {
+    action_type: "INTERNAL_TEST" as const,
+    scope: "OBSERVE" as const,
+    title: `Verify coherent RIGOR, DeerFlow and 3NETRA execution for ${deployId}`,
+    summary: "Review the supplied completed execution receipts. Report what is proven and any missing proof. This is an internal evidence review; do not send messages, spend, change code, deploy, change credentials, or perform external actions. No additional research is required.",
+    owner_agent: "rigor-qa-security",
+    target: `deployment:${deployId}`,
+    reversible: true,
+    evidence_refs: [analysis.execution_id, pulse.execution_id],
+    payload: { motto: OPERATING_MOTTO, document_analysis: analysis, company_pulse: pulse },
+  };
+}
