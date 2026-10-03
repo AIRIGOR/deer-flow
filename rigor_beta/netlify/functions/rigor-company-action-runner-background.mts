@@ -1,4 +1,4 @@
-import { deerFlowRequest } from "./_shared/deerflow.js";
+import { companyActionContext, deerFlowRequest } from "./_shared/deerflow.js";
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
@@ -152,7 +152,7 @@ export default async (request: Request, context: Context) => {
     const latest = await store.get("pulse/latest", { type: "json" });
     const response = await deerFlowRequest(context, "company_action", {
       proposal: proposalFor(action),
-      context: JSON.stringify({ latest_company_pulse: latest, action_key: action.action_key }),
+      context: companyActionContext(action.action_key, latest),
     });
 
     const result = await response.json();
