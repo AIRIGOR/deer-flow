@@ -31,8 +31,8 @@ beforeEach(() => {
   records.set(`workspace/${workspace.tester.tester_id}`, structuredClone(workspace));
   records.set(`session/${createHash("sha256").update("test-session").digest("hex")}`, { testerId: workspace.tester.tester_id, expiresAt: "2099-01-01" });
   ctx = { deploy: { context: "production" }, waitUntil: (p: Promise<unknown>) => waits.push(p) } as unknown as Context;
-  vi.stubGlobal("Netlify", { env: { get: () => undefined } });
-  fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } });
+  fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
   it("persists raw bytes and processing state before parsing or analysis", async () => {
@@ -50,7 +50,7 @@ describe("durable document upload", () => {
   it("processes saved text and is idempotent after completion", async () => {
     await upload(); await Promise.all(waits); await worker();
     const doc = activeProduction(saved()).documents[0];
-    expect(doc).toMatchObject({ status: "PROCESSED", page_count: 1, review_status: "PENDING" });
+    expect(doc).toMatchObject({ status: "PROCESSED", page_count: 1, review_status: "PENDING", analysis_engine: "DEERFLOW" });
     expect(activeProduction(saved()).requirements.length).toBeGreaterThan(0);
     const count = activeProduction(saved()).requirements.length;
     await worker(); expect(activeProduction(saved()).requirements).toHaveLength(count);
@@ -87,6 +87,26 @@ describe("durable document upload", () => {
     expect((await handler(new Request("https://rigor.test/api/documents", { method: "POST", body: new FormData() }), ctx)).status).toBe(401);
     await processUpload(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify({ jobId: "a".repeat(64) }) }), ctx);
     expect(pdf).not.toHaveBeenCalled();
+  });
+  it("retains bytes and exposes a retryable failure when DeerFlow is unavailable", async () => {
+    await upload(); await Promise.all(waits);
+    vi.stubGlobal("Netlify", { env: { get: () => undefined } });
+    await worker();
+    const doc = activeProduction(saved()).documents[0];
+    expect(doc.status).toBe("FAILED"); expect(doc.processing_error).toContain("NOT_CONFIGURED");
+    expect(activeProduction(saved()).requirements).toHaveLength(0);
+    expect([...records.keys()].some(k => k.startsWith("upload/"))).toBe(true);
+  });
+  it("allows fallback reanalysis but blocks source completion until DeerFlow verifies", async () => {
+    await upload(); await Promise.all(waits); await worker();
+    const latest = saved(); const doc = activeProduction(latest).documents[0];
+    doc.analysis_engine = "STRUCTURED_EXTRACTION_V1"; doc.review_status = "REVIEWED";
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    expect(readiness(activeProduction(latest)).unreviewed_documents).toBe(1);
+    const review = await handler(request(`/api/documents/${doc.document_id}/review`, JSON.stringify({ complete_source_review: true })), ctx);
+    expect(review.status).toBe(422);
+    const response = await handler(request(`/api/documents/${doc.document_id}/retry`, "{}"), ctx);
+    expect(response.status).toBe(202); expect(activeProduction(saved()).documents[0].review_status).toBe("PENDING");
   });
   it("blocks department readiness for unprocessed sources even when no department is known yet", () => {
     const production = activeProduction(workspace);

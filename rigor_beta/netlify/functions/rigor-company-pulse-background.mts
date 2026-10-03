@@ -1,3 +1,4 @@
+import { deerFlowRequest } from "./_shared/deerflow.js";
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
@@ -385,29 +386,14 @@ export default async (request: Request, context: Context) => {
     actionQueue,
   );
 
-  const response = await fetch(
-    `${baseUrl.replace(/\/$/, "")}/api/rigor/company/pulse`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-RIGOR-Service-Token": expected,
-      },
-      body: JSON.stringify({
-        objective:
-          "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
-        context: JSON.stringify(companyContext),
-      }),
-      signal: AbortSignal.timeout(13 * 60 * 1000),
-    },
-  );
-
-  if (!response.ok) {
-    console.error(
-      "RIGOR company pulse failed",
-      response.status,
-      (await response.text()).slice(0, 1000),
-    );
+  let response: Response;
+  try {
+    response = await deerFlowRequest(context, "company_pulse", {
+      objective: "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
+      context: JSON.stringify(companyContext),
+    });
+  } catch (error) {
+    console.error("RIGOR/3NETRA company pulse failed", error instanceof Error ? error.message : "Integration unavailable");
     return;
   }
 
@@ -420,6 +406,7 @@ export default async (request: Request, context: Context) => {
     source: "RIGOR_AI_COMPANY_V1",
     context: companyContext,
     pulse,
+    deerflow_execution_id: response.headers.get("X-RIGOR-Execution-Id"),
   };
 
   const timestamp = envelope.generated_at.replace(/[:.]/g, "-");

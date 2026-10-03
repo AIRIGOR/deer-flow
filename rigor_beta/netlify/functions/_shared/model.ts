@@ -100,7 +100,7 @@ export function affectsDepartment(item: RecordMap, department: string) {
 }
 
 function sourceReviewed(document: RecordMap) {
-  return (!document.status || document.status === "PROCESSED") && (document.source_kind === "SAMPLE" || document.review_status === "REVIEWED");
+  return (!document.status || document.status === "PROCESSED") && (document.source_kind === "SAMPLE" || ((document.doc_type !== "UPLOADED" || document.analysis_engine === "DEERFLOW") && document.review_status === "REVIEWED"));
 }
 
 // Reconcile obvious source sentences that the model omitted. This assists human

@@ -29,7 +29,9 @@ Set these Netlify environment variables when the DeerFlow RIGOR gateway is reach
 - `RIGOR_DEERFLOW_URL` — base URL of the deployed DeerFlow gateway.
 - `RIGOR_DEERFLOW_TOKEN` — optional bearer token used by the beta service to call the protected RIGOR analysis endpoint.
 
-When `RIGOR_DEERFLOW_URL` is configured, document uploads prefer DeerFlow model analysis. If the service is unavailable or returns a non-success response, the beta falls back to the local structured extractor so the evaluator workflow remains usable.
+RIGOR, DeerFlow, and the 3NETRA company operator share one authenticated gateway contract. Uploaded documents require verified DeerFlow analysis; missing configuration, timeout, HTTP failure, or invalid provenance leaves the saved document FAILED and retryable, with readiness blocked. Background analysis has a bounded ten-minute budget. Previously fallback-processed documents offer Retry with DeerFlow and cannot complete source review until verified. Analysis does not replace full-source human review.
+
+The operating motto is **Flow like water**. `/api/health` and `/api/company/health` expose separate durable execution receipts for document analysis, company pulse, and internal company actions. Configured is not verified; receipt IDs connect documents and company results to the shared execution path. External communications and Founder-reserved approvals retain their existing gates.
 
 The DeerFlow endpoint treats uploaded document text as untrusted source material, returns structured production requirements with page provenance and confidence, and does not resolve contradictions on its own.
 
