@@ -291,6 +291,83 @@ async function reportPdf(state: ProductionState, department: string | null) {
   draw(`Generated ${now()} · RIGOR operational source of truth · Source evidence and decision chronology preserved`, 8, false, rgb(0.35, 0.42, 0.46));
   return pdf.save();
 }
+async function queueUpload(request: Request, context: Context, state: WorkspaceState, production: ProductionState, documentId: string) {
+  const store = storeFor(context);
+  const jobId = randomBytes(32).toString("hex");
+  await store.setJSON(`document-job/${jobId}`, { testerId: state.tester.tester_id, productionId: production.production.production_id, documentId });
+  const dispatch = async () => {
+    try {
+      const response = await fetch(new URL("/.netlify/functions/rigor-document-background", request.url), {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId }), signal: AbortSignal.timeout(10000),
+      });
+      if (response.status !== 202) throw new Error("Background analysis could not start");
+    } catch {
+      const latest = await store.get(`workspace/${state.tester.tester_id}`, { type: "json" }) as WorkspaceState | null;
+      const doc = latest?.productions.find(p => p.production.production_id === production.production.production_id)?.documents.find(d => d.document_id === documentId);
+      if (latest && doc && doc.status === "PROCESSING") {
+        doc.status = "FAILED"; doc.processing_error = "Document saved, but analysis could not start. Retry analysis.";
+        await save(store, latest);
+      }
+    }
+  };
+  context.waitUntil(dispatch());
+}
+
+export async function processUpload(request: Request, context: Context) {
+  const { jobId } = await request.json() as { jobId?: string };
+  if (!jobId || !/^[a-f0-9]{64}$/.test(jobId)) return;
+  const store = storeFor(context);
+  const job = await store.get(`document-job/${jobId}`, { type: "json" }) as { testerId: string; productionId: string; documentId: string } | null;
+  if (!job) return;
+  const load = async () => {
+    const stored = await store.get(`workspace/${job.testerId}`, { type: "json" }) as WorkspaceState | null;
+    if (!stored) throw new Error("Workspace unavailable");
+    const state = normalizeWorkspace(stored);
+    const production = state.productions.find(p => p.production.production_id === job.productionId);
+    const document = production?.documents.find(d => d.document_id === job.documentId);
+    if (!production || !document) throw new Error("Document unavailable");
+    return { state, production, document };
+  };
+  try {
+    const initial = await load();
+    if (initial.document.status !== "PROCESSING") return;
+    const raw = await store.get(`upload/${initial.state.workspace.workspace_id}/${job.productionId}/${job.documentId}`, { type: "arrayBuffer" });
+    if (!raw) throw new Error("Saved document unavailable");
+    const pages: string[] = [];
+    if (/\.pdf$/i.test(initial.document.name)) {
+      await pdfParse(Buffer.from(raw), { pagerender: async (page: any) => {
+        const content = await page.getTextContent();
+        let lastY: number | undefined;
+        const text = content.items.map((item: any) => {
+          const y = item.transform?.[5]; const prefix = lastY !== undefined && y !== lastY ? "\n" : " ";
+          lastY = y; return prefix + item.str;
+        }).join("");
+        pages.push(text); return text;
+      } });
+    } else pages.push(new TextDecoder().decode(raw));
+    if (!pages.some(page => page.trim())) throw new Error("No readable text found. Use a text PDF or TXT document.");
+    const deerFlowRequirements = await analyzeWithDeerFlow(initial.document.name, pages);
+    // Rebase on current state after slow analysis, preserving production selection and human decisions.
+    const { state, production, document } = await load();
+    if (document.status !== "PROCESSING") return;
+    const extracted = deerFlowRequirements ? ingestDeerFlowRequirements(production, document.name, deerFlowRequirements) : extractRequirements(production, document.name, pages);
+    const recovered = deerFlowRequirements ? reconcileSourceRequirements(production, document.name, pages) : [];
+    extracted.push(...recovered); invalidateChangedCheckpoints(production, extracted);
+    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: deerFlowRequirements ? "DEERFLOW" : "STRUCTURED_EXTRACTION_V1", source_review_candidates: recovered.length, processed_at: now() });
+    delete document.processing_error;
+    event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, requirements: extracted.length, analysis_engine: document.analysis_engine });
+    await save(store, state);
+  } catch (error) {
+    const { state, production, document } = await load();
+    if (document.status === "PROCESSING") {
+      document.status = "FAILED"; document.processing_error = "Analysis failed. Retry analysis or upload a readable PDF/TXT.";
+      event(production, "DOCUMENT_PROCESSING_FAILED", { document_id: job.documentId });
+      await save(store, state);
+    }
+    console.error("Document processing failed", error instanceof Error ? error.name : "Unknown error");
+  } finally { await store.delete(`document-job/${jobId}`); }
+}
+
 export default async (request: Request, context: Context) => {
   try {
     const url = new URL(request.url);
@@ -318,12 +395,13 @@ export default async (request: Request, context: Context) => {
 
     const auth = await authenticated(request, context); if (!auth) return fail("Start or resume your RIGOR session", 401);
     const { store, state } = auth;
-    if (path === "/api/workspace" && request.method === "GET") { await save(store, state); return json(snapshot(state)); }
+    if (path === "/api/workspace" && request.method === "GET") { return json(snapshot(state)); }
     const documentReviewMatch = path.match(/^\/api\/documents\/([^/]+)\/review$/);
     if (documentReviewMatch && request.method === "POST") {
       const production = activeProduction(state);
       const document = production.documents.find((doc) => doc.document_id === documentReviewMatch[1]);
       if (!document) return fail("Document not found", 404);
+      if (document.status !== "PROCESSED") return fail("Wait for document analysis to complete before source review");
       const data = await body(request);
       if (data.complete_source_review !== true) return fail("Confirm the complete source document has been reviewed");
       const candidates = production.requirements.filter((req) => req.document_name === document.name);
@@ -423,48 +501,33 @@ export default async (request: Request, context: Context) => {
       production.feedback.push({ feedback_id: newId("feedback"), production_id: production.production.production_id, workspace_id: state.workspace.workspace_id, session_number: Number(data.session_number), useful_score: Number(data.useful_score), trust_score: Number(data.trust_score), comments: String(data.comments ?? "").trim().slice(0, 2000), created_at: now() }); await save(store, state); return json({ ok: true });
     }
     if (path === "/api/documents" && request.method === "POST") {
-      const form = await request.formData(); const file = form.get("file"); if (!(file instanceof File)) return fail("Choose a PDF or TXT document"); if (file.size > MAX_UPLOAD) return fail("Document exceeds the 5 MB upload limit");
-      const safeName = file.name.replace(/[^A-Za-z0-9._ -]/g, "_").trim().slice(0, 120) || "uploaded-document"; const fileBuffer = await file.arrayBuffer(); const bytes = new Uint8Array(fileBuffer); let pages: string[];
-      if (safeName.toLowerCase().endsWith(".pdf") || file.type === "application/pdf") { const parsed = await pdfParse(Buffer.from(bytes)); pages = parsed.text.split(/\f/).filter(Boolean); if (!pages.length) pages = [parsed.text]; }
-      else if (safeName.toLowerCase().endsWith(".txt") || file.type === "text/plain") pages = [new TextDecoder().decode(bytes)]; else return fail("Upload a PDF or TXT document");
+      const form = await request.formData();
+      const file = form.get("file");
+      if (!(file instanceof File)) return fail("Choose a PDF or TXT document");
+      if (!file.size) return fail("The document is empty");
+      if (file.size > MAX_UPLOAD) return fail("Document exceeds the 5 MB upload limit");
+      const safeName = file.name.replace(/[^A-Za-z0-9._ -]/g, "_").trim().slice(0, 120) || "uploaded-document";
+      if (!/\.(pdf|txt)$/i.test(safeName)) return fail("Upload a PDF or TXT document");
       const documentId = newId("doc");
-      await store.set(`upload/${state.workspace.workspace_id}/${production.production.production_id}/${documentId}`, fileBuffer);
-      const deerFlowRequirements = await analyzeWithDeerFlow(safeName, pages);
-      const analysisEngine = deerFlowRequirements ? "DEERFLOW" : "STRUCTURED_EXTRACTION_V1";
-      production.documents.push({
-        document_id: documentId,
-        production_id: production.production.production_id,
-        workspace_id: state.workspace.workspace_id,
-        name: safeName,
-        doc_type: "UPLOADED",
-        status: "PROCESSED",
-        review_status: "PENDING",
-        page_count: pages.length,
-        source_kind: "TESTER",
-        analysis_engine: analysisEngine,
-        created_at: now(),
-      });
-      const extracted = deerFlowRequirements
-        ? ingestDeerFlowRequirements(production, safeName, deerFlowRequirements)
-        : extractRequirements(production, safeName, pages);
-      const recovered = deerFlowRequirements ? reconcileSourceRequirements(production, safeName, pages) : [];
-      extracted.push(...recovered);
-      invalidateChangedCheckpoints(production, extracted);
-      production.documents[production.documents.length - 1].source_review_candidates = recovered.length;
-      event(production, "DOCUMENT_PROCESSED", { document_id: documentId, requirements: extracted.length, analysis_engine: analysisEngine });
+      await store.set(`upload/${state.workspace.workspace_id}/${production.production.production_id}/${documentId}`, await file.arrayBuffer());
+      production.documents.push({ document_id: documentId, production_id: production.production.production_id,
+        workspace_id: state.workspace.workspace_id, name: safeName, doc_type: "UPLOADED", status: "PROCESSING",
+        review_status: "PENDING", page_count: 0, source_kind: "TESTER", created_at: now(), processing_started_at: now() });
+      event(production, "DOCUMENT_SAVED", { document_id: documentId });
       await save(store, state);
-      return json({
-        result: {
-          document_id: documentId,
-          name: safeName,
-          page_count: pages.length,
-          requirements_added: extracted.length,
-          source_review_candidates: recovered.length,
-          conflicts_detected: production.conflicts.filter((item) => item.status !== "RESOLVED").length,
-          analysis_engine: analysisEngine,
-        },
-        workspace: snapshot(state),
-      });
+      await queueUpload(request, context, state, production, documentId);
+      return json({ result: { document_id: documentId, name: safeName, status: "PROCESSING" }, workspace: snapshot(state) }, 202);
+    }
+    const retryMatch = path.match(/^\/api\/documents\/([^/]+)\/retry$/);
+    if (retryMatch && request.method === "POST") {
+      const document = production.documents.find(doc => doc.document_id === retryMatch[1]);
+      if (!document) return fail("Document not found", 404);
+      if (document.status === "PROCESSED") return fail("Document is already processed");
+      if (document.status === "PROCESSING" && Date.now() - Date.parse(document.processing_started_at) < 16 * 60 * 1000) return fail("Analysis is still running");
+      document.status = "PROCESSING"; document.processing_started_at = now(); delete document.processing_error;
+      await save(store, state);
+      await queueUpload(request, context, state, production, document.document_id);
+      return json(snapshot(state), 202);
     }
     if (path === "/api/reports/advance.pdf" && request.method === "GET") {
       const department = url.searchParams.get("department"); if (department && !(DEPARTMENTS as readonly string[]).includes(department)) return fail("Invalid department"); const bytes = await reportPdf(production, department); const pdfBody = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer; const filename = `RIGOR-${production.show.show_name}-${department || "Master"}-Advance-Report.pdf`.replace(/[^A-Za-z0-9.-]+/g, "-"); return new Response(pdfBody, { headers: { ...commonHeaders("application/pdf"), "Content-Disposition": `attachment; filename=\"${filename}\"` } });
@@ -474,5 +537,5 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
 };

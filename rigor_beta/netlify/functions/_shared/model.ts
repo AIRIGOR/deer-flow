@@ -100,7 +100,7 @@ export function affectsDepartment(item: RecordMap, department: string) {
 }
 
 function sourceReviewed(document: RecordMap) {
-  return document.source_kind === "SAMPLE" || document.review_status === "REVIEWED";
+  return (!document.status || document.status === "PROCESSED") && (document.source_kind === "SAMPLE" || document.review_status === "REVIEWED");
 }
 
 // Reconcile obvious source sentences that the model omitted. This assists human
@@ -444,7 +444,7 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const scopedCheckpoints = checkpoints || state.checkpoints;
   const scopedIncidents = incidents || state.incidents;
   const sourceNames = new Set(scopedRequirements.map((item) => item.document_name));
-  const documents = requirements ? state.documents.filter((doc) => sourceNames.has(doc.name)) : state.documents;
+  const documents = requirements ? state.documents.filter((doc) => sourceNames.has(doc.name) || doc.status === "PROCESSING" || doc.status === "FAILED") : state.documents;
   const unreviewedDocuments = documents.filter((doc) => !sourceReviewed(doc)).length;
   const reviewed = scopedRequirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
   const actionable = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
@@ -504,7 +504,7 @@ export function departmentSummary(input: WorkspaceState | ProductionState) {
     const blockingIncidents = openIncidents.filter((item) => ["HIGH", "CRITICAL"].includes(String(item.severity || "").toUpperCase()));
     const ready = scoped.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
     const sourceNames = new Set(scoped.map((item) => item.document_name));
-    const sourcesReviewed = state.documents.filter((doc) => sourceNames.has(doc.name)).every(sourceReviewed);
+    const sourcesReviewed = state.documents.filter((doc) => sourceNames.has(doc.name) || doc.status === "PROCESSING" || doc.status === "FAILED").every(sourceReviewed);
     const status = open || blockingIncidents.length ? "BLOCKED" : ready === scoped.length && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
     return { department, total: scoped.length, ready, open_conflicts: open, open_incidents: openIncidents.length, status };
   });
