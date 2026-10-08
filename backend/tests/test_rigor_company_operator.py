@@ -69,7 +69,7 @@ async def test_company_operator_returns_structured_pulse():
     assert len(client.calls) == 1
     _, kwargs = client.calls[0]
     assert kwargs["subagent_enabled"] is True
-    assert kwargs["thread_id"] == "rigor-company-pulse"
+    assert kwargs["thread_id"].startswith("rigor-company-pulse-")
 
 
 def test_action_policy_auto_allows_bounded_internal_preparation():
@@ -124,9 +124,7 @@ def test_code_change_requires_review():
 
 @pytest.mark.asyncio
 async def test_company_operator_rejects_invalid_result():
-    operator = RigorCompanyOperator(
-        client_factory=lambda: StubClient("not json")
-    )
+    operator = RigorCompanyOperator(client_factory=lambda: StubClient("not json"))
 
     with pytest.raises(RigorCompanyPulseError):
         await operator.run(objective="Run company review.")
@@ -134,9 +132,24 @@ async def test_company_operator_rejects_invalid_result():
 
 @pytest.mark.asyncio
 async def test_company_operator_rejects_empty_objective():
-    operator = RigorCompanyOperator(
-        client_factory=lambda: StubClient("{}")
-    )
+    operator = RigorCompanyOperator(client_factory=lambda: StubClient("{}"))
 
     with pytest.raises(ValueError, match="objective"):
         await operator.run(objective="   ")
+
+
+@pytest.mark.asyncio
+async def test_company_cycles_use_isolated_threads():
+    client = StubClient(
+        json.dumps(
+            {
+                "current_state": "Reviewed",
+                "top_priorities": ["Verify"],
+                "next_actions": ["Review evidence"],
+            }
+        )
+    )
+    operator = RigorCompanyOperator(client_factory=lambda: client)
+    await operator.run(objective="First company review")
+    await operator.run(objective="Second company review")
+    assert client.calls[0][1]["thread_id"] != client.calls[1][1]["thread_id"]

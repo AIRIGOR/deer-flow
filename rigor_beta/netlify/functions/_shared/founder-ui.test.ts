@@ -1,0 +1,33 @@
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { runInNewContext } from "node:vm";
+import { afterEach, expect, it, vi } from "vitest";
+const root = resolve("app/static");
+afterEach(() => vi.useRealTimers());
+it("publishes the Founder stylesheet and script at their referenced paths", () => {
+  const html = readFileSync(resolve(root, "founder.html"), "utf8");
+  for (const path of [...html.matchAll(/(?:src|href)="(\/founder\.(?:css|js))"/g)].map(x => x[1])) expect(existsSync(resolve(root, path.slice(1)))).toBe(true);
+  expect(html).toContain('maxlength="3900"');
+});
+it("submits the real API, polls completion, blocks duplicate submission, and never stores the token", async () => {
+  vi.useFakeTimers();
+  const nodes: Record<string, any> = {};
+  for (const id of ["command-result", "command-receipt", "command-evidence", "connection-status", "founder-token", "command-input", "command-mode", "submit-command", "access-form", "command-form"]) nodes[id] = { value: "", disabled: false, textContent: "", handlers: {}, addEventListener(event: string, handler: any) { this.handlers[event] = handler; } };
+  nodes["submit-command"].disabled = true;
+  nodes["command-mode"].value = "INTERNAL_RESEARCH";
+  const persisted = new Map<string, string>();
+  const record = { command_id: "id-test", command: "Review", status: "QUEUED", updated_at: "now" };
+  const fetcher = vi.fn().mockResolvedValueOnce(Response.json(record, { status: 202 })).mockResolvedValueOnce(Response.json({ ...record, status: "COMPLETE", execution_id: "receipt", result: { result_summary: "Reviewed" } }));
+  runInNewContext(readFileSync(resolve(root, "founder.js"), "utf8"), { document: { getElementById: (id: string) => nodes[id] }, fetch: fetcher, setTimeout, clearTimeout, sessionStorage: { getItem: (key: string) => persisted.get(key) ?? null, setItem: (key: string, value: string) => persisted.set(key, value) } });
+  const event = { preventDefault() {} };
+  nodes["founder-token"].value = "fictional-token"; nodes["access-form"].handlers.submit(event);
+  expect(nodes["founder-token"].value).toBe(""); nodes["command-input"].value = "Review";
+  await nodes["command-form"].handlers.submit(event);
+  expect(nodes["command-result"].textContent).toContain("QUEUED");
+  await nodes["command-form"].handlers.submit(event); expect(fetcher).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(nodes["command-result"].textContent).toContain("COMPLETE"); expect(nodes["command-evidence"].textContent).toContain("Reviewed");
+  expect(fetcher.mock.calls[0][0]).toBe("/api/founder/commands");
+  expect(fetcher.mock.calls[0][1].headers["X-RIGOR-Founder-Token"]).toBe("fictional-token");
+  expect(JSON.stringify([...persisted])).not.toContain("fictional-token"); expect(nodes["submit-command"].disabled).toBe(false);
+});

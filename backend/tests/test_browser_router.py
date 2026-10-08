@@ -7,6 +7,7 @@ from _router_auth_helpers import make_authed_test_app
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from support.public_example_dns import public_example_dns  # noqa: F401 — selected mocked-client tests only
 
 from app.gateway.auth.models import User
 from app.gateway.routers import browser as browser_router

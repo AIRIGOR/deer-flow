@@ -54,9 +54,7 @@ async def test_action_executor_runs_approved_internal_action():
 
 @pytest.mark.asyncio
 async def test_action_executor_blocks_founder_reserved_action():
-    executor = RigorCompanyActionExecutor(
-        client_factory=lambda: StubClient("{}")
-    )
+    executor = RigorCompanyActionExecutor(client_factory=lambda: StubClient("{}"))
     with pytest.raises(RigorCompanyActionExecutionBlocked):
         await executor.execute(
             CompanyActionProposal(
@@ -69,9 +67,7 @@ async def test_action_executor_blocks_founder_reserved_action():
 
 @pytest.mark.asyncio
 async def test_action_executor_rejects_invalid_result():
-    executor = RigorCompanyActionExecutor(
-        client_factory=lambda: StubClient("not-json")
-    )
+    executor = RigorCompanyActionExecutor(client_factory=lambda: StubClient("not-json"))
     with pytest.raises(RigorCompanyActionExecutionError):
         await executor.execute(
             CompanyActionProposal(
@@ -80,3 +76,19 @@ async def test_action_executor_rejects_invalid_result():
                 title="Research market",
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_action_executions_use_isolated_threads():
+    client = StubClient(json.dumps({"status": "COMPLETE", "result_summary": "Reviewed"}))
+    executor = RigorCompanyActionExecutor(client_factory=lambda: client)
+    proposal = CompanyActionProposal(
+        action_type=CompanyActionType.INTERNAL_RESEARCH,
+        scope=CompanyActionScope.INTERNAL_EXECUTE,
+        title="Review evidence",
+    )
+    await executor.execute(proposal)
+    await executor.execute(proposal)
+    threads = [kwargs["thread_id"] for _, kwargs in client.calls]
+    assert all(thread.startswith("rigor-company-action-") for thread in threads)
+    assert threads[0] != threads[1]

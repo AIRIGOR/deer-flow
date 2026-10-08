@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from support.public_example_dns import public_example_dns  # noqa: F401 — selected mocked-client tests only
 
 from deerflow.community.browserless import tools
 from deerflow.community.browserless.browserless_client import BrowserlessClient, BrowserlessFetchResult, BrowserlessScreenshotResult

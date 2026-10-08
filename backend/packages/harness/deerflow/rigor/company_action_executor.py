@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -66,9 +67,7 @@ def _parse_execution(text: str) -> RigorCompanyActionExecutionResult:
         payload = json.loads(cleaned)
         return RigorCompanyActionExecutionResult.model_validate(payload)
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-        raise RigorCompanyActionExecutionError(
-            "RIGOR company action executor returned invalid structured JSON"
-        ) from exc
+        raise RigorCompanyActionExecutionError("RIGOR company action executor returned invalid structured JSON") from exc
 
 
 class RigorCompanyActionExecutor:
@@ -98,21 +97,15 @@ class RigorCompanyActionExecutor:
         if decision.approval_required:
             raise RigorCompanyActionExecutionBlocked(decision.policy_reason)
         if proposal.action_type not in AUTO_ALLOWED_ACTIONS:
-            raise RigorCompanyActionExecutionBlocked(
-                "action is not executable in the automatic internal lane"
-            )
+            raise RigorCompanyActionExecutionBlocked("action is not executable in the automatic internal lane")
 
         context = (context or "").strip()[:20000]
-        prompt = (
-            f"{_ACTION_PROMPT}\n\n"
-            f"ACTION PROPOSAL:\n{proposal.model_dump_json()}\n\n"
-            f"COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
-        )
+        prompt = f"{_ACTION_PROMPT}\n\nACTION PROPOSAL:\n{proposal.model_dump_json()}\n\nCOMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
         text = await asyncio.to_thread(
             client.chat,
             prompt,
-            thread_id="rigor-company-action",
+            thread_id=f"rigor-company-action-{uuid4().hex}",
             subagent_enabled=True,
             recursion_limit=100,
         )

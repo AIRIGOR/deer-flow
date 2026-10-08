@@ -4,6 +4,8 @@ import ipaddress
 import json
 from unittest.mock import MagicMock, patch
 
+from support.public_example_dns import public_example_dns  # noqa: F401 — selected mocked-client tests only
+
 
 class TestWebSearchTool:
     @patch.dict("os.environ", {}, clear=True)

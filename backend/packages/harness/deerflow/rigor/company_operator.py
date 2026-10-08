@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -23,9 +24,7 @@ class RigorCompanyPulseError(RuntimeError):
 
 
 class CompanyStateUpdate(BaseModel):
-    record_type: str = Field(
-        pattern="^(OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY)$"
-    )
+    record_type: str = Field(pattern="^(OBJECTIVE|MILESTONE|RELATIONSHIP|FEEDBACK|RISK|EXPERIMENT|RUNWAY)$")
     title: str = Field(min_length=1, max_length=255)
     summary: str | None = Field(default=None, max_length=4000)
     status: str = Field(
@@ -167,7 +166,7 @@ Return ONLY JSON in this exact shape:
   ],
   "action_proposals": [
     {
-      "action_type": "INTERNAL_RESEARCH|INTERNAL_TEST|INTERNAL_DOCUMENT|INTERNAL_CODE_CHANGE|OUTREACH_DRAFT|SUPPORT_DRAFT|APPLICATION_DRAFT|EMAIL_SEND|PUBLIC_POST|AD_SPEND|CONTRACT|CAPITAL_ACCEPT|PAYMENT|PRODUCTION_PROMOTE|CREDENTIAL_CHANGE|DATA_DELETE",
+      "action_type": "INTERNAL_RESEARCH",
       "scope": "OBSERVE|PREPARE|INTERNAL_EXECUTE|EXTERNAL_EXECUTE|FOUNDER_RESERVED",
       "title": "specific executable action",
       "summary": "what should happen and why",
@@ -190,9 +189,7 @@ def _parse_pulse(text: str) -> RigorCompanyPulseResult:
         payload = json.loads(cleaned)
         return RigorCompanyPulseResult.model_validate(payload)
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-        raise RigorCompanyPulseError(
-            "RIGOR company operator returned invalid structured JSON"
-        ) from exc
+        raise RigorCompanyPulseError("RIGOR company operator returned invalid structured JSON") from exc
 
 
 class RigorCompanyOperator:
@@ -226,16 +223,12 @@ class RigorCompanyOperator:
         if not objective:
             raise ValueError("objective must not be empty")
         context = (context or "").strip()[:30000]
-        prompt = (
-            f"{_COMPANY_PROMPT}\n\n"
-            f"FOUNDER OBJECTIVE:\n{objective}\n\n"
-            f"CURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
-        )
+        prompt = f"{_COMPANY_PROMPT}\n\nFOUNDER OBJECTIVE:\n{objective}\n\nCURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
         text = await asyncio.to_thread(
             client.chat,
             prompt,
-            thread_id="rigor-company-pulse",
+            thread_id=f"rigor-company-pulse-{uuid4().hex}",
             subagent_enabled=True,
             recursion_limit=180,
         )

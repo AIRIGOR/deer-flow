@@ -5,6 +5,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from support.public_example_dns import public_example_dns  # noqa: F401 — selected mocked-client tests only
 
 from deerflow.community.crawl4ai.crawl4ai_client import Crawl4AiClient
 

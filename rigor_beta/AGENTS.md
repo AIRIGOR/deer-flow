@@ -25,3 +25,7 @@ Integration contract: `_shared/deerflow.ts` owns the gateway URL/token, operatio
 Coherent-flow proof: `coherentFlowCheck` may propose only an INTERNAL_TEST/OBSERVE evidence review after both analysis and pulse verify. Preserve the per-deployment action key, terminal-action deduplication, and Founder-reserved gates.
 
 Company action execution uses a bounded pulse context excerpt to satisfy DeerFlow’s 20,000-character request limit while preserving the full proposal evidence.
+
+Founder commands: `rigor-founder.mts` requires the separate `RIGOR_FOUNDER_TOKEN`; do not reuse tester sessions as Founder authority. Persist each command before dispatch; internal modes only, max 3900 characters. `rigor-founder-command-background.mts` uses an ETag-conditional QUEUED → RUNNING transition and per-command records, saves results/receipt IDs, and fails closed on invalid gateway output. Run `founder.test.ts` for auth, reserved-mode rejection, persistence order, dispatch failure, and duplicate worker coverage. A command receipt is not proof of specialist delegation or release clearance. Do not create or change credentials as part of code installation.
+
+RIGOR CI runs both full and production-only dependency audits. A clean runtime audit must not mask vulnerable development tooling. Full audit is expected to block until upstream braces/node-forge remediation is verified.
