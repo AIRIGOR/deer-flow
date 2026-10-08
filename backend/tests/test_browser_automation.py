@@ -13,6 +13,7 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from support.public_example_dns import public_example_dns  # noqa: F401 — selected mocked-client tests only
 
 from deerflow.community.browser_automation import session as session_mod
 from deerflow.community.browser_automation import tools

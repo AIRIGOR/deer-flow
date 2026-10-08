@@ -1173,3 +1173,7 @@ Architecture/operating policy: `docs/rigor-ai-company-team.md`.
 `skills/public/rigor-company-operator/SKILL.md` defines the bounded operating cycle: five specialist delegations followed by one `rigor-chief-of-staff` synthesis. Do not raise the subagent ceiling merely to add more roles; split work across operating cycles instead.
 
 Behavior is gated by `backend/tests/test_rigor_company_state.py` and `backend/tests/test_rigor_company_subagents.py`.
+
+RIGOR company operator and action executor use a unique thread per invocation so concurrent or repeated company work cannot share agent history/checkpoints. Keep thread isolation covered in `test_rigor_company_operator.py` and `test_rigor_company_action_executor.py`. Durable company continuity remains in the explicit supplied context and state records, not a shared agent thread.
+
+Historical migration fixtures must seed the schema at their claimed revision, not all current ORM tables. In particular, pre-RIGOR fixtures exclude later `rigor_*` tables before exercising the upgrade chain; latest/fresh schema parity still includes every table. The pinned current head is `c8e7d9a1f203`. Do not bypass table-creation/alignment safeguards to make historical seeds pass. Selected mocked-client unit tests import `support.public_example_dns`; that fixture resolves only public example domains for explicitly listed tests, leaving private-address and DNS-failure regressions unchanged.

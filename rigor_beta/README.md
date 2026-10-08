@@ -65,3 +65,13 @@ PDF/TXT uploads persist the file and a PROCESSING document before returning HTTP
 After document analysis and company pulse both have verified receipts, the next pulse proposes one bounded INTERNAL_TEST / OBSERVE evidence review per deployment to `rigor-qa-security`. The existing action-policy gate and action runner execute it; terminal action keys prevent repeated execution for the same deployment. The check cannot authorize external actions or replace human source review.
 
 Company action execution uses a bounded pulse context excerpt to satisfy DeerFlow’s 20,000-character request limit while preserving the full proposal evidence.
+
+## Founder command execution
+
+`/founder.html` now submits authenticated internal commands to `/api/founder/commands`. It no longer presents canned agent activity, invented completion percentages, or browser-only approvals. Commands are capped at 3900 characters. Supported modes are internal research/evidence review and company pulse. They are not an approval route for external actions or code changes.
+
+An operator must separately configure `RIGOR_FOUNDER_TOKEN` before activation. Keep it distinct from the gateway token; never expose the gateway token to the browser. The Founder token is held only in page memory. The latest command ID is retained in session storage so its status can be recovered after reload by re-entering access. Missing authentication or gateway configuration fails closed. No credential is created by this change.
+
+Each command is saved before background dispatch, then moves QUEUED → RUNNING → COMPLETE/FAILED with its result and gateway execution receipt. An atomic, conditional state transition prevents duplicate invocation from executing the same command twice. Failed dispatch is recorded rather than reported as completion. Preview command records use a deployment store; production uses the company store. Commands do not advance production readiness, approve proposals, or establish that specialist delegation occurred; live delegation and release proof remain separate checks. A crashed worker can require operator investigation; overdue commands show completion unverified after 16 minutes and stop polling. No automatic replay is attempted.
+
+Security status: the October 8 dependency refresh removes the reported proxy-addr and source-map-js findings. The remaining braces and node-forge advisories have no published patched versions at review time. Full-audit failure remains a release blocker even when the production-only audit and build pass.

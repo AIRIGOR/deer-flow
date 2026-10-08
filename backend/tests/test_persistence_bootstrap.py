@@ -48,7 +48,7 @@ from deerflow.persistence.migrations._helpers import _normalize_default
 asyncio_test = pytest.mark.asyncio
 
 
-HEAD = "0007_scheduled_run_active_index"
+HEAD = "c8e7d9a1f203"
 BASELINE = "0001_baseline"
 
 
@@ -89,7 +89,7 @@ async def _alembic_version(engine) -> str | None:
 async def _seed_legacy_without_column(engine) -> None:
     """Build the pre-#3658 schema: create_all, then drop the new column."""
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[table for table in Base.metadata.sorted_tables if not table.name.startswith("rigor_")]))
     async with engine.begin() as conn:
         # SQLite supports DROP COLUMN from 3.35.0; the test runner pins recent
         # Python which bundles a 3.40+ sqlite, so this is safe.
@@ -98,7 +98,7 @@ async def _seed_legacy_without_column(engine) -> None:
 
 async def _seed_legacy_with_column(engine) -> None:
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[table for table in Base.metadata.sorted_tables if not table.name.startswith("rigor_")]))
 
 
 async def _seed_legacy_missing_channel_tables(engine) -> None:
@@ -111,7 +111,7 @@ async def _seed_legacy_missing_channel_tables(engine) -> None:
     order (credentials/conversations reference channel_connections).
     """
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=[table for table in Base.metadata.sorted_tables if not table.name.startswith("rigor_")]))
     async with engine.begin() as conn:
         for table in (
             "channel_credentials",
@@ -847,7 +847,7 @@ class TestDecideState:
 # ---------------------------------------------------------------------------
 
 
-def test_head_revision_is_token_usage_revision() -> None:
+def test_head_revision_includes_rigor_company_state() -> None:
     assert _get_head_revision() == HEAD
 
 

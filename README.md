@@ -998,3 +998,9 @@ See [docs/rigor-ai-company-team.md](docs/rigor-ai-company-team.md) for the opera
 
 
 RIGOR's AI company layer also includes durable company state for objectives, milestones, relationships, feedback, risks, experiments, and runway. The `rigor-company-operator` skill coordinates five specialist reports plus one Chief of Staff synthesis per operating cycle.
+
+### RIGOR Founder command verification
+
+The standalone RIGOR Founder page now has a persisted, authenticated internal command path instead of browser-only command/approval simulation. See `rigor_beta/README.md` for supported modes, separate Founder authentication configuration, command receipts, and outstanding live/security verification gates. Company invocations use isolated agent threads while explicit company records preserve continuity.
+
+Backend verification also covers historical pre-RIGOR migration fixtures, current migration-head expectations, registered RIGOR specialists, and deterministic DNS for selected mocked web-client tests. These test corrections preserve runtime network restrictions and migration safety checks.

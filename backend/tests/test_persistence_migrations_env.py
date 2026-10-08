@@ -66,6 +66,9 @@ def test_langgraph_owned_tables_set_is_complete() -> None:
             "checkpoint_blobs",
             "checkpoint_writes",
             "checkpoint_migrations",
+            "writes",
+            "store",
+            "store_migrations",
         }
     )
 
