@@ -1,3 +1,4 @@
+import {businessDaySending, businessDayMessage} from '../../../app/outreach-calendar.js';
 import {createHash} from 'node:crypto';
 import {founderJson, type founderStore} from './founder.js';
 type Store = Awaited<ReturnType<typeof founderStore>>;
@@ -84,6 +85,7 @@ export async function confirmSenderReceipt(request: Request, store: Store, actor
 }
 export async function testSender(request: Request, store: Store, actor: string) {
   if ((await request.text()).trim()) return founderJson({detail: 'The delivery test accepts no custom recipients or messages'}, 422);
+  if (!businessDaySending()) return founderJson({detail: businessDayMessage}, 409);
   const connection = senderConnection();
   if (!connection.configured) return founderJson({detail: 'Cloudflare account connection is required before a delivery test'}, 503);
   const account = Netlify.env.get('RIGOR_CLOUDFLARE_ACCOUNT_ID')!.trim();

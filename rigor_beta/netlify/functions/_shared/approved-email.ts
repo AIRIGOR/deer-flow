@@ -1,3 +1,4 @@
+import {businessDaySending, businessDayMessage} from '../../../app/outreach-calendar.js';
 import {createHash} from 'node:crypto';
 import {actionFingerprint} from './action-review.js';
 import {reviewableActions} from './outreach-review.js';
@@ -37,6 +38,7 @@ async function dispatchApprovedEmail(request: Request, store: Store, actor: stri
   const existing = stored?.data;
   const retryUnsent = existing?.status === 'DAILY_LIMIT' && existing.provider_request_started === false;
   if (existing && !retryUnsent) return founderJson(existing); // Never resend uncertain/provider outcomes.
+  if (!businessDaySending()) return founderJson({detail: businessDayMessage}, 409);
   const envelope = {from: action.payload.from, to: action.payload.to, subject: action.payload.subject, text: action.payload.body};
   const digest = createHash('sha256').update(JSON.stringify(envelope)).digest('hex');
   const started = {status: 'STARTED', action_key: action.action_key, fingerprint, issued_by: actor,

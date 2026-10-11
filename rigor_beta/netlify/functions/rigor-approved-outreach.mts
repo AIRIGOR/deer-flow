@@ -1,3 +1,4 @@
+import {businessDaySending, businessDayMessage} from '../../app/outreach-calendar.js';
 import { timingSafeEqual } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
@@ -174,6 +175,7 @@ export default async (request: Request, context: Context) => {
     return json({ detail: "Approved outreach batch identity mismatch" }, 409);
   }
 
+  if (!businessDaySending()) return json({status: 'WAITING_FOR_BUSINESS_DAY', detail: businessDayMessage}, 409);
   const today = pacificDate();
   const store = storeFor(context);
   const stateKey = `approved-outreach/${batch.batch_id}`;
@@ -196,7 +198,7 @@ export default async (request: Request, context: Context) => {
 
   const attempted: SendRecord[] = [];
   for (const email of due) {
-    if (remainingCapacity <= 0) break;
+    if (remainingCapacity <= 0 || !businessDaySending()) break;
 
     const attemptedAt = new Date().toISOString();
     try {

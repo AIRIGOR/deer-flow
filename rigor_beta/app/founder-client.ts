@@ -29,7 +29,7 @@ async function refresh() {
   if (!viewer || viewer !== currentUserId) return false;
   const sender = state.sender;
   say('sender-state', `${sender.address} · ${sender.provider} · ${sender.confirmation ? 'Founder confirmed mailbox receipt.' : sender.delivery_verified ? 'Provider delivery verified.' : sender.configured ? 'Credentials configured; delivery not verified.' : 'Account connection required.'} ${sender.sending_enabled ? 'Exact approved emails can be sent individually.' : 'Outreach sending is disabled.'}`);
-  say('sender-steps', sender.delivery_verified ? 'Review a concrete draft, approve that exact proposal, then use Send approved email. No automatic follow-ups. Initial limit: three individual emails per UTC day.' : sender.setup_steps.join('\n'));
+  say('sender-steps', sender.delivery_verified ? 'Review a concrete draft, approve that exact proposal, then use Send approved email. Sending is Monday–Friday, Pacific time. No automatic follow-ups. Initial limit: three individual emails per UTC day.' : sender.setup_steps.join('\n'));
   say('sender-test-status', sender.test ? `Delivery test: ${sender.test.status.replaceAll('_', ' ').toLowerCase()} · ${sender.test.created_at}. Provider delivery does not prove inbox placement.` : 'No delivery test recorded.');
   say('sender-check-status', sender.check ? sender.check.explanation : 'Connection check sends no email.');
   element<HTMLButtonElement>('sender-check').disabled = !sender.configured;

@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {Context} from '@netlify/functions';
 const mocks = vi.hoisted(() => {
   const records = new Map<string, any>();
@@ -17,6 +17,7 @@ vi.mock('@netlify/blobs', () => ({getStore: () => mocks.store, getDeployStore: (
 vi.mock('@netlify/identity', () => ({getUser: mocks.user, verifyRequestOrigin: mocks.origin}));
 vi.mock('../rigor-company-pulse-background.mjs', () => ({runCompanyPulse: mocks.pulse}));
 import founder from '../rigor-founder.mjs';
+import approvedBatch from '../rigor-approved-outreach.mjs';
 import worker from '../rigor-founder-command-background.mjs';
 import {commandView, delegationVerified, normalizeExecutionResult} from './founder.js';
 import {outreachFixture} from './outreach-fixture.js';
@@ -26,7 +27,9 @@ const request = (path = '/api/founder/commands', body?: unknown, service = false
   method: body ? 'POST' : 'GET', headers: {'Content-Type': 'application/json', 'Idempotency-Key': id, ...(service ? {'X-RIGOR-Automation-Token': 'secret'} : {})}, ...(body ? {body: JSON.stringify(body)} : {}),
 });
 const command = () => ({command_id: id, status: 'QUEUED', kind: 'MOAT_REVIEW', objective: 'Review change impact with evidence.', owner_agent: 'rigor-product-ops', request_hash: 'private', issued_by: 'founder', created_at: new Date().toISOString()});
+afterEach(() => vi.useRealTimers());
 beforeEach(() => {
+  vi.useFakeTimers({toFake: ['Date']}); vi.setSystemTime(new Date('2026-10-12T16:00:00Z'));
   vi.clearAllMocks(); mocks.records.clear(); mocks.user.mockResolvedValue({id: 'founder', roles: ['founder']}); mocks.origin.mockImplementation(() => {});
   vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_DEERFLOW_TOKEN: 'secret', RIGOR_DEERFLOW_URL: 'https://backend.test'})[key]}});
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {status: 202})));
@@ -373,6 +376,24 @@ describe('Controlled approved email execution', () => {
   beforeEach(() => {
     vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_DEERFLOW_TOKEN: 'secret', RIGOR_CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-token'})[key]}});
   });
+  it('blocks weekend sends without reserving receipts or daily capacity, then permits Monday', async () => {
+    const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
+    vi.setSystemTime(new Date('2026-10-11T16:00:00Z'));
+    const result = await send(row); expect(result.status).toBe(409);
+    expect((await result.json()).detail).toContain('Monday–Friday'); expect(fetch).not.toHaveBeenCalled();
+    expect([...mocks.records.keys()].some(key => key.startsWith('founder/email-executions/') || key.startsWith('founder/email-limits/'))).toBe(false);
+    vi.setSystemTime(new Date('2026-10-12T16:00:00Z'));
+    await send(row); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('preserves a queued receipt on weekend replay and blocks new self-tests', async () => {
+    const row = await ready(); await approve(row);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: [row.payload.to]}}))));
+    await send(row); vi.mocked(fetch).mockClear();
+    vi.setSystemTime(new Date('2026-10-11T16:00:00Z'));
+    expect((await (await send(row)).json()).status).toBe('QUEUED');
+    expect((await founder(post('sender-test'), context)).status).toBe(409);
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('records mailbox evidence separately from queued provider outcome; never sends on confirmation or approval', async () => {
     const row = await ready();
     const sender = (await state()).sender;
@@ -514,5 +535,15 @@ describe('Individual outreach draft revision', () => {
   it('protects any legacy send receipt from resending through a changed draft', async () => {
     const row = await state(); mocks.records.set('founder/email-executions/legacy', {action_key: row.action_key, status: 'QUEUED'});
     expect((await edit(row)).status).toBe(409); expect((await state()).payload.to).toBeNull();
+  });
+});
+
+describe('Legacy outreach calendar enforcement', () => {
+  it('blocks a configured batch on weekends before store access or provider dispatch', async () => {
+    vi.setSystemTime(new Date('2026-10-11T16:00:00Z'));
+    vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_APPROVED_OUTREACH_BATCH_ID: 'batch', RIGOR_APPROVED_OUTREACH_BATCH: JSON.stringify({batch_id: 'batch', emails: [{id: '1', to: 'sales@example.test', send_on: '2026-10-10'}]})})[key]}});
+    const result = await approvedBatch(new Request('https://example.test/api/company/approved-outreach?batch=batch'), context);
+    expect(result.status).toBe(409); expect((await result.json()).status).toBe('WAITING_FOR_BUSINESS_DAY');
+    expect(fetch).not.toHaveBeenCalled(); expect(mocks.store.setJSON).not.toHaveBeenCalled();
   });
 });

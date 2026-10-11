@@ -1,3 +1,4 @@
+import {businessDaySending, businessDayMessage} from './outreach-calendar.js';
 import {object, items, text, label} from './founder-report.js';
 import {appendEmailDraftEditor} from './email-draft-editor.js';
 import {canRetryUnsent, emailOutcome} from './email-status.js';
@@ -32,9 +33,9 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
       const execution = object(action.email_execution);
       if (execution.status) card.append(node('p', `Email: ${label(execution.status)} · ${text(execution.created_at)}. ${emailOutcome(execution)}`));
       if ((!execution.status || canRetryUnsent(execution)) && action.action_type === 'EMAIL_SEND' && review.decision === 'APPROVE' && sender) {
-        const send = node('button', 'Send approved email') as HTMLButtonElement; send.type = 'button'; send.disabled = !sender.enabled || !payload.recipient_evidence;
-        const feedback = node('p', sender.enabled ? 'Sending requires this separate click. Only the exact approved message is sent.' : 'Confirm receipt of the connection test before sending.'); feedback.setAttribute('role', 'status');
-        send.addEventListener('click', async () => {send.disabled = true; try {await sender.send({action_key: action.action_key, fingerprint: action.review_fingerprint});} catch (error) {feedback.textContent = error instanceof Error ? error.message : 'Read the saved send status before retrying.';}});
+        const send = node('button', 'Send approved email') as HTMLButtonElement; send.type = 'button'; send.disabled = !sender.enabled || !payload.recipient_evidence || !businessDaySending();
+        const feedback = node('p', !businessDaySending() ? businessDayMessage : sender.enabled ? 'Sending requires this separate click. Only the exact approved message is sent.' : 'Confirm receipt of the connection test before sending.'); feedback.setAttribute('role', 'status');
+        send.addEventListener('click', async () => {send.disabled = true; if (!businessDaySending()) {feedback.textContent = businessDayMessage; return;} try {await sender.send({action_key: action.action_key, fingerprint: action.review_fingerprint});} catch (error) {feedback.textContent = error instanceof Error ? error.message : 'Read the saved send status before retrying.';}});
         card.append(feedback, send);
       } else if (!execution.status) card.append(node('p', review.decision === 'REQUEST_CHANGES' ? 'Change request recorded. Use Edit email draft to apply it; saving requires fresh approval.' : 'Not executed. This decision does not automatically execute an action.'));
     } else {
