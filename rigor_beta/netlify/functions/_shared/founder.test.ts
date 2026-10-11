@@ -438,6 +438,29 @@ describe('Controlled approved email execution', () => {
     for (let i = 0; i < 3; i++) mocks.records.set('founder/email-limits/' + new Date().toISOString().slice(0, 10) + '/' + i, {fingerprint: 'prior'});
     expect((await (await send(row)).json()).status).toBe('DAILY_LIMIT'); expect(fetch).not.toHaveBeenCalled();
   });
+  it('allows a proved unsent daily-limit email to send once when capacity becomes available', async () => {
+    const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
+    const today = new Date().toISOString().slice(0, 10);
+    for (let i = 0; i < 3; i++) mocks.records.set('founder/email-limits/' + today + '/' + i, {fingerprint: 'prior'});
+    expect((await (await send(row)).json()).status).toBe('DAILY_LIMIT');
+    expect([...mocks.records.keys()].some(k => k.startsWith('founder/email-envelopes/'))).toBe(false);
+    for (let i = 0; i < 3; i++) mocks.records.delete('founder/email-limits/' + today + '/' + i);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: [row.payload.to]}}))));
+    expect((await (await send(row)).json()).status).toBe('QUEUED');
+    await send(row); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('edits, approves and dispatches exactly one revised draft end to end', async () => {
+    const old = await ready(); await approve(old); vi.mocked(fetch).mockClear();
+    const result = await founder(post('email-draft', {action_key: old.action_key, fingerprint: old.review_fingerprint, to: 'sales@avolites.com', recipient_source: 'https://www.avolites.com/location/avolites-hq/', subject: old.payload.subject, body: old.payload.body}), context);
+    expect(result.status).toBe(201);
+    const row = (await state()).actions[0]; expect(row.review).toBeNull();
+    expect((await send(row)).status).toBe(409); await approve(row);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: ['sales@avolites.com']}}))));
+    expect((await (await send(row)).json()).status).toBe('QUEUED');
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toMatchObject({to: 'sales@avolites.com', text: old.payload.body});
+    expect((await founder(post('email-draft', {action_key: row.action_key, fingerprint: row.review_fingerprint, to: 'other@avolites.com', recipient_source: 'https://www.avolites.com/', subject: row.payload.subject, body: row.payload.body}), context)).status).toBe(409);
+    await send(row); expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('prepares an immutable sourced funding draft without sending or approving it', async () => {
     await founder(post('funding-draft'), context); const row = (await state()).actions[0];
     expect(row.payload.to).toBe('liz.wessel@firstround.com'); expect(row.payload.recipient_evidence.email).toBe(row.payload.to); expect(row.review).toBeNull();
@@ -451,5 +474,45 @@ describe('Controlled approved email execution', () => {
     mocks.user.mockResolvedValue({id: 'founder', roles: ['founder']});
     vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'c'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-token'})[key]}});
     expect((await send(row)).status).toBe(409); expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('Individual outreach draft revision', () => {
+  const action = () => ({action_key: 'EMAIL_SEND:avolites', action_type: 'EMAIL_SEND', scope: 'EXTERNAL_EXECUTE', title: 'Outreach to Avolites', target: 'Avolites', status: 'NEEDS_APPROVAL', approval_required: true,
+    payload: {from: 'ausar@akhasha.com', to: null, subject: 'Exploring workflow validation with Avolites', body: 'Hello Avolites team. Synthetic demonstration only.', verification_gaps: ['Email recipient has not been verified.', 'No pilot proof.']}});
+  const state = async () => (await (await founder(request('/api/founder'), context)).json()).actions[0];
+  const edit = (row: any, overrides = {}, service = false) => founder(request('/api/founder/email-draft', {action_key: row.action_key, fingerprint: row.review_fingerprint,
+    to: 'sales@avolites.com', recipient_source: 'https://www.avolites.com/location/avolites-hq/', subject: row.payload.subject, body: row.payload.body, ...overrides}, service), context);
+  beforeEach(() => {mocks.records.set('founder/outreach-proposals/original', action());});
+  it('applies a single recipient edit, preserves text and history, and requires fresh approval without invoking AI or mail', async () => {
+    const old = await state();
+    await founder(request('/api/founder/action-reviews', {action_key: old.action_key, fingerprint: old.review_fingerprint, decision: 'REQUEST_CHANGES', note: 'Set recipient to sales@avolites.com.'}), context);
+    const result = await edit(old); expect(result.status).toBe(201);
+    const revised = await state();
+    expect(revised.payload).toMatchObject({to: 'sales@avolites.com', subject: old.payload.subject, body: old.payload.body, recipient_evidence: {email: 'sales@avolites.com', url: 'https://www.avolites.com/location/avolites-hq/'}});
+    expect(revised.review).toBeNull(); expect(revised.review_fingerprint).not.toBe(old.review_fingerprint);
+    expect(mocks.records.get('founder/action-reviews/' + old.review_fingerprint).decision).toBe('REQUEST_CHANGES');
+    expect(mocks.records.get('founder/outreach-proposals/original').payload.to).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await founder(request('/api/founder/action-reviews', {action_key: old.action_key, fingerprint: old.review_fingerprint, decision: 'APPROVE'}), context)).status).toBe(409);
+    expect((await founder(request('/api/founder/action-reviews', {action_key: revised.action_key, fingerprint: revised.review_fingerprint, decision: 'APPROVE'}), context)).status).toBe(201);
+  });
+  it('rejects stale concurrent edits and invalid email or source without losing the current revision', async () => {
+    const row = await state();
+    expect((await edit(row, {to: 'a@example.com,b@example.com'})).status).toBe(422);
+    expect((await edit(row, {recipient_source: 'http://example.com'})).status).toBe(422);
+    expect((await edit(row, {subject: 'Injected\r\nBcc: other@example.com'})).status).toBe(422);
+    const results = await Promise.all([edit(row), edit(row, {to: 'other@avolites.com'})]);
+    expect(results.map(r => r.status).sort()).toEqual([201, 409]);
+    expect((await edit(row)).status).toBe(409);
+  });
+  it('requires Founder role and origin and never allows service credentials to edit a draft', async () => {
+    const row = await state(); expect((await edit(row, {}, true)).status).toBe(403);
+    mocks.origin.mockImplementation(() => {throw Error('origin');}); expect((await edit(row)).status).toBe(403);
+  });
+  it('protects any legacy send receipt from resending through a changed draft', async () => {
+    const row = await state(); mocks.records.set('founder/email-executions/legacy', {action_key: row.action_key, status: 'QUEUED'});
+    expect((await edit(row)).status).toBe(409); expect((await state()).payload.to).toBeNull();
   });
 });

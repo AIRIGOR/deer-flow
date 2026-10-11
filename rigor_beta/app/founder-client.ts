@@ -77,7 +77,12 @@ async function refresh() {
     await api('/api/founder/action-reviews', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     say('approval-notice', 'Decision saved. No action was executed or sent.');
     try {await refresh();} catch {say('approval-notice', 'Decision saved. Refresh to reconnect and read its status.');}
-  }, {enabled: sender.sending_enabled, send: async body => {
+  }, {enabled: sender.sending_enabled, revise: async body => {
+    if (viewer !== currentUserId) throw new Error('Founder session changed. Refresh before saving a revision.');
+    await api('/api/founder/email-draft', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    say('approval-notice', 'Revised draft saved. Review and approve this exact revision; nothing was sent.');
+    try {await refresh();} catch {say('approval-notice', 'Draft saved. Refresh to read its new revision before approving.');}
+  }, send: async body => {
     if (viewer !== currentUserId) throw new Error('Founder session changed. Refresh before sending.');
     const receipt = await api('/api/founder/email-send', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     say('approval-notice', `Email result saved: ${receipt.status.replaceAll('_', ' ').toLowerCase()}. Read the receipt; do not submit a duplicate.`);

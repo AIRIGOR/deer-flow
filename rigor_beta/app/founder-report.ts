@@ -124,9 +124,12 @@ export function renderState(parent: HTMLElement, recordsValue: unknown, actionsV
     parent.append(node('h3', heading));
     for (const value of entries) {
       const row = object(value), article = document.createElement('article'); article.className = 'state-record';
-      article.append(node('h4', text(row.title)), node('p', [label(row.status), label(row.priority), label(row.owner_agent)].filter(Boolean).join(' · '), 'report-meta'));
+      const decision = object(row.review).decision;
+      const dispatch = object(row.email_execution).status;
+      const status = dispatch ? `Email ${label(dispatch)}` : decision === 'APPROVE' ? 'Approved · not sent' : decision ? label(decision) : label(row.status);
+      article.append(node('h4', text(row.title)), node('p', [status, label(row.priority), label(row.owner_agent)].filter(Boolean).join(' · '), 'report-meta'));
       if (text(row.summary)) article.append(node('p', text(row.summary)));
-      if (row.approval_required === true) article.append(node('p', 'Founder approval required', 'assessment-note'));
+      if (row.approval_required === true && !decision && !dispatch) article.append(node('p', 'Founder approval required', 'assessment-note'));
       parent.append(article);
     }
   }

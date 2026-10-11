@@ -3,9 +3,14 @@ import {parseOutreachPackage} from '../../../app/outreach-package.js';
 import {founderJson, validCommandId, type founderStore, type FounderCommand} from './founder.js';
 type Store = Awaited<ReturnType<typeof founderStore>>;
 export async function reviewableActions(store: Store) {
-  const [queue, listed] = await Promise.all([store.get('actions/queue', {type: 'json'}), store.list({prefix: 'founder/outreach-proposals/'})]);
+  const [queue, listed, revisions] = await Promise.all([store.get('actions/queue', {type: 'json'}), store.list({prefix: 'founder/outreach-proposals/'}), store.list({prefix: 'founder/email-draft-revisions/'})]);
   const drafts = await Promise.all(listed.blobs.map(row => store.get(row.key, {type: 'json'})));
-  return [...drafts.filter(Boolean), ...(Array.isArray(queue) ? queue : [])];
+  const edited = await Promise.all(revisions.blobs.map(row => store.get(row.key, {type: 'json'})));
+  const unique = new Map<string, any>();
+  for (const action of [...edited, ...drafts, ...(Array.isArray(queue) ? queue : [])]) {
+    if (action?.action_key && !unique.has(action.action_key)) unique.set(action.action_key, action);
+  }
+  return [...unique.values()];
 }
 export async function prepareOutreachReview(request: Request, store: Store, actor: string) {
   const raw = await request.text(); if (raw.length > 1000) return founderJson({detail: 'Request too large'}, 413);

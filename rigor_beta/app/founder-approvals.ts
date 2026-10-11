@@ -1,6 +1,8 @@
 import {object, items, text, label} from './founder-report.js';
+import {appendEmailDraftEditor} from './email-draft-editor.js';
+import {canRetryUnsent, emailOutcome} from './email-status.js';
 const node = (tag: string, value: string) => {const el = document.createElement(tag); el.textContent = value; return el;};
-export function renderApprovals(parent: HTMLElement, values: unknown, decide: (body: Record<string, unknown>) => Promise<void>, sender?: {enabled: boolean; send: (body: Record<string, unknown>) => Promise<void>}) {
+export function renderApprovals(parent: HTMLElement, values: unknown, decide: (body: Record<string, unknown>) => Promise<void>, sender?: {enabled: boolean; send: (body: Record<string, unknown>) => Promise<void>; revise?: (body: Record<string, unknown>) => Promise<void>}) {
   parent.replaceChildren();
   const actions = items(values).map(object).filter(action => action.status === 'NEEDS_APPROVAL' || object(action.review).decision);
   if (!actions.length) {parent.append(node('p', 'No actions awaiting your decision. Outreach drafts remain unsent.')); return;}
@@ -24,22 +26,24 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
     const details = document.createElement('details');
     details.append(node('summary', 'Exact proposal and evidence'), node('pre', JSON.stringify(Object.fromEntries(Object.entries(action).filter(([key]) => !['review', 'review_fingerprint'].includes(key))), null, 2))); card.append(details);
     const review = object(action.review);
+    if (action.action_type === 'EMAIL_SEND' && action.status === 'NEEDS_APPROVAL' && !object(action.email_execution).status && sender?.revise) appendEmailDraftEditor(card, action, sender.revise);
     if (review.decision) {
       card.append(node('p', `${label(review.decision)} · Saved ${text(review.decided_at)} · Saved by Founder`), node('p', text(review.note)));
       const execution = object(action.email_execution);
-      if (execution.status) card.append(node('p', `Email: ${label(execution.status)} · ${text(execution.created_at)}. A queued or unknown result is not delivery proof. This email will not be sent again.`));
-      else if (action.action_type === 'EMAIL_SEND' && review.decision === 'APPROVE' && sender) {
+      if (execution.status) card.append(node('p', `Email: ${label(execution.status)} · ${text(execution.created_at)}. ${emailOutcome(execution)}`));
+      if ((!execution.status || canRetryUnsent(execution)) && action.action_type === 'EMAIL_SEND' && review.decision === 'APPROVE' && sender) {
         const send = node('button', 'Send approved email') as HTMLButtonElement; send.type = 'button'; send.disabled = !sender.enabled || !payload.recipient_evidence;
         const feedback = node('p', sender.enabled ? 'Sending requires this separate click. Only the exact approved message is sent.' : 'Confirm receipt of the connection test before sending.'); feedback.setAttribute('role', 'status');
         send.addEventListener('click', async () => {send.disabled = true; try {await sender.send({action_key: action.action_key, fingerprint: action.review_fingerprint});} catch (error) {feedback.textContent = error instanceof Error ? error.message : 'Read the saved send status before retrying.';}});
         card.append(feedback, send);
-      } else card.append(node('p', 'Not executed. This decision does not automatically execute an action.'));
+      } else if (!execution.status) card.append(node('p', review.decision === 'REQUEST_CHANGES' ? 'Change request recorded. Use Edit email draft to apply it; saving requires fresh approval.' : 'Not executed. This decision does not automatically execute an action.'));
     } else {
       const note = document.createElement('textarea'); note.setAttribute('aria-label', `Decision note for ${text(action.title)}`); note.placeholder = 'Describe requested changes or explain your decision'; card.append(note);
       const feedback = node('p', ''); feedback.setAttribute('role', 'status');
       const buttons: HTMLButtonElement[] = [];
       for (const [decision, title] of [['APPROVE', 'Approve proposal'], ['REJECT', 'Reject'], ['REQUEST_CHANGES', 'Request changes']]) {
         const button = document.createElement('button'); button.textContent = title; button.type = 'button'; buttons.push(button);
+        if (decision === 'APPROVE' && action.action_type === 'EMAIL_SEND' && (!payload.to || !payload.recipient_evidence)) button.disabled = true;
         button.addEventListener('click', async () => {
           buttons.forEach(b => b.disabled = true);
           try {await decide({action_key: action.action_key, fingerprint: action.review_fingerprint, decision, note: note.value});}
