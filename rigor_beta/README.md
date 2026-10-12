@@ -98,7 +98,7 @@ Sender troubleshooting: Founder Company email includes a no-email token verifica
 
 Credential-format diagnostics report only the presence of a Bearer prefix, internal whitespace or quotation marks. They never expose the credential. Cloudflare nested authorization errors retain only allowlisted codes.
 
-Controlled outreach: Prepare First Round funding draft creates one sourced Liz Wessel introduction for review. `/api/founder/email-send` accepts only a proposal reference, checks the immutable exact approval, bounded sender/recipient/message and recipient source, then claims an execution and message digest before calling Cloudflare. Service callers cannot approve, confirm receipt or send. Limit: three individual attempts per UTC day; queued, rejected, bounced, suppressed and unknown outcomes remain distinct. No automatic retry or follow-up; repeating a send reads its saved receipt. A timeout or crash after reservation must be investigated rather than retried. Approval alone never sends.
+Controlled outreach: Prepare First Round funding draft creates one sourced Liz Wessel introduction for review. `/api/founder/email-send` accepts only a proposal reference, checks the immutable exact approval, bounded sender/recipient/message and recipient source, then claims an execution and message digest before calling Cloudflare. Service callers cannot approve, confirm receipt or send. Limit: ten individual attempts per UTC day; queued, rejected, bounced, suppressed and unknown outcomes remain distinct. No automatic retry or follow-up; repeating a send reads its saved receipt. A timeout or crash after reservation must be investigated rather than retried. Approval alone never sends.
 
 
 ### Revise one outreach email
