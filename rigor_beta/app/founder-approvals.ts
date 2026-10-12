@@ -9,6 +9,7 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
   if (!actions.length) {parent.append(node('p', 'No actions awaiting your decision. Outreach drafts remain unsent.')); return;}
   for (const action of actions) {
     const card = node('article', ''); card.className = 'approval-card';
+    card.dataset.actionKey = text(action.action_key);
     card.append(node('h3', text(action.title)), node('p', `${label(action.action_type)} · ${label(action.scope)} · ${label(action.owner_agent)}`), node('p', text(action.summary)), node('p', `Target: ${text(action.target) || 'Not specified'}`));
     const payload = object(action.payload);
     if (action.action_type === 'EMAIL_SEND') {
