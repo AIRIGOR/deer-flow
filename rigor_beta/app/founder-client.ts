@@ -5,6 +5,22 @@ import {renderCommands, renderPulse, renderState} from './founder-report.js';
 import {commandNotice, createStatusPoller} from './founder-progress.js';
 import {objectiveError} from './founder-objective.js';
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const queueSummary = document.createElement('section');
+queueSummary.className = 'panel queue-summary'; queueSummary.setAttribute('aria-label', 'Outreach queue summary');
+document.querySelector('main header')?.after(queueSummary);
+const nav = document.createElement('nav'); nav.className = 'founder-navigation';
+for (const [id, title] of [['command', 'Commands'], ['sender-state', 'Email'], ['approvals', 'Decisions'], ['state', 'Records'], ['commands', 'Reports']]) {
+  const target = element(id)?.closest('section');
+  if (!target) continue;
+  target.id = 'section-' + id;
+  const link = document.createElement('a'); link.href = '#section-' + id; link.textContent = title; nav.append(link);
+}
+queueSummary.before(nav);
+const senderDiagnostics = document.createElement('details'); senderDiagnostics.className = 'sender-diagnostics';
+const diagnosticsTitle = document.createElement('summary'); diagnosticsTitle.textContent = 'Connection tests and diagnostics';
+senderDiagnostics.append(diagnosticsTitle);
+for (const id of ['sender-check', 'sender-check-status', 'sender-test', 'sender-test-status']) senderDiagnostics.append(element(id));
+element('sender-confirm').before(senderDiagnostics);
 const importForm = document.createElement('form');
 const importLabel = document.createElement('label');
 importLabel.textContent = 'Import exact outreach drafts (JSON)';
@@ -15,7 +31,9 @@ importLabel.append(importInput);
 const importButton = document.createElement('button');
 importButton.textContent = 'Import drafts'; importButton.disabled = true;
 importForm.append(importLabel, importButton);
-element('approvals').before(importForm);
+const importDetails = document.createElement('details'); importDetails.className = 'packet-import';
+const importTitle = document.createElement('summary'); importTitle.textContent = 'Import a saved draft packet';
+importDetails.append(importTitle, importForm); element('approvals').before(importDetails);
 importForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (!currentUserId) return;
@@ -51,8 +69,21 @@ async function refresh() {
   const state = await api('/api/founder');
   if (!viewer || viewer !== currentUserId) return false;
   const sender = state.sender;
-  say('sender-state', `${sender.address} · ${sender.provider} · ${sender.confirmation ? 'Founder confirmed mailbox receipt.' : sender.delivery_verified ? 'Provider delivery verified.' : sender.configured ? 'Credentials configured; delivery not verified.' : 'Account connection required.'} ${sender.sending_enabled ? 'Exact approved emails can be sent individually.' : 'Outreach sending is disabled.'}`);
+  const emails = state.actions.filter((a: any) => a.action_type === 'EMAIL_SEND');
+  const queued = emails.filter((a: any) => a.email_execution?.status === 'QUEUED').length;
+  const delivered = emails.filter((a: any) => a.email_execution?.status === 'PROVIDER_DELIVERED').length;
+  const ready = emails.filter((a: any) => a.review?.decision === 'APPROVE' && !a.email_execution?.status).length;
+  const pending = emails.filter((a: any) => !a.review?.decision && !a.email_execution?.status).length;
+  queueSummary.replaceChildren();
+  const heading = document.createElement('h2'); heading.textContent = 'Outreach at a glance';
+  const totals = document.createElement('p'); totals.textContent = `${pending} awaiting approval · ${ready} approved and unsent · ${queued} provider-queued · ${delivered} provider-delivered`;
+  const capacity = document.createElement('p'); capacity.textContent = `Today: ${state.email_limits.used} of ${state.email_limits.limit} outreach attempt slots used · ${state.email_limits.remaining} remaining · Resets at UTC midnight`;
+  const caveat = document.createElement('p'); caveat.className = 'muted'; caveat.textContent = 'Queued means accepted for processing. Inbox delivery and investor interest are separate.';
+  queueSummary.append(heading, totals, capacity, caveat);
+  say('sender-state', `${sender.address} · ${sender.sending_enabled ? 'Ready to send exact approved proposals. Mailbox connection confirmed.' : sender.blocked_reason ? 'Sending paused: latest test failed.' : sender.configured ? 'Awaiting confirmation that the test reached your mailbox.' : 'Connection setup required.'}`);
+  senderDiagnostics.open = !sender.sending_enabled;
   say('sender-steps', sender.delivery_verified ? 'Review a concrete draft, approve that exact proposal, then use Send approved email. Sending is Monday–Friday, Pacific time. No automatic follow-ups. Limit: ten individual attempts per UTC day.' : sender.setup_steps.join('\n'));
+  if (sender.blocked_reason) say('sender-steps', sender.blocked_reason);
   say('sender-test-status', sender.test ? `Delivery test: ${sender.test.status.replaceAll('_', ' ').toLowerCase()} · ${sender.test.created_at}. Provider delivery does not prove inbox placement.` : 'No delivery test recorded.');
   say('sender-check-status', sender.check ? sender.check.explanation : 'Connection check sends no email.');
   element<HTMLButtonElement>('sender-check').disabled = !sender.configured;
@@ -63,13 +94,14 @@ async function refresh() {
   };
   if (sender.test?.diagnostic) say('sender-test-status', `${sender.test.diagnostic.explanation} Saved provider status: ${sender.test.diagnostic.http_status}.`);
   element<HTMLButtonElement>('sender-test').disabled = !sender.configured || sender.test?.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10);
+  element<HTMLButtonElement>('sender-test').textContent = sender.confirmation ? 'Send optional diagnostic test to my mailbox' : 'Send connection test to ausar_bey@icloud.com';
   element<HTMLButtonElement>('sender-test').onclick = async () => {
     element<HTMLButtonElement>('sender-test').disabled = true;
     try {await api('/api/founder/sender-test', {method: 'POST'}); await refresh();}
     catch (error) {await refresh().catch(() => say('sender-test-status', error instanceof Error ? error.message : 'Unable to read the saved test result.'));}
   };
   const confirm = element<HTMLButtonElement>('sender-confirm');
-  confirm.hidden = !!sender.confirmation;
+  confirm.hidden = !!sender.latest_test_confirmed;
   confirm.disabled = !sender.test || !['QUEUED', 'PROVIDER_DELIVERED'].includes(sender.test.status);
   confirm.onclick = async () => {
     confirm.disabled = true;
