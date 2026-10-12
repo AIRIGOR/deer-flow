@@ -15,7 +15,10 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
       for (const key of ['from', 'to', 'subject', 'body']) {
         const line = node('p', `${key}: ${text(payload[key]) || 'Not supplied — request changes before approval'}`);
         if (key === 'body') line.style.whiteSpace = 'pre-wrap';
-        card.append(line);
+        if (key === 'body') {
+          const message = document.createElement('details'); message.className = 'full-email';
+          message.append(node('summary', 'Read full email'), line); card.append(message);
+        } else card.append(line);
       }
     }
     if (action.source_command_id || payload.recipient_evidence) {
