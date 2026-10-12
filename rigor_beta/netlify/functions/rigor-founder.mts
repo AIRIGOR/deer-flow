@@ -117,7 +117,10 @@ export default async (request: Request, context: Context) => {
       await recoverQueuedCommands(store, request, recentKeys);
       const commands = (await Promise.all(recentKeys.map((key) => store.get(key, {type: "json"}))))
         .filter(Boolean).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50).map((command) => commandView(command));
-      return founderJson({pulse: latest ? {generated_at: latest.generated_at, pulse: latest.pulse} : null,
+      const utcDate = new Date().toISOString().slice(0, 10);
+      const slots = await store.list({prefix: 'founder/email-limits/' + utcDate + '/'});
+      const used = slots.blobs.length;
+      return founderJson({email_limits: {utc_date: utcDate, used, limit: 10, remaining: Math.max(0, 10 - used)}, pulse: latest ? {generated_at: latest.generated_at, pulse: latest.pulse} : null,
         sender: await senderStatus(store), records: Array.isArray(records) ? records : [], actions: await actionsForReview(store, actions), commands});
     }
     if (path.startsWith("/api/founder/commands/") && request.method === "GET") {
