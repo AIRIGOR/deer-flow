@@ -35,6 +35,22 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {status: 202})));
 });
 describe('Founder authority and durable command execution', () => {
+  it('imports exact unsent drafts idempotently without approval or provider calls', async () => {
+    const packet = {drafts: [{target: 'Example VC', to: 'pitch@example.com', subject: 'RIGOR', body: 'Exact approved message.', recipient_source: 'https://example.com/contact'}]};
+    const result = await founder(request('/api/founder/email-import', packet), context);
+    expect(result.status).toBe(201);
+    await founder(request('/api/founder/email-import', packet), context);
+    const entries = [...mocks.records.entries()].filter(([key]) => key.startsWith('founder/outreach-proposals/'));
+    expect(entries).toHaveLength(1); expect(entries[0][1].payload.body).toBe(packet.drafts[0].body);
+    expect(entries[0][1].status).toBe('NEEDS_APPROVAL'); expect(fetch).not.toHaveBeenCalled();
+    expect([...mocks.records.keys()].some(key => key.startsWith('founder/action-reviews/'))).toBe(false);
+  });
+  it('rejects a partially invalid import before writing and blocks service imports', async () => {
+    const packet = {drafts: [{target: 'Example VC', to: 'pitch@example.com', subject: 'RIGOR', body: 'Exact message', recipient_source: 'https://example.com/contact'}, {target: 'Missing', to: null}]};
+    expect((await founder(request('/api/founder/email-import', packet), context)).status).toBe(422);
+    expect(mocks.records.size).toBe(0);
+    expect((await founder(request('/api/founder/email-import', packet, true), context)).status).toBe(403);
+  });
   it('requires explicit outreach routing rather than accepting a mismatched review', async () => {
     const rejected = await founder(request(undefined, {kind: 'RELEASE_REVIEW', objective: 'Prepare the first outreach package with prospects and drafts.'}), context);
     expect(rejected.status).toBe(422);
