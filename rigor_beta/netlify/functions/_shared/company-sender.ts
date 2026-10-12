@@ -69,10 +69,15 @@ export async function senderStatus(store: Store) {
   const test = await store.get('founder/mail-test/latest', {type: 'json'});
   const account = Netlify.env.get('RIGOR_CLOUDFLARE_ACCOUNT_ID')?.trim() || '';
   const current = test?.connection_digest === createHash('sha256').update(account + ':' + from + ':' + to).digest('hex');
-  const confirmation = current ? await store.get('founder/mail-confirmations/' + test.created_at, {type: 'json'}) : null;
-  const verified = !!(connection.configured && current && (test?.status === 'PROVIDER_DELIVERED' || confirmation?.connection_digest === test.connection_digest));
+  const digest = createHash('sha256').update(account + ':' + from + ':' + to).digest('hex');
+  const established = await store.get('founder/mail-connection-confirmations/' + digest, {type: 'json'});
+  const recent = current ? await store.get('founder/mail-confirmations/' + test.created_at, {type: 'json'}) : null;
+  const confirmation = established?.connection_digest === digest ? established : recent?.connection_digest === digest ? recent : null;
+  const blocked = current && ['PROVIDER_REJECTED', 'BOUNCED'].includes(test?.status);
+  const verified = !!(connection.configured && !blocked && (confirmation || current && test?.status === 'PROVIDER_DELIVERED'));
   return {...connection, check: await store.get('founder/mail-check/latest', {type: 'json'}), test: current ? test : null,
-    confirmation, delivery_verified: verified, sending_enabled: verified && !!confirmation};
+    confirmation, latest_test_confirmed: recent?.connection_digest === digest, delivery_verified: verified, sending_enabled: verified && !!confirmation,
+    blocked_reason: blocked ? 'The latest connection test was rejected or bounced. Resolve its saved diagnostic before sending.' : null};
 }
 export async function confirmSenderReceipt(request: Request, store: Store, actor: string) {
   let body: any; try {body = JSON.parse(await request.text());} catch {return founderJson({detail: 'Choose the saved delivery test'}, 400);}
@@ -81,6 +86,7 @@ export async function confirmSenderReceipt(request: Request, store: Store, actor
   const confirmation = {test_created_at: sender.test.created_at, connection_digest: sender.test.connection_digest,
     confirmed_at: new Date().toISOString(), confirmed_by: actor, evidence: 'FOUNDER_CONFIRMED_MAILBOX_RECEIPT'};
   await store.setJSON('founder/mail-confirmations/' + sender.test.created_at, confirmation, {onlyIfNew: true});
+  await store.setJSON('founder/mail-connection-confirmations/' + sender.test.connection_digest, confirmation);
   return founderJson({status: 'RECEIPT_CONFIRMED', emails_sent: 0});
 }
 export async function testSender(request: Request, store: Store, actor: string) {
@@ -88,6 +94,9 @@ export async function testSender(request: Request, store: Store, actor: string) 
   if (!businessDaySending()) return founderJson({detail: businessDayMessage}, 409);
   const connection = senderConnection();
   if (!connection.configured) return founderJson({detail: 'Cloudflare account connection is required before a delivery test'}, 503);
+  // Migrate earlier per-test proof before a diagnostic test changes the latest pointer.
+  const previous = await senderStatus(store);
+  if (previous.confirmation) await store.setJSON('founder/mail-connection-confirmations/' + previous.confirmation.connection_digest, previous.confirmation, {onlyIfNew: true});
   const account = Netlify.env.get('RIGOR_CLOUDFLARE_ACCOUNT_ID')!.trim();
   const token = Netlify.env.get('RIGOR_CLOUDFLARE_EMAIL_TOKEN')!.trim();
   const digest = createHash('sha256').update(account + ':' + from + ':' + to).digest('hex');
@@ -101,7 +110,7 @@ export async function testSender(request: Request, store: Store, actor: string) 
   try {
     const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/email/sending/send`, {
       method: 'POST', headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
-      body: JSON.stringify({from, to, subject: 'RIGOR sender connection test', text: 'Ausar, this is a delivery test from your RIGOR Founder Command Center. No prospect messages have been sent. This test checks the ausar@akhasha.com sending connection.'}),
+      body: JSON.stringify({from, to, subject: 'RIGOR sender connection test', text: 'Ausar, this message tests only the ausar@akhasha.com sending connection. It does not send prospect messages or change existing outreach receipts.'}),
       signal: AbortSignal.timeout(15000),
     });
     const data = await response.json().catch(() => null);
