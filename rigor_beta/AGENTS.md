@@ -51,3 +51,5 @@ Outreach revisions: individual draft changes use `/api/founder/email-draft`, not
 Business-day sending: all outreach paths and the fixed sender self-test must block Saturday/Sunday in America/Los_Angeles before reserving a send receipt, envelope or daily slot. Preserve existing receipts and permit draft editing/approval on weekends. UI gating supplements server enforcement; weekday checks must cover Pacific midnight and daylight saving offsets.
 
 Exact draft import: the signed-in, same-origin Founder may import one to ten recipient/subject/body/source pairs at `/api/founder/email-import`. Validate every row before writes; preserve exact copy and conditional identities on replay. Import never approves or sends. Separate immutable approval and dispatch remain required.
+
+Verified sender connections retain Founder mailbox proof across accepted diagnostic tests. A rejected/bounced test pauses sending and an account change invalidates proof. GET Founder state reports aggregate UTC-day slot usage without credentials. The interface separates queue totals, send outcomes and connection diagnostics; full email text remains available for exact review.
