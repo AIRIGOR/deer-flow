@@ -290,6 +290,32 @@ describe('Saved outreach review proposals', () => {
 describe('Cloudflare fixed Founder delivery test', () => {
   const testRequest = () => new Request('https://example.test/api/founder/sender-test', {method: 'POST'});
   beforeEach(() => {vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-mail-token', RIGOR_DEERFLOW_TOKEN: 'secret'})[key]}});});
+  it('preserves confirmed connection proof after a newer queued diagnostic test', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: ['ausar_bey@icloud.com']}}))));
+    await founder(testRequest(), context);
+    const first = mocks.records.get('founder/mail-test/latest');
+    await founder(request('/api/founder/sender-confirm', {test_created_at: first.created_at}), context);
+    vi.setSystemTime(new Date('2026-10-13T16:00:00Z'));
+    await founder(testRequest(), context);
+    const sender = (await (await founder(request('/api/founder'), context)).json()).sender;
+    expect(sender.sending_enabled).toBe(true);
+    expect(sender.confirmation.test_created_at).toBe(first.created_at);
+    expect(sender.latest_test_confirmed).toBe(false);
+    expect(sender.test.created_at).not.toBe(first.created_at);
+  });
+  it('pauses established sending on a rejected diagnostic and invalidates a different account', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: ['ausar_bey@icloud.com']}}))));
+    await founder(testRequest(), context);
+    const first = mocks.records.get('founder/mail-test/latest');
+    await founder(request('/api/founder/sender-confirm', {test_created_at: first.created_at}), context);
+    vi.setSystemTime(new Date('2026-10-13T16:00:00Z'));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {status: 403})));
+    await founder(testRequest(), context);
+    const sender = (await (await founder(request('/api/founder'), context)).json()).sender;
+    expect(sender.sending_enabled).toBe(false); expect(sender.blocked_reason).toContain('rejected');
+    vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_CLOUDFLARE_ACCOUNT_ID: 'c'.repeat(32), RIGOR_CLOUDFLARE_EMAIL_TOKEN: 'private-mail-token'})[key]}});
+    expect((await (await founder(request('/api/founder'), context)).json()).sender.confirmation).toBeNull();
+  });
   it('sends only the fixed self-test, persists real provider status and blocks duplicates', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {delivered: ['ausar_bey@icloud.com']}}))));
     const response = await founder(testRequest(), context); expect(response.status).toBe(200);
@@ -427,6 +453,7 @@ describe('Controlled approved email execution', () => {
   it('requires mailbox receipt confirmation and rejects a stale test reference', async () => {
     const row = await ready(); await approve(row);
     mocks.records.delete('founder/mail-confirmations/' + mocks.records.get('founder/mail-test/latest').created_at);
+    for (const key of [...mocks.records.keys()]) if (key.startsWith('founder/mail-connection-confirmations/')) mocks.records.delete(key);
     vi.mocked(fetch).mockClear(); expect((await send(row)).status).toBe(409);
     expect((await founder(post('sender-confirm', {test_created_at: 'old'}), context)).status).toBe(409);
     expect(fetch).not.toHaveBeenCalled();
