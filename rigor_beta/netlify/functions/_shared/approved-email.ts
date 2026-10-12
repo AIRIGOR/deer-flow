@@ -52,7 +52,7 @@ async function dispatchApprovedEmail(request: Request, store: Store, actor: stri
   let diagnostic; let providerRequestStarted = false;
   if (status !== 'DUPLICATE_BLOCKED') {
     let slot = false;
-    for (let n = 0; n < 3; n++) {
+    for (let n = 0; n < 10; n++) {
       if ((await store.setJSON('founder/email-limits/' + started.created_at.slice(0, 10) + '/' + n, {fingerprint}, {onlyIfNew: true})).modified) {slot = true; break;}
     }
     if (!slot) status = 'DAILY_LIMIT';
