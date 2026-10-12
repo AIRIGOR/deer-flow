@@ -454,18 +454,25 @@ describe('Controlled approved email execution', () => {
     const receipt = await (await send(row)).json(); expect(receipt.status).toBe(status); expect(JSON.stringify(receipt)).not.toContain('private-token');
     await send(row); expect(fetch).toHaveBeenCalledTimes(1);
   });
-  it('enforces three attempts per UTC day before provider request', async () => {
+  it('allows the tenth attempt when nine UTC-day slots are occupied', async () => {
+    const row = await ready(); await approve(row);
+    for (let i = 0; i < 9; i++) mocks.records.set('founder/email-limits/' + new Date().toISOString().slice(0, 10) + '/' + i, {fingerprint: 'prior'});
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: [row.payload.to]}}))));
+    expect((await (await send(row)).json()).status).toBe('QUEUED');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('enforces ten attempts per UTC day before provider request', async () => {
     const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
-    for (let i = 0; i < 3; i++) mocks.records.set('founder/email-limits/' + new Date().toISOString().slice(0, 10) + '/' + i, {fingerprint: 'prior'});
+    for (let i = 0; i < 10; i++) mocks.records.set('founder/email-limits/' + new Date().toISOString().slice(0, 10) + '/' + i, {fingerprint: 'prior'});
     expect((await (await send(row)).json()).status).toBe('DAILY_LIMIT'); expect(fetch).not.toHaveBeenCalled();
   });
   it('allows a proved unsent daily-limit email to send once when capacity becomes available', async () => {
     const row = await ready(); await approve(row); vi.mocked(fetch).mockClear();
     const today = new Date().toISOString().slice(0, 10);
-    for (let i = 0; i < 3; i++) mocks.records.set('founder/email-limits/' + today + '/' + i, {fingerprint: 'prior'});
+    for (let i = 0; i < 10; i++) mocks.records.set('founder/email-limits/' + today + '/' + i, {fingerprint: 'prior'});
     expect((await (await send(row)).json()).status).toBe('DAILY_LIMIT');
     expect([...mocks.records.keys()].some(k => k.startsWith('founder/email-envelopes/'))).toBe(false);
-    for (let i = 0; i < 3; i++) mocks.records.delete('founder/email-limits/' + today + '/' + i);
+    for (let i = 0; i < 10; i++) mocks.records.delete('founder/email-limits/' + today + '/' + i);
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({success: true, result: {queued: [row.payload.to]}}))));
     expect((await (await send(row)).json()).status).toBe('QUEUED');
     await send(row); expect(fetch).toHaveBeenCalledTimes(1);
