@@ -5,6 +5,29 @@ import {renderCommands, renderPulse, renderState} from './founder-report.js';
 import {commandNotice, createStatusPoller} from './founder-progress.js';
 import {objectiveError} from './founder-objective.js';
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const importForm = document.createElement('form');
+const importLabel = document.createElement('label');
+importLabel.textContent = 'Import exact outreach drafts (JSON)';
+const importInput = document.createElement('textarea');
+importInput.id = 'email-import'; importInput.setAttribute('aria-label', 'Exact outreach draft packet');
+importInput.placeholder = 'Paste a saved draft packet. Import saves drafts only; approvals and sending are separate.';
+importLabel.append(importInput);
+const importButton = document.createElement('button');
+importButton.textContent = 'Import drafts'; importButton.disabled = true;
+importForm.append(importLabel, importButton);
+element('approvals').before(importForm);
+importForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!currentUserId) return;
+  importButton.disabled = true;
+  try {
+    JSON.parse(importInput.value);
+    const result = await api('/api/founder/email-import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: importInput.value});
+    importInput.value = '';
+    await refresh(); say('approval-notice', `${result.action_keys.length} drafts imported. Review each exact proposal. Nothing sent.`);
+  } catch (error) {say('approval-notice', error instanceof Error ? error.message : 'Unable to import drafts.');}
+  finally {importButton.disabled = !currentUserId;}
+});
 const say = (id: string, value: unknown) => { element(id).textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2); };
 let activeCommandId: string | undefined;
 let currentUserId: string | undefined;
@@ -29,7 +52,7 @@ async function refresh() {
   if (!viewer || viewer !== currentUserId) return false;
   const sender = state.sender;
   say('sender-state', `${sender.address} · ${sender.provider} · ${sender.confirmation ? 'Founder confirmed mailbox receipt.' : sender.delivery_verified ? 'Provider delivery verified.' : sender.configured ? 'Credentials configured; delivery not verified.' : 'Account connection required.'} ${sender.sending_enabled ? 'Exact approved emails can be sent individually.' : 'Outreach sending is disabled.'}`);
-  say('sender-steps', sender.delivery_verified ? 'Review a concrete draft, approve that exact proposal, then use Send approved email. Sending is Monday–Friday, Pacific time. No automatic follow-ups. Initial limit: three individual emails per UTC day.' : sender.setup_steps.join('\n'));
+  say('sender-steps', sender.delivery_verified ? 'Review a concrete draft, approve that exact proposal, then use Send approved email. Sending is Monday–Friday, Pacific time. No automatic follow-ups. Limit: ten individual attempts per UTC day.' : sender.setup_steps.join('\n'));
   say('sender-test-status', sender.test ? `Delivery test: ${sender.test.status.replaceAll('_', ' ').toLowerCase()} · ${sender.test.created_at}. Provider delivery does not prove inbox placement.` : 'No delivery test recorded.');
   say('sender-check-status', sender.check ? sender.check.explanation : 'Connection check sends no email.');
   element<HTMLButtonElement>('sender-check').disabled = !sender.configured;
@@ -54,6 +77,7 @@ async function refresh() {
     catch (error) {say('sender-test-status', error instanceof Error ? error.message : 'Unable to save mailbox confirmation.');}
   };
   element<HTMLButtonElement>('prepare-funding').disabled = false;
+  importButton.disabled = false;
   element<HTMLButtonElement>('prepare-funding').onclick = async () => {
     element<HTMLButtonElement>('prepare-funding').disabled = true;
     try {await api('/api/founder/funding-draft', {method: 'POST'}); await refresh(); say('approval-notice', 'First Round draft saved. Review the exact recipient and message before approving. Nothing sent.');}
