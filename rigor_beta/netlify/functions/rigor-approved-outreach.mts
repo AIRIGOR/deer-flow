@@ -190,7 +190,7 @@ export default async (request: Request, context: Context) => {
   const sentToday = Object.values(state.results).filter(
     (item) => item.status === "SENT" && item.sent_at?.slice(0, 10) === today,
   ).length;
-  let remainingCapacity = Math.max(0, 10 - sentToday);
+  let remainingCapacity = Math.max(0, 3 - sentToday);
 
   const due = batch.emails.filter(
     (email) => email.send_on <= today && state.results[email.id]?.status !== "SENT",
