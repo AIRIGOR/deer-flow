@@ -3,6 +3,15 @@ import {object, items, text, label} from './founder-report.js';
 import {appendEmailDraftEditor} from './email-draft-editor.js';
 import {canRetryUnsent, emailOutcome} from './email-status.js';
 const node = (tag: string, value: string) => {const el = document.createElement(tag); el.textContent = value; return el;};
+export function approvalBlockReason(value: unknown): string {
+  const action = object(value), payload = object(action.payload);
+  if (!Object.keys(payload).length) return 'Approval unavailable: this proposal needs a concrete action payload. Request changes to supply it.';
+  if (action.action_type === 'EMAIL_SEND') {
+    if (!/^\S+@\S+\.\S+$/.test(text(payload.to)) || !/^\S+@\S+\.\S+$/.test(text(payload.from)) || !text(payload.subject).trim() || !text(payload.body).trim()) return 'Approval unavailable: supply the exact sender, recipient, subject and message.';
+    if (!payload.recipient_evidence) return 'Approval unavailable: supply the public recipient source before reviewing this email.';
+  }
+  return '';
+}
 export function renderApprovals(parent: HTMLElement, values: unknown, decide: (body: Record<string, unknown>) => Promise<void>, sender?: {enabled: boolean; send: (body: Record<string, unknown>) => Promise<void>; revise?: (body: Record<string, unknown>) => Promise<void>}) {
   parent.replaceChildren();
   const actions = items(values).map(object).filter(action => action.status === 'NEEDS_APPROVAL' || object(action.review).decision);
@@ -49,15 +58,17 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
       } else if (!execution.status) card.append(node('p', review.decision === 'REQUEST_CHANGES' ? 'Change request recorded. Use Edit email draft to apply it; saving requires fresh approval.' : 'Not executed. This decision does not automatically execute an action.'));
     } else {
       const note = document.createElement('textarea'); note.setAttribute('aria-label', `Decision note for ${text(action.title)}`); note.placeholder = 'Describe requested changes or explain your decision'; card.append(note);
-      const feedback = node('p', ''); feedback.setAttribute('role', 'status');
+      const blockedReason = approvalBlockReason(action);
+      const feedback = node('p', blockedReason); feedback.setAttribute('role', 'status');
       const buttons: HTMLButtonElement[] = [];
       for (const [decision, title] of [['APPROVE', 'Approve proposal'], ['REJECT', 'Reject'], ['REQUEST_CHANGES', 'Request changes']]) {
         const button = document.createElement('button'); button.textContent = title; button.type = 'button'; buttons.push(button);
-        if (decision === 'APPROVE' && action.action_type === 'EMAIL_SEND' && (!payload.to || !payload.recipient_evidence)) button.disabled = true;
+        button.dataset.decision = decision;
+        button.disabled = decision === 'APPROVE' && Boolean(blockedReason);
         button.addEventListener('click', async () => {
           buttons.forEach(b => b.disabled = true);
           try {await decide({action_key: action.action_key, fingerprint: action.review_fingerprint, decision, note: note.value});}
-          catch (error) {feedback.textContent = error instanceof Error ? error.message : 'Unable to save decision. Refresh to check saved status before retrying.'; buttons.forEach(b => b.disabled = false);}
+          catch (error) {feedback.textContent = error instanceof Error ? error.message : 'Unable to save decision. Refresh to check saved status before retrying.'; buttons.forEach(b => b.disabled = b.dataset.decision === 'APPROVE' && Boolean(blockedReason));}
         }); card.append(button);
       }
       card.append(feedback);
