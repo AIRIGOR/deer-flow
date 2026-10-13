@@ -136,6 +136,23 @@ describe("durable document upload", () => {
       expect(new TextDecoder().decode(bytes.slice(0, 4))).toBe("%PDF");
     }
   });
+  it("rejects fabricated model citations without marking a document processed", async () => {
+    fetchMock.mockImplementation(async (url: string) => String(url).includes("gateway.test")
+      ? Response.json({ requirements: [{
+        department: "Lighting", category: "POWER_CAPACITY",
+        requirement_text: "Lighting requires 400 amps of power.",
+        source_excerpt: "Fabricated requirement never present in the uploaded file.",
+        source_page: 2, confidence: 0.99,
+      }] })
+      : new Response(null, { status: 202 }));
+    await upload("tour.txt", "Lighting requires 400 amps of power.");
+    await Promise.all(waits);
+    await worker();
+    const production = activeProduction(saved());
+    expect(production.documents[0].status).toBe("FAILED");
+    expect(production.requirements).toHaveLength(0);
+    expect(readiness(production).status).not.toBe("SHOW_READY");
+  });
   it("retains bytes and exposes a retryable failure when DeerFlow is unavailable", async () => {
     await upload(); await Promise.all(waits);
     vi.stubGlobal("Netlify", { env: { get: () => undefined } });
