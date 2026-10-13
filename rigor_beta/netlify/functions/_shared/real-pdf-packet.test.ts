@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts } from "pdf-lib";
-import pdfParse from "pdf-parse";
+import { createRequire } from "node:module";
+const pdfParse = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{ numpages: number; text: string }>;
 import { activeProduction, createWorkspace, extractRequirements, readiness, rebuildConflicts } from "./model.js";
 import { suggestDocumentType } from "./document-classification.js";
 
