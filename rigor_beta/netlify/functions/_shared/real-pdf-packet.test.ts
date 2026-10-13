@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createRequire } from "node:module";
-const pdfParse = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer, options?: { version: string }) => Promise<{ numpages: number; text: string }>;
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { readPdfPages } from "./pdf-text.js";
 import { activeProduction, createWorkspace, extractRequirements, readiness, rebuildConflicts } from "./model.js";
 import { suggestDocumentType } from "./document-classification.js";
 
@@ -17,46 +17,30 @@ const packet = [
   ["trucking.pdf", "Truck manifest: trailer and truck parking."],
 ] as const;
 
-function makePdf(content: string) {
-  // A valid, uncompressed PDF 1.4 with explicit cross-reference offsets.
-  const escaped = content.replace(/[\\\\()]/g, (char) => "\\\\" + char);
-  const stream = `BT /F1 12 Tf 40 700 Td (${escaped}) Tj ET\n`;
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
-  ];
-  let source = "%PDF-1.4\n";
-  const offsets: number[] = [];
-  for (const [index, body] of objects.entries()) {
-    offsets.push(Buffer.byteLength(source));
-    source += `${index + 1} 0 obj\n${body}\nendobj\n`;
-  }
-  const xref = Buffer.byteLength(source);
-  source += "xref\n0 6\n0000000000 65535 f \n";
-  for (const offset of offsets) source += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  source += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  const bytes = new TextEncoder().encode(source);
-  return Buffer.from(bytes.buffer);
+
+async function makePdf(content: string) {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  pdf.addPage([612, 792]).drawText(content, { x: 40, y: 700, size: 12, font });
+  return (await pdf.save()).buffer as ArrayBuffer;
 }
 
 describe("RIGOR actual PDF packet regression", () => {
-  it("parses ten real generated PDF files, detects power contradictions, and stays blocked", async () => {
+  it("parses ten real PDFs, detects power contradictions and stays blocked", async () => {
     const state = activeProduction(createWorkspace("PDF Packet QA", "PM"));
     const seen = new Set<string>();
     for (const [name, content] of packet) {
-      const bytes = await makePdf(content);
-      expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
-      const parsed = await pdfParse(bytes, { version: "v2.0.550" });
-      expect(parsed.numpages).toBe(1);
-      expect(parsed.text).toContain(content);
-      const suggested = suggestDocumentType(name, [parsed.text]);
+      const raw = await makePdf(content);
+      const bytes = new Uint8Array(raw);
+      expect(new TextDecoder().decode(bytes.subarray(0, 4))).toBe("%PDF");
+      const pages = await readPdfPages(raw);
+      expect(pages).toHaveLength(1);
+      expect(pages[0]).toContain(content);
+      const suggested = suggestDocumentType(name, pages);
       expect(suggested.classification_status).toBe("NEEDS_REVIEW");
       seen.add(suggested.suggested_type);
-      state.documents.push({ name, doc_type: "UPLOADED", status: "PROCESSED", review_status: "PENDING", page_count: parsed.numpages });
-      extractRequirements(state, name, [parsed.text]);
+      state.documents.push({ name, doc_type: "UPLOADED", status: "PROCESSED", review_status: "PENDING", page_count: pages.length });
+      extractRequirements(state, name, pages);
     }
     rebuildConflicts(state);
     expect(state.documents).toHaveLength(10);
