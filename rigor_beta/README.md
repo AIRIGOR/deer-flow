@@ -29,7 +29,9 @@ Set these Netlify environment variables when the DeerFlow RIGOR gateway is reach
 - `RIGOR_DEERFLOW_URL` — base URL of the deployed DeerFlow gateway.
 - `RIGOR_DEERFLOW_TOKEN` — optional bearer token used by the beta service to call the protected RIGOR analysis endpoint.
 
-When `RIGOR_DEERFLOW_URL` is configured, document uploads prefer DeerFlow model analysis. If the service is unavailable or returns a non-success response, the beta falls back to the local structured extractor so the evaluator workflow remains usable.
+RIGOR, DeerFlow, and the 3NETRA company operator share one authenticated gateway contract. Uploaded documents require verified DeerFlow analysis; missing configuration, timeout, HTTP failure, or invalid provenance leaves the saved document FAILED and retryable, with readiness blocked. Background analysis has a bounded ten-minute budget. Previously fallback-processed documents offer Retry with DeerFlow and cannot complete source review until verified. Analysis does not replace full-source human review.
+
+The operating motto is **Flow like water**. `/api/health` and `/api/company/health` expose separate durable execution receipts for document analysis, company pulse, and internal company actions. Configured is not verified; receipt IDs connect documents and company results to the shared execution path. External communications and Founder-reserved approvals retain their existing gates.
 
 The DeerFlow endpoint treats uploaded document text as untrusted source material, returns structured production requirements with page provenance and confidence, and does not resolve contradictions on its own.
 
@@ -112,3 +114,13 @@ October 11 outreach repair validation: TypeScript, 134 regression tests and offl
 Exact draft import: the signed-in, same-origin Founder may import one to ten recipient/subject/body/source pairs at `/api/founder/email-import`. Validate every row before writes; preserve exact copy and conditional identities on replay. Import never approves or sends. Separate immutable approval and dispatch remain required.
 
 Verified sender connections retain Founder mailbox proof across accepted diagnostic tests. A rejected/bounced test pauses sending and an account change invalidates proof. GET Founder state reports aggregate UTC-day slot usage without credentials. The interface separates queue totals, send outcomes and connection diagnostics; full email text remains available for exact review.
+
+## Durable document intake
+
+PDF/TXT uploads persist the file and a PROCESSING document before returning HTTP 202. A capability-protected background job parses page text and performs analysis. The production packet shows processing, failure, and retry states; file picker and drag/drop use the same upload path. Status polling is read-only. Failed and processing sources block readiness and cannot be source-reviewed. A worker reloads current workspace state after analysis to retain decisions and production selection. Retry is available after failure or a 16-minute processing timeout. Structured fallback is labeled separately from DeerFlow and still requires full-source review.
+
+After document analysis and company pulse both have verified receipts, the next pulse proposes one bounded INTERNAL_TEST / OBSERVE evidence review per deployment to `rigor-qa-security`. The existing action-policy gate and action runner execute it; terminal action keys prevent repeated execution for the same deployment. The check cannot authorize external actions or replace human source review.
+
+Company action execution uses a bounded pulse context excerpt to satisfy DeerFlow’s 20,000-character request limit while preserving the full proposal evidence.
+
+Founder command recovery also runs hourly on published deployments while the dashboard is closed. Each pass claims at most two stale launches and retains the five-attempt cap. Single-command status polls recover their own queued launch. Recovery never dispatches outreach or consumes saved approvals; running and terminal commands are not relaunched.

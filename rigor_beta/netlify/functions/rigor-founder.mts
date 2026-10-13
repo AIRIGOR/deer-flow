@@ -26,7 +26,7 @@ async function triggerFounderWorker(request: Request, commandId: string, token: 
   if (!response.ok) throw new Error("LAUNCH_REJECTED");
 }
 
-async function recoverQueuedCommands(
+export async function recoverQueuedCommands(
   store: Awaited<ReturnType<typeof founderStore>>,
   request: Request,
   keys: string[],
@@ -35,6 +35,7 @@ async function recoverQueuedCommands(
   const serviceUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
   if (!token || !serviceUrl) return;
   const now = Date.now();
+  let launched = 0;
 
   for (const key of keys) {
     const stored = await store.getWithMetadata(key, {type: "json"});
@@ -55,6 +56,8 @@ async function recoverQueuedCommands(
       continue;
     }
 
+    // Keep recovery within the synchronous/scheduled function deadline.
+    if (launched >= 2) break;
     const retry = {
       ...command,
       launch_attempts: attempts + 1,
@@ -62,6 +65,7 @@ async function recoverQueuedCommands(
     };
     const reserved = await store.setJSON(key, retry, {onlyIfMatch: stored.etag});
     if (!reserved.modified) continue;
+    launched += 1;
 
     try {
       await triggerFounderWorker(request, command.command_id, token);
@@ -126,6 +130,7 @@ export default async (request: Request, context: Context) => {
     if (path.startsWith("/api/founder/commands/") && request.method === "GET") {
       const id = path.slice("/api/founder/commands/".length);
       if (!validCommandId(id)) return founderJson({detail: "Invalid command ID"}, 400);
+      await recoverQueuedCommands(store, request, [prefix + id]);
       const command = await store.get(prefix + id, {type: "json"}) as FounderCommand | null;
       return command ? founderJson(commandView(command)) : founderJson({detail: "Command not found"}, 404);
     }

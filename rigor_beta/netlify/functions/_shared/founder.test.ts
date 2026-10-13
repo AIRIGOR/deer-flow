@@ -19,6 +19,7 @@ vi.mock('../rigor-company-pulse-background.mjs', () => ({runCompanyPulse: mocks.
 import founder from '../rigor-founder.mjs';
 import approvedBatch from '../rigor-approved-outreach.mjs';
 import worker from '../rigor-founder-command-background.mjs';
+import recover from '../rigor-founder-recovery.mjs';
 import {commandView, delegationVerified, normalizeExecutionResult} from './founder.js';
 import {outreachFixture} from './outreach-fixture.js';
 const context = {deploy: {context: 'production'}} as Context;
@@ -138,6 +139,28 @@ describe('Founder authority and durable command execution', () => {
     expect(result.status).toBe(200);
     expect(mocks.records.get('founder/commands/' + id)).toMatchObject({status: 'QUEUED', launch_attempts: 2});
     expect(fetch).toHaveBeenCalledWith(expect.objectContaining({pathname: '/.netlify/functions/rigor-founder-command-background'}), expect.objectContaining({method: 'POST'}));
+  });
+  it('recovers a stale launch from a single-command status poll', async () => {
+    mocks.records.set('founder/commands/' + id, {...command(), launch_attempts: 1, last_launch_at: '2020-01-01T00:00:00Z'});
+    const response = await founder(request('/api/founder/commands/' + id), context);
+    expect(await response.json()).toMatchObject({status: 'QUEUED'});
+    expect(mocks.records.get('founder/commands/' + id).launch_attempts).toBe(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('recovers without an open dashboard and bounds each recovery batch', async () => {
+    for (let index = 0; index < 4; index++) {
+      const nextId = `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa${index}`;
+      mocks.records.set('founder/commands/' + nextId, {...command(), command_id: nextId, launch_attempts: 1, last_launch_at: '2020-01-01T00:00:00Z'});
+    }
+    await recover(request(), context);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect([...mocks.records.values()].filter(row => row.launch_attempts === 2)).toHaveLength(2);
+    for (const [url] of vi.mocked(fetch).mock.calls) expect(new URL(String(url)).pathname).toBe('/.netlify/functions/rigor-founder-command-background');
+  });
+  it('never recovers running, completed, failed or freshly queued commands', async () => {
+    for (const status of ['RUNNING', 'COMPLETE', 'FAILED', 'QUEUED']) mocks.records.set('founder/commands/' + status, {...command(), status, launch_attempts: 1});
+    await recover(request(), context);
+    expect(fetch).not.toHaveBeenCalled();
   });
   it('fails a command instead of waiting forever after bounded launch retries', async () => {
     mocks.records.set('founder/commands/' + id, {...command(), launch_attempts: 5, last_launch_at: '2020-01-01T00:00:00Z'});

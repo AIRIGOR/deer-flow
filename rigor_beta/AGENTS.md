@@ -55,3 +55,13 @@ Exact draft import: the signed-in, same-origin Founder may import one to ten rec
 Verified sender connections retain Founder mailbox proof across accepted diagnostic tests. A rejected/bounced test pauses sending and an account change invalidates proof. GET Founder state reports aggregate UTC-day slot usage without credentials. The interface separates queue totals, send outcomes and connection diagnostics; full email text remains available for exact review.
 
 Founder workspace navigation: Overview, Commands, Outreach, Approvals, Activity, Settings use hidden sections with explicit focus/view state. Outreach tables show exact recipients and saved execution status; queued is not delivered. Keep optional research and technical evidence collapsed. Remove normal character counters while preserving shared objective validation and full pasted text. Navigation returns to the top, and recipient links open the corresponding proposal. Preserve authentication, exact proposal approval, conditional send reservations and existing receipt history when changing domains.
+
+Document intake must save raw bytes and PROCESSING metadata before parsing/model calls. Run rigor-upload.test.ts for persistence, worker failure/retry, page count, authorization, production selection, and readiness regressions. GET workspace is read-only; worker results rebase on current state after slow analysis. Never treat upload 202 as completed analysis.
+
+Integration contract: `_shared/deerflow.ts` owns the gateway URL/token, operation routes, deadlines, sanitized errors, and durable receipts for RIGOR and 3NETRA. Uploaded documents must not silently fall back from DeerFlow or complete source review without verified analysis. Preserve pending/failed readiness gates, page provenance, and human approvals. Run deerflow.test.ts and rigor-upload.test.ts; verify the real 90-page upload against production before claiming live integration.
+
+Coherent-flow proof: `coherentFlowCheck` may propose only an INTERNAL_TEST/OBSERVE evidence review after both analysis and pulse verify. Preserve the per-deployment action key, terminal-action deduplication, and Founder-reserved gates.
+
+Company action execution uses a bounded pulse context excerpt to satisfy DeerFlow’s 20,000-character request limit while preserving the full proposal evidence.
+
+Founder command recovery also runs hourly on published deployments while the dashboard is closed. Each pass claims at most two stale launches and retains the five-attempt cap. Single-command status polls recover their own queued launch. Recovery never dispatches outreach or consumes saved approvals; running and terminal commands are not relaunched.
