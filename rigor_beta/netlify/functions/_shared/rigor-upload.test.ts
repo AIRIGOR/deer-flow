@@ -88,6 +88,54 @@ describe("durable document upload", () => {
     await processUpload(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify({ jobId: "a".repeat(64) }) }), ctx);
     expect(pdf).not.toHaveBeenCalled();
   });
+  it("processes a ten-document packet, blocks contradictions and exports both PDF scopes", async () => {
+    fetchMock.mockImplementation(async (url: string, opts: any) => {
+      if (!String(url).includes("gateway.test")) return new Response(null, { status: 202 });
+      const payload = JSON.parse(opts.body);
+      const text = payload.pages[0];
+      return Response.json({ requirements: text.includes("Show power")
+        ? [{
+          department: "Power", category: "POWER_CAPACITY", requirement_text: text,
+          source_excerpt: text, source_page: 1, confidence: 0.99,
+        }] : [] });
+    });
+    const packet = [
+      ["tour-rider.txt", "Show power must provide 400A service."],
+      ["venue-spec.txt", "Show power must provide 200A service."],
+      ["stage-plot.txt", "Stage plot: downstage left and upstage right."],
+      ["audio-inputs.txt", "Input list: 24 channels."],
+      ["lighting.txt", "Lighting plot: DMX universe 1."],
+      ["video.txt", "Video specification: LED wall pixel pitch."],
+      ["hospitality.txt", "Hospitality rider: catering and dressing room."],
+      ["schedule.txt", "Show schedule: soundcheck and doors at 19:00."],
+      ["rigging.txt", "Rigging plot: point load 1000 lbs."],
+      ["trucking.txt", "Truck manifest: trailer and truck parking."],
+    ];
+    for (const [name, content] of packet) {
+      expect((await upload(name, content)).status).toBe(202);
+      await Promise.all(waits.splice(0));
+    }
+    const jobs = [...records.keys()].filter(key => key.startsWith("document-job/"));
+    expect(jobs).toHaveLength(10);
+    for (const key of jobs) {
+      await processUpload(new Request("https://rigor.test/worker", {
+        method: "POST", body: JSON.stringify({ jobId: key.split("/")[1] }),
+      }), ctx);
+    }
+    const production = activeProduction(saved());
+    expect(production.documents).toHaveLength(10);
+    expect(production.documents.every(doc => doc.status === "PROCESSED")).toBe(true);
+    expect(production.conflicts.some(c => c.category === "POWER_CAPACITY")).toBe(true);
+    expect(readiness(production).status).toBe("BLOCKED");
+    expect(production.documents.find(d => d.name === "hospitality.txt")?.suggested_type).toBe("HOSPITALITY");
+    for (const path of ["/api/reports/advance.pdf", "/api/reports/advance.pdf?department=Power"]) {
+      const response = await handler(request(path), ctx);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/pdf");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      expect(new TextDecoder().decode(bytes.slice(0, 4))).toBe("%PDF");
+    }
+  });
   it("retains bytes and exposes a retryable failure when DeerFlow is unavailable", async () => {
     await upload(); await Promise.all(waits);
     vi.stubGlobal("Netlify", { env: { get: () => undefined } });
