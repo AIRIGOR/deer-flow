@@ -23,10 +23,15 @@ export function renderApprovals(parent: HTMLElement, values: unknown, decide: (b
       }
     }
     if (action.source_command_id || payload.recipient_evidence) {
-      card.append(node('p', `Public contact route: ${text(payload.contact_route) || text(object(payload.recipient_evidence).url)}`));
-      if (payload.follow_up) card.append(node('h4', 'Follow-up draft'), node('p', text(payload.follow_up)));
-      card.append(node('h4', 'Verification gaps'));
-      const list = node('ul', ''); items(payload.verification_gaps).forEach(value => list.append(node('li', text(value)))); card.append(list);
+      const research = document.createElement('details');
+      research.append(node('summary', 'Contact source & research'), node('p', `Public contact route: ${text(payload.contact_route) || text(object(payload.recipient_evidence).url)}`));
+      if (payload.follow_up) research.append(node('h4', 'Follow-up draft'), node('p', text(payload.follow_up)));
+      const gaps = items(payload.verification_gaps);
+      if (gaps.length) {
+        research.append(node('h4', 'Verification gaps'));
+        const list = node('ul', ''); gaps.forEach(value => list.append(node('li', text(value)))); research.append(list);
+      }
+      card.append(research);
     }
     const details = document.createElement('details');
     details.append(node('summary', 'Exact proposal and evidence'), node('pre', JSON.stringify(Object.fromEntries(Object.entries(action).filter(([key]) => !['review', 'review_fingerprint'].includes(key))), null, 2))); card.append(details);
