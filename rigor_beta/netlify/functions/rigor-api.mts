@@ -5,7 +5,7 @@ import { readPdfPages } from "./_shared/pdf-text.js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./_shared/deerflow.js";
 import { suggestDocumentType } from "./_shared/document-classification.js";
-import { johnPmBrief } from "./_shared/john-ai-pm.js";
+import { johnPmBrief, loadJohnFixture } from "./_shared/john-ai-pm.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
 import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
@@ -383,6 +383,16 @@ export default async (request: Request, context: Context) => {
     const { store, state } = auth;
     if (path === "/api/workspace" && request.method === "GET") { return json(snapshot(state)); }
     if (path === "/api/agents/john/brief" && request.method === "GET") { return json(johnPmBrief(state)); }
+    if (path === "/api/agents/john/fixture" && request.method === "POST") {
+      if (context.deploy.context === "production") return fail("John fixture is staging-only", 403);
+      const current = activeProduction(state);
+      if (current.documents.length || current.requirements.length || current.incidents.length) {
+        return fail("Create an empty production for John's rehearsal", 409);
+      }
+      loadJohnFixture(current);
+      await save(store, state);
+      return json(snapshot(state));
+    }
     if (path === "/api/agents/john/analyze" && request.method === "POST") {
       if (context.deploy.context === "production") return fail("John model requires staging", 403);
       const current = activeProduction(state);
@@ -550,5 +560,5 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/agents/john/analyze", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/agents/john/analyze", "/api/agents/john/fixture", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
 };
