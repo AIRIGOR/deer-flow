@@ -9,6 +9,9 @@ vi.mock("@netlify/blobs", () => ({ getStore: () => ({
   set: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
   setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
   delete: async (key: string) => { records.delete(key); },
+}), getDeployStore: () => ({
+  get: async (key: string) => records.has(key) ? structuredClone(records.get(key)) : null,
+  setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
 }) }));
 vi.mock("./pdf-text.js", () => ({ readPdfPages: pdf }));
 import handler, { processUpload } from "../rigor-api.mjs";
