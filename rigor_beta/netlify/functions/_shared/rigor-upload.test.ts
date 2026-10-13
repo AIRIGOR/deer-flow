@@ -232,7 +232,14 @@ describe("durable document upload", () => {
       const response = await handler(request(path), ctx);
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/pdf");
-      expect(new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()).slice(0, 4))).toBe("%PDF");
+      const report = await response.arrayBuffer();
+      expect(new TextDecoder().decode(new Uint8Array(report.slice(0, 4)))).toBe("%PDF");
+      const reportText = (await actualParser.readPdfPages(report)).join(" ");
+      expect(reportText).toContain(path.includes("department=Power")
+        ? "Power Department Advance Report" : "Master Advance Report");
+      expect(reportText).toContain("BLOCKED");
+      expect(reportText).toContain("400A");
+      expect(reportText).toContain("200A");
     }
     const other = saved();
     other.productions.push(createProduction(other.workspace.workspace_id, { show_name: "Independent second show" }, 2));
