@@ -39,6 +39,29 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it("John model challenges the loaded fictional tour without changing its blockers", async () => {
+    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(200);
+    const before = structuredClone(saved());
+    const sourceId = activeProduction(before).requirements[0].requirement_id;
+    fetchMock.mockResolvedValue(Response.json({
+      agent: "John", mode: "MODEL_ADVISORY_ONLY",
+      release_decision: "HOLD_SHOW", autonomous_show_approval: false,
+      actions: [{ priority: "P0", department: "Power",
+        question: "Resolve the conflicting show-power capacities with the venue electrician.",
+        evidence_ids: [sourceId] }],
+    }));
+    const response = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.readiness.status).toBe("BLOCKED");
+    expect(result.release_decision).toBe("HOLD_SHOW");
+    expect(result.actions[0].evidence_ids).toContain(sourceId);
+    expect(result.deterministic_actions.some((item: any) => item.type === "CONFLICT")).toBe(true);
+    expect(saved()).toEqual(before);
+  });
+
+
   it("loads John's 14-source rehearsal only into an empty staging production", async () => {
     ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
     const response = await handler(request("/api/agents/john/fixture", "{}"), ctx);
