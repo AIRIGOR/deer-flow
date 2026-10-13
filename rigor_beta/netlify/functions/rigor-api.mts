@@ -383,6 +383,31 @@ export default async (request: Request, context: Context) => {
     const { store, state } = auth;
     if (path === "/api/workspace" && request.method === "GET") { return json(snapshot(state)); }
     if (path === "/api/agents/john/brief" && request.method === "GET") { return json(johnPmBrief(state)); }
+    if (path === "/api/agents/john/analyze" && request.method === "POST") {
+      if (context.deploy.context === "production") return fail("John model requires staging", 403);
+      const current = activeProduction(state);
+      if (!current.production.sample_demo ||
+          current.documents.some(doc => doc.source_kind !== "SAMPLE")) {
+        return fail("John model requires an isolated synthetic production", 403);
+      }
+      const brief = johnPmBrief(current);
+      const evidence = current.requirements.slice(0, 45).map(req => ({
+        source_id: String(req.requirement_id),
+        text: String(req.detail || req.title || "").slice(0, 1000),
+      }));
+      if (!evidence.length) return fail("No synthetic evidence available", 422);
+      try {
+        const response = await deerFlowRequest(context, "john_pm", { synthetic: true, evidence });
+        const analysis = await response.json();
+        return json({ agent: "John", synthetic: true, mode: "MODEL_ADVISORY_ONLY",
+          release_decision: "HOLD_SHOW", autonomous_show_approval: false,
+          readiness: brief.readiness, actions: analysis.actions,
+          deterministic_actions: brief.actions });
+      } catch (error) {
+        if (error instanceof DeerFlowIntegrationError) return fail(error.message, 503);
+        return fail("John model unavailable", 503);
+      }
+    }
     const documentReviewMatch = path.match(/^\/api\/documents\/([^/]+)\/review$/);
     if (documentReviewMatch && request.method === "POST") {
       const production = activeProduction(state);
@@ -525,5 +550,5 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/agents/john/analyze", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
 };
