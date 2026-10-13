@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {report} from './founder-report.js';
+import {report, commandFailure} from './founder-report.js';
 describe('Founder report evidence boundaries', () => {
   const command = {command_id: 'one', kind: 'RUN_COMPANY_PULSE', status: 'COMPLETE', started_at: '2026-10-01T04:00:00Z', completed_at: '2026-10-01T04:00:44Z', result: {current_state: 'Assessment, not release proof'}, execution_receipt: {command_id: 'one', delegation_verified: true, execution_receipts: [{agent: 'rigor-product-ops', status: 'COMPLETE'}]}};
   it('labels review completion separately from release readiness and names specialists', () => {
@@ -12,6 +12,20 @@ describe('Founder report evidence boundaries', () => {
   it('never shows verified completion for failed or running work', () => {
     expect(report({...command, status: 'FAILED'})).toMatchObject({status: 'Review failed', verified: false});
     expect(report({...command, status: 'RUNNING'})).toMatchObject({status: 'Review in progress', verified: false});
+  });
+  it.each([
+    ['UPSTREAM_HTTP_401','rejected authentication'],
+    ['UPSTREAM_HTTP_422','request format or size'],
+    ['LAUNCH_RETRY_EXHAUSTED','five launch attempts'],
+    ['DELEGATION_NOT_VERIFIED','cannot be counted as completed'],
+    ['OUTREACH_DELIVERABLES_MISSING','complete prospect and draft package'],
+  ])('explains sanitized failure %s without presenting a partial result as completed', (failure_code, expected) => {
+    expect(report({...command,status:'FAILED',failure_code,result:{result_summary:'claimed success'}}).summary).toContain(expected);
+    expect(report({...command,status:'FAILED',failure_code,result:{result_summary:'claimed success'}}).summary).not.toContain('claimed success');
+  });
+  it('does not echo unknown upstream diagnostics and warns against duplicate timed-out work', () => {
+    expect(commandFailure({failure_code:'private provider diagnostic'})).not.toContain('private provider diagnostic');
+    expect(commandFailure({status:'TIMED_OUT'})).toContain('before submitting another command');
   });
   it('handles absent reports and invalid timestamps without invented results', () => {
     expect(report(null)).toMatchObject({status: 'Status unavailable', summary: '', duration: '', verified: false});

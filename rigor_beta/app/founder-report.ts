@@ -8,6 +8,25 @@ const names: Record<string, string> = {
   'rigor-market-intel': 'Market intelligence', 'rigor-partnerships-capital': 'Partnerships and capital', 'rigor-chief-of-staff': 'Chief of Staff',
 };
 export const label = (value: unknown) => names[text(value)] || text(value).replace(/^rigor-/, '').replace(/[_-]/g, ' ').toLowerCase();
+export function commandFailure(commandValue: unknown): string {
+  const command = object(commandValue), code = text(command.failure_code);
+  if (command.status === 'TIMED_OUT') return 'No completion receipt arrived within the execution window. Check the saved worker status before submitting another command.';
+  const reasons: Record<string,string> = {
+    SERVICE_NOT_CONFIGURED: 'The execution connection is not configured. Check the protected service settings.',
+    LAUNCH_RETRY_EXHAUSTED: 'The worker did not start after five launch attempts. Check the worker connection before creating another command.',
+    DELEGATION_NOT_VERIFIED: 'The service did not return verified specialist receipts. This work cannot be counted as completed.',
+    INVALID_EXECUTION_RESULT: 'The execution response did not contain the required result. Check the service contract.',
+    OUTREACH_DELIVERABLES_MISSING: 'The specialist did not return the complete prospect and draft package. Partial output remains available for review.',
+    PREVIEW_REDEPLOYED: 'This unfinished command was recovered from an earlier deployment. It was not automatically rerun.',
+    COMPANY_CONTEXT_TOO_LARGE: 'Saved context exceeds the execution limit. Check context budgeting before submitting another command.',
+  };
+  if (reasons[code]) return reasons[code];
+  if (/^UPSTREAM_HTTP_(401|403)$/.test(code)) return 'The execution service rejected authentication. Check the protected connection settings.';
+  if (code === 'UPSTREAM_HTTP_422') return 'The execution service rejected the request format or size. Check objective and context limits.';
+  if (code === 'UPSTREAM_HTTP_429') return 'The execution service is rate limited. Check the saved status and allow it to recover before submitting another command.';
+  if (/^UPSTREAM_HTTP_5\d{2}$/.test(code)) return 'The execution service returned a server error. Check service health before submitting another command.';
+  return 'This review did not complete. Check the saved technical evidence and service health before submitting another command.';
+}
 export function report(commandValue: unknown) {
   const command = object(commandValue), result = object(command.result), receipt = object(command.execution_receipt);
   const status = text(command.status);
@@ -16,7 +35,7 @@ export function report(commandValue: unknown) {
   const start = Date.parse(text(command.started_at)), end = Date.parse(text(command.completed_at));
   return {
     title: label(command.kind), status: statuses[status] || 'Status unavailable', rawStatus: status,
-    summary: text(result.result_summary) || text(result.current_state),
+    summary: ['FAILED', 'TIMED_OUT'].includes(status) ? commandFailure(command) : text(result.result_summary) || text(result.current_state),
     duration: Number.isFinite(start) && Number.isFinite(end) && end >= start ? `${Math.round((end - start) / 1000)} seconds` : '',
     verified: status === 'COMPLETE' && receipt.command_id === command.command_id && receipt.delegation_verified === true,
     delegates: items(receipt.execution_receipts).map(object).map(row => ({name: label(row.agent), status: row.status === 'COMPLETE' ? 'Completed' : label(row.status)})),
