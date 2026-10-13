@@ -27,7 +27,7 @@ describe("upload UI", () => {
   });
   it("uploads multiple selected documents sequentially", async () => {
     const h = harness();
-    h.fetch.mockResolvedValue(Response.json({ workspace: {} }));
+    h.fetch.mockImplementation(async () => Response.json({ workspace: {} }));
     runInContext("renderWorkspace = () => {}", h.context);
     h.context.testEvent = { target: { files: [
       new File(["Power 400A"], "tour.txt"),
