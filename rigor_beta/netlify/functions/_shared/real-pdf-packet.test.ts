@@ -36,7 +36,7 @@ describe("RIGOR actual PDF packet regression", () => {
     for (const [name, content] of packet) {
       const bytes = await makePdf(content);
       expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
-      const parsed = await pdfParse(bytes, { version: "v2.0.550" });
+      const parsed = await pdfParse(bytes, { version: "v2.6.347" });
       expect(parsed.numpages).toBe(1);
       expect(parsed.text).toContain(content);
       const suggested = suggestDocumentType(name, [parsed.text]);
