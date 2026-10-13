@@ -65,6 +65,13 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
         data.actions.some((item: any) => !["P0", "P1", "P2"].includes(item.priority) ||
           typeof item.question !== "string" || !Array.isArray(item.evidence_ids) || !item.evidence_ids.length))) {
       throw new DeerFlowIntegrationError("INVALID_PM_RESPONSE");
+    } else if (operation === "john_pm") {
+      const allowedIds = new Set(((payload.evidence || []) as Array<{ source_id: string }>).map(item => item.source_id));
+      allowedIds.add("MISSING_EVIDENCE");
+      if (data.actions.some((item: any) => item.evidence_ids.some((id: unknown) =>
+        typeof id !== "string" || !allowedIds.has(id)))) {
+        throw new DeerFlowIntegrationError("INVALID_PM_SOURCE_CITATION");
+      }
     } else if (operation === "company_pulse" &&
       (typeof data.current_state !== "string" || !Array.isArray(data.top_priorities) || !Array.isArray(data.state_updates))) {
       throw new DeerFlowIntegrationError("INVALID_RESPONSE");
