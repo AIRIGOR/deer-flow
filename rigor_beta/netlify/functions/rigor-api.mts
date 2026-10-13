@@ -66,7 +66,18 @@ async function analyzeWithDeerFlow(context: Context, documentName: string, pages
   return { requirements: payload.requirements, receiptId: response.headers.get("X-RIGOR-Execution-Id") };
 }
 
-function ingestDeerFlowRequirements(production: ProductionState, documentName: string, items: DeerFlowRequirement[]) {
+function ingestDeerFlowRequirements(production: ProductionState, documentName: string, pages: string[], items: DeerFlowRequirement[]) {
+  if (!Array.isArray(items)) throw new Error("Invalid analysis requirements payload");
+  const normalized = (value: string) => value.replace(/\\s+/g, " ").trim().toLocaleLowerCase();
+  for (const candidate of items) {
+    const page = candidate.source_page;
+    const excerpt = candidate.source_excerpt;
+    if (!Number.isInteger(page) || !page || page < 1 || page > pages.length
+      || typeof excerpt !== "string" || !excerpt.trim()
+      || !normalized(pages[page - 1]).includes(normalized(excerpt))) {
+      throw new Error("Unverified model source citation");
+    }
+  }
   const seen = new Set(production.requirements.map((item) => `${item.document_name}|${item.excerpt}`));
   const created: Record<string, any>[] = [];
   for (const candidate of items) {
@@ -323,7 +334,7 @@ export async function processUpload(request: Request, context: Context) {
     // Rebase on current state after slow analysis, preserving production selection and human decisions.
     const { state, production, document } = await load();
     if (document.status !== "PROCESSING") return;
-    const extracted = ingestDeerFlowRequirements(production, document.name, deerFlowRequirements);
+    const extracted = ingestDeerFlowRequirements(production, document.name, pages, deerFlowRequirements);
     const recovered = reconcileSourceRequirements(production, document.name, pages);
     extracted.push(...recovered); invalidateChangedCheckpoints(production, extracted);
     Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now(), ...suggestDocumentType(document.name, pages) });
