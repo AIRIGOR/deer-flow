@@ -432,9 +432,10 @@ export function progress(input: WorkspaceState | ProductionState) {
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
   const openIncidents = state.incidents.filter((item) => !String(item.resolution || "").trim()).length;
   const reviewTarget = state.requirements.length;
-  const sourcesReviewed = state.documents.every(sourceReviewed);
+  const sourcesReviewed = state.documents.every((doc) => sourceReviewed(doc) && !sourceStale(doc));
+  const evidenceReviewed = state.requirements.every((req) => req.status !== "REJECTED" && !evidenceUnverified(req));
   const ownerTarget = actionable.length;
-  const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget && sourcesReviewed;
+  const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget && sourcesReviewed && evidenceReviewed;
   const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned === ownerTarget;
   const showDayComplete = sessionTwoComplete && checks === state.checkpoints.length && openIncidents === 0;
   const sessions: Record<string, RecordMap> = {
