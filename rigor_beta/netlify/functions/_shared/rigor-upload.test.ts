@@ -36,6 +36,20 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it("serves John's read-only brief only to authenticated workspace users", async () => {
+    const unauthorized = await handler(new Request("https://rigor.test/api/agents/john/brief"), ctx);
+    expect(unauthorized.status).toBe(401);
+    const before = structuredClone(saved());
+    const response = await handler(request("/api/agents/john/brief"), ctx);
+    expect(response.status).toBe(200);
+    const brief = await response.json();
+    expect(brief.agent.name).toBe("John");
+    expect(brief.mode).toBe("DETERMINISTIC_READ_ONLY_BRIEF");
+    expect(brief.autonomous_show_approval).toBe(false);
+    expect(brief.release_decision).toBe("HOLD_SHOW");
+    expect(saved()).toEqual(before);
+  });
+
   it("persists raw bytes and processing state before parsing or analysis", async () => {
     const response = await upload("tour.pdf");
     expect(response.status).toBe(202);
