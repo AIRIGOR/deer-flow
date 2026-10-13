@@ -18,6 +18,7 @@ function showView(view: string) {
   });
   element('view-title').textContent = view.charAt(0).toUpperCase() + view.slice(1);
   history.replaceState(null, '', '#' + view);
+  window.scrollTo({top: 0, behavior: 'instant'});
 }
 document.querySelectorAll<HTMLElement>('[data-view]').forEach(button => button.addEventListener('click', () => showView(button.dataset.view || 'overview')));
 document.querySelector('.brand')?.addEventListener('click', event => {event.preventDefault(); showView('overview');});
@@ -38,7 +39,7 @@ function filterApprovals() {
 element('approval-filter').addEventListener('change', filterApprovals);
 function renderPipeline() {
   const search = element<HTMLInputElement>('outreach-search').value.toLowerCase();
-  const emails = savedActions.filter(a => a.action_type === 'EMAIL_SEND' && (a.target + ' ' + a.payload?.to).toLowerCase().includes(search));
+  const emails = savedActions.filter(a => a.action_type === 'EMAIL_SEND' && (a.target + ' ' + a.payload?.to + ' ' + (a.email_execution?.status || (a.review?.decision === 'APPROVE' ? 'approved' : a.payload?.to ? 'needs review' : 'contact needed'))).toLowerCase().includes(search));
   const table = document.createElement('table'); table.className = 'pipeline-table';
   const head = document.createElement('thead'), heading = document.createElement('tr');
   for (const title of ['Company', 'Recipient', 'Status', '']) {const th = document.createElement('th'); th.textContent = title; heading.append(th);}
