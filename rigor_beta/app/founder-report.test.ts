@@ -27,6 +27,10 @@ describe('Founder report evidence boundaries', () => {
     expect(commandFailure({failure_code:'private provider diagnostic'})).not.toContain('private provider diagnostic');
     expect(commandFailure({status:'TIMED_OUT'})).toContain('before submitting another command');
   });
+  it('never lets a completed command or model-authored PASS promote assessment truth', () => {
+    expect(report({...command,result:{current_state:'PASS: MFA enforced; critical race confirmed',reporting_provenance:{assessment_status:'VERIFIED'}}})).toMatchObject({verified:true,assessmentStatus:'UNVERIFIED'});
+    expect(report({...command,execution_receipt:undefined})).toMatchObject({verified:false,assessmentStatus:'UNVERIFIED'});
+  });
   it('handles absent reports and invalid timestamps without invented results', () => {
     expect(report(null)).toMatchObject({status: 'Status unavailable', summary: '', duration: '', verified: false});
     expect(report({...command, completed_at: 'bad'}).duration).toBe('');

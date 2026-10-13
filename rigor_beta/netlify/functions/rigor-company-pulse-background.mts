@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import {companyStore} from "./_shared/company-store.js";
 import {boundedCompanyContext} from "./_shared/company-context.js";
 import type { Context } from "@netlify/functions";
-import { normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
+import { withAssessmentProvenance, normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
 
 type StateUpdate = {
   record_type: "OBJECTIVE" | "MILESTONE" | "RELATIONSHIP" | "FEEDBACK" | "RISK" | "EXPERIMENT" | "RUNWAY";
@@ -174,6 +174,7 @@ export async function buildCompanyContext(
     deployment,
     evidence_rules: [
       "CI results apply only to their exact head_sha. No test or audit failure is verified without a specific failing result and source.",
+      "Authentication methods and MFA enforcement are unknown unless current configuration or a real login test establishes them. Security defects require a code reference and reproducible failing test; otherwise report UNVERIFIED. Never invent logs or test results.",
       "Prior company state contains assessments, not independently verified facts; recheck claims against current evidence.",
       "Current build completion excludes external tester participation and repeated real-world production validation. Those are later validation gates.",
       "Capital pipeline and partnerships are business work, not product build-completion gates.",
@@ -396,7 +397,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
       context: boundedCompanyContext(companyContext),
     });
 
-    const pulse = normalizeExecutionResult(await response.json()) as PulsePayload;
+    const pulse = withAssessmentProvenance(normalizeExecutionResult(await response.json())) as unknown as PulsePayload;
     if (!delegationVerified(pulse as unknown as Record<string, unknown>, undefined, true)) {
       await store.setJSON("pulse/last-attempt", {started_at: startedAt, completed_at: new Date().toISOString(), status: "FAILED", failure_code: "DELEGATION_NOT_VERIFIED"});
       if (founderObjective) throw new Error("DELEGATION_NOT_VERIFIED");

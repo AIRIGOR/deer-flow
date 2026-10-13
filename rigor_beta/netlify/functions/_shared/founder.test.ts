@@ -20,7 +20,7 @@ import founder from '../rigor-founder.mjs';
 import approvedBatch from '../rigor-approved-outreach.mjs';
 import worker from '../rigor-founder-command-background.mjs';
 import recover from '../rigor-founder-recovery.mjs';
-import {commandView, delegationVerified, normalizeExecutionResult} from './founder.js';
+import {withAssessmentProvenance, commandView, delegationVerified, normalizeExecutionResult} from './founder.js';
 import {outreachFixture} from './outreach-fixture.js';
 const context = {deploy: {context: 'production'}} as Context;
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -34,6 +34,11 @@ beforeEach(() => {
   vi.clearAllMocks(); mocks.records.clear(); mocks.user.mockResolvedValue({id: 'founder', roles: ['founder']}); mocks.origin.mockImplementation(() => {});
   vi.stubGlobal('Netlify', {env: {get: (key: string) => ({RIGOR_DEERFLOW_TOKEN: 'secret', RIGOR_DEERFLOW_URL: 'https://backend.test'})[key]}});
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', {status: 202})));
+});
+it('stamps server-owned assessment provenance while preserving raw output', () => {
+  const raw = {current_state:'MFA is enforced',reporting_provenance:{assessment_status:'VERIFIED'}};
+  expect(withAssessmentProvenance(raw)).toMatchObject({current_state:raw.current_state,reporting_provenance:{assessment_status:'UNVERIFIED',execution_verification_scope:'EXECUTION_ONLY'}});
+  expect(raw.reporting_provenance.assessment_status).toBe('VERIFIED');
 });
 describe('Founder authority and durable command execution', () => {
   it('imports exact unsent drafts idempotently without approval or provider calls', async () => {

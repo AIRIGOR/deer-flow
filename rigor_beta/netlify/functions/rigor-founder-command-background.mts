@@ -1,7 +1,7 @@
 import type { Context } from "@netlify/functions";
 import {outreachContract, parseOutreachPackage} from '../../app/outreach-package.js';
 import { runCompanyPulse } from "./rigor-company-pulse-background.mjs";
-import { normalizeExecutionResult, delegationVerified, founderStore, serviceAuthorized, validCommandId, type FounderCommand } from "./_shared/founder.js";
+import { withAssessmentProvenance, normalizeExecutionResult, delegationVerified, founderStore, serviceAuthorized, validCommandId, type FounderCommand } from "./_shared/founder.js";
 
 export default async (request: Request, context: Context) => {
   if (request.method !== "POST" || !serviceAuthorized(request)) return;
@@ -61,6 +61,7 @@ export default async (request: Request, context: Context) => {
       result = {...result, outreach_package: packet,
         result_summary: 'Saved five partner prospects, five investor prospects, ten introductory drafts and ten follow-ups. All outreach remains unsent; source claims require review.'};
     }
+    result = withAssessmentProvenance(result);
     const completedAt = new Date().toISOString();
     await store.setJSON(key, {...running, status: "COMPLETE", completed_at: completedAt, result,
       execution_receipt: {command_id: id, owner_agent: command.owner_agent, started_at: startedAt, completed_at: completedAt,

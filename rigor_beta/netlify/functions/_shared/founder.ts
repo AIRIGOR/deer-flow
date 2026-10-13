@@ -76,3 +76,13 @@ export function normalizeExecutionResult(result: Record<string, unknown>): Recor
     ? legacy.map((item) => ({task_id: item.call_id, agent: item.agent, status: "COMPLETE", result_sha256: item.result_sha256})) : [];
   return {...result, execution_receipts: receipts};
 }
+
+// This is server-owned provenance, independent of model-authored conclusions.
+export function withAssessmentProvenance(result: Record<string, unknown>) {
+  return {...result, reporting_provenance: {
+    execution_verification_scope: 'EXECUTION_ONLY',
+    assessment_status: 'UNVERIFIED',
+    security_finding_requirements: ['exact deployed commit', 'code reference or observed configuration', 'reproducible test or authoritative log'],
+    note: 'Task receipts verify execution. Agent conclusions and source references require independent evidence review.',
+  }};
+}

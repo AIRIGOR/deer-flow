@@ -39,6 +39,7 @@ export function report(commandValue: unknown) {
     duration: Number.isFinite(start) && Number.isFinite(end) && end >= start ? `${Math.round((end - start) / 1000)} seconds` : '',
     verified: status === 'COMPLETE' && receipt.command_id === command.command_id && receipt.delegation_verified === true,
     delegates: items(receipt.execution_receipts).map(object).map(row => ({name: label(row.agent), status: row.status === 'COMPLETE' ? 'Completed' : label(row.status)})),
+    assessmentStatus: 'UNVERIFIED',
     result,
   };
 }
@@ -61,7 +62,7 @@ function section(parent: HTMLElement, title: string, value: unknown) {
 function assessment(parent: HTMLElement, result: Data) {
   const packet = object(result.outreach_package);
   if (packet.version === 'RIGOR_OUTREACH_V1') {renderOutreach(parent, packet); return;}
-  parent.append(node('p', 'Company assessment · Findings and proposed actions require supporting evidence. A completed review does not mean the product is cleared for release.', 'assessment-note'));
+  parent.append(node('p', 'UNVERIFIED agent assessment · Security claims require a code or configuration reference and a reproducible test or authoritative log for the deployed commit. Statements about MFA, defects and readiness require independent review.', 'assessment-note'));
   section(parent, 'Priorities', result.top_priorities);
   section(parent, 'Reported risks to verify', result.blockers_risks);
   section(parent, 'Decisions requested', result.founder_approvals);
@@ -113,10 +114,11 @@ export function renderCommands(parent: HTMLElement, values: unknown) {
     const timestamp = text(command.completed_at) || text(command.created_at);
     const date = Date.parse(timestamp);
     if (Number.isFinite(date)) article.append(node('p', `${new Date(date).toLocaleString()}${view.duration ? ` · ${view.duration}` : ''}`, 'report-meta'));
+    if (view.summary && !['FAILED', 'TIMED_OUT'].includes(view.rawStatus)) article.append(node('p', 'Agent assessment · UNVERIFIED claims', 'assessment-note'));
     if (view.summary) article.append(node('p', view.summary));
     const savedReport = document.createElement('details'); savedReport.className = 'command-details';
     savedReport.append(node('summary', 'Open saved report'), node('p', text(command.objective), 'report-objective'));
-    if (view.verified) article.append(node('p', 'Execution and specialist delegation verified by the server.', 'verified-proof'));
+    if (view.verified) article.append(node('p', 'Verified execution facts: this command completed with correlated specialist receipts. Report conclusions remain unverified.', 'verified-proof'));
     if (view.delegates.length) {
       const list = document.createElement('ul'); list.className = 'delegate-list';
       view.delegates.forEach(row => list.append(node('li', `${row.name} · ${row.status}`))); savedReport.append(list);
@@ -133,11 +135,13 @@ export function renderPulse(parent: HTMLElement, value: unknown) {
   parent.replaceChildren();
   if (!value) { parent.append(node('p', 'No completed company cycle yet.')); return; }
   const result = object(object(value).pulse);
+  parent.append(node('p', 'Agent assessment · UNVERIFIED claims', 'assessment-note'));
   if (text(result.current_state)) parent.append(node('p', text(result.current_state)));
   assessment(parent, result); evidence(parent, value);
 }
 export function renderState(parent: HTMLElement, recordsValue: unknown, actionsValue: unknown) {
   parent.replaceChildren(); const records = items(recordsValue), actions = items(actionsValue);
+  parent.append(node('p', 'Saved agent assessments and proposals · Claims await independent evidence review.', 'assessment-note'));
   parent.append(node('p', `${records.length} saved company records · ${actions.length} tracked actions`, 'report-meta'));
   for (const [heading, entries] of [['Saved records', records], ['Action queue', actions]] as const) {
     if (!entries.length) continue;
