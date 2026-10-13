@@ -1,0 +1,30 @@
+name: RIGOR PDF dependency lock refresh (one time)
+on:
+  push:
+    branches: [fix/rigor-source-provenance-20261013]
+    paths: [.github/workflows/rigor-pdf-lock-refresh.yml]
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/rigor-source-provenance-20261013
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Resolve locked dependencies without scripts
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+        working-directory: rigor_beta
+      - name: Commit dependency lock only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rigor_beta/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(rigor): lock audited PDF.js 5 dependencies"
+            git push origin HEAD:fix/rigor-source-provenance-20261013
+          fi
