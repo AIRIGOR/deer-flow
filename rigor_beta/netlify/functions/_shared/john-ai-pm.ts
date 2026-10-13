@@ -1,4 +1,4 @@
-import { activeProduction, readiness, type ProductionState, type WorkspaceState } from "./model.js";
+import { activeProduction, extractRequirements, newId, now, readiness, type ProductionState, type WorkspaceState } from "./model.js";
 
 /**
  * John is RIGOR's fictional touring Production Manager test persona.
@@ -88,4 +88,56 @@ export function johnPmBrief(input: WorkspaceState | ProductionState) {
     action_count: actions.length,
     note: "John is a named PM test persona with a policy-enforced briefing engine; an independent LLM planner has not yet been deployed.",
   };
+}
+
+/** Fourteen fictional source records, never actual venue confirmations. */
+export const JOHN_FIXTURE_SOURCES = [
+  ["01_Tour_Technical_Rider.pdf", "Tour requires 400A show power service at stage right."],
+  ["02_Venue_Technical_Specs.pdf", "Venue show power service is limited to 200A at stage right."],
+  ["03_Stage_Plot.pdf", "Tour requires a 30ft B-stage footprint and unobstructed egress."],
+  ["04_Venue_Stage_Plot.pdf", "Venue must confirm B-stage footprint and emergency egress."],
+  ["05_Rigging_Automation.pdf", "Tour minimum downstage trim height is 42 feet."],
+  ["06_Venue_Rigging.pdf", "Venue maximum downstage trim height is 38 feet."],
+  ["07_Video_LED.pdf", "Tour must provide two fiber paths from FOH to video world."],
+  ["08_Audio_Input_List.pdf", "Tour requires a DiGiCo console at FOH audio."],
+  ["09_Venue_Audio.pdf", "Venue must confirm FOH audio console availability."],
+  ["10_Lighting_Control.pdf", "Venue must provide 12 lighting universes at stage."],
+  ["11_Logistics_Manifest.pdf", "Venue must confirm load-in dock access for 25 trucks and 10 buses."],
+  ["12_Venue_Logistics.pdf", "Venue loading dock capacity is limited to 8 trucks per hour."],
+  ["13_Hospitality_Labor.pdf", "Venue must provide hot dinner for 40 crew and 12 dancers."],
+  ["14_Show_Schedule.pdf", "Venue must confirm show curfew at 22:00."],
+] as const;
+
+export function loadJohnFixture(state: ProductionState) {
+  if (state.documents.length || state.requirements.length || state.incidents.length) {
+    throw new Error("John's rehearsal requires a new, empty production");
+  }
+  state.production.sample_demo = true;
+  Object.assign(state.show, {
+    show_name: "Celestial Circuit World Tour - FICTIONAL",
+    artist: "The Midnight Atlas - FICTIONAL",
+    venue: "Mirage Crown Arena - FICTIONAL",
+    city: "Las Vegas, NV",
+    show_date: "2026-11-20",
+    status: "NEEDS_REVIEW",
+  });
+  for (const [name, content] of JOHN_FIXTURE_SOURCES) {
+    state.documents.push({
+      document_id: newId("doc"),
+      production_id: state.production.production_id,
+      workspace_id: state.production.workspace_id,
+      name, doc_type: "UPLOADED", status: "PROCESSED",
+      review_status: "PENDING", page_count: 1,
+      source_kind: "SAMPLE", analysis_engine: "SAMPLE_DATA",
+      created_at: now(),
+    });
+    const items = extractRequirements(state, name, [content]);
+    for (const item of items) {
+      item.source_kind = "SAMPLE";
+      item.analysis_engine = "SAMPLE_DATA";
+    }
+  }
+  state.events.push({ event_id: newId("event"), type: "JOHN_SYNTHETIC_FIXTURE_LOADED",
+    created_at: now(), payload: { documents: state.documents.length, synthetic: true } });
+  return state;
 }
