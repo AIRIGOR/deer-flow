@@ -95,18 +95,18 @@ export function renderCommands(parent: HTMLElement, values: unknown) {
     const date = Date.parse(timestamp);
     if (Number.isFinite(date)) article.append(node('p', `${new Date(date).toLocaleString()}${view.duration ? ` · ${view.duration}` : ''}`, 'report-meta'));
     if (view.summary) article.append(node('p', view.summary));
-    const report = document.createElement('details'); report.className = 'command-details';
-    report.append(node('summary', 'Open saved report'), node('p', text(command.objective), 'report-objective'));
+    const savedReport = document.createElement('details'); savedReport.className = 'command-details';
+    savedReport.append(node('summary', 'Open saved report'), node('p', text(command.objective), 'report-objective'));
     if (view.verified) article.append(node('p', 'Execution and specialist delegation verified by the server.', 'verified-proof'));
     if (view.delegates.length) {
       const list = document.createElement('ul'); list.className = 'delegate-list';
-      view.delegates.forEach(row => list.append(node('li', `${row.name} · ${row.status}`))); report.append(list);
+      view.delegates.forEach(row => list.append(node('li', `${row.name} · ${row.status}`))); savedReport.append(list);
     }
     if (['FAILED', 'TIMED_OUT'].includes(view.rawStatus)) article.append(node('p', command.failure_code === 'OUTREACH_DELIVERABLES_MISSING'
       ? 'Outreach preparation is incomplete: the specialist did not return the required ten prospects and complete drafts. Any partial output below is not an approved outreach package.'
       : 'This review did not complete. Check the technical evidence for its failure code.', 'assessment-note'));
-    if (Object.keys(view.result).length) assessment(report, view.result);
-    evidence(report, command); article.append(report); parent.append(article);
+    if (Object.keys(view.result).length) assessment(savedReport, view.result);
+    evidence(savedReport, command); article.append(savedReport); parent.append(article);
   }
   if (!parent.childNodes.length) parent.append(node('p', 'No commands yet. Run an internal review to create your first report.'));
 }
