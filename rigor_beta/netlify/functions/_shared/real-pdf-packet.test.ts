@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument, StandardFonts } from "pdf-lib";
 import { createRequire } from "node:module";
 const pdfParse = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer, options?: { version: string }) => Promise<{ numpages: number; text: string }>;
 import { activeProduction, createWorkspace, extractRequirements, readiness, rebuildConflicts } from "./model.js";
@@ -18,15 +17,29 @@ const packet = [
   ["trucking.pdf", "Truck manifest: trailer and truck parking."],
 ] as const;
 
-async function makePdf(content: string) {
-  const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  pdf.addPage([612, 792]).drawText(content, { x: 48, y: 740, size: 11, font });
-  const bytes = await pdf.save({ useObjectStreams: false });
-  // Match Netlify Blob ArrayBuffer -> Buffer without Node's pooled byte offset.
-  const raw = new ArrayBuffer(bytes.length);
-  new Uint8Array(raw).set(bytes);
-  return Buffer.from(raw);
+function makePdf(content: string) {
+  // A valid, uncompressed PDF 1.4 with explicit cross-reference offsets.
+  const escaped = content.replace(/[\\\\()]/g, (char) => "\\\\" + char);
+  const stream = `BT /F1 12 Tf 40 700 Td (${escaped}) Tj ET\n`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+  ];
+  let source = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (const [index, body] of objects.entries()) {
+    offsets.push(Buffer.byteLength(source));
+    source += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(source);
+  source += "xref\n0 6\n0000000000 65535 f \n";
+  for (const offset of offsets) source += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  source += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  const bytes = new TextEncoder().encode(source);
+  return Buffer.from(bytes.buffer);
 }
 
 describe("RIGOR actual PDF packet regression", () => {
@@ -36,7 +49,7 @@ describe("RIGOR actual PDF packet regression", () => {
     for (const [name, content] of packet) {
       const bytes = await makePdf(content);
       expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
-      const parsed = await pdfParse(bytes, { version: "v2.6.347" });
+      const parsed = await pdfParse(bytes, { version: "v2.0.550" });
       expect(parsed.numpages).toBe(1);
       expect(parsed.text).toContain(content);
       const suggested = suggestDocumentType(name, [parsed.text]);
