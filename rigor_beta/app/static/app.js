@@ -216,7 +216,7 @@ function renderSessionOne() {
     </div>
     <div class="grid two source-grid" style="margin-top:16px">
       <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + (doc.page_count || 0), 0)} pages</div></div>${badge(state.documents.some(doc => doc.status === "PROCESSING") ? "PROCESSING" : state.documents.some(doc => doc.status === "FAILED") ? "FAILED" : state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${doc.status === "PROCESSING" ? `<div class="muted small">Saved · analysis in progress${Date.now() - Date.parse(doc.processing_started_at) >= 16 * 60 * 1000 ? `<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button>` : ""}</div>` : doc.status === "FAILED" ? `<div role="alert">${escapeHtml(doc.processing_error)}<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button></div>` : doc.doc_type === "UPLOADED" && doc.analysis_engine !== "DEERFLOW" ? `<div role="alert">DeerFlow verification required.<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry with DeerFlow</button></div>` : doc.source_kind === "SAMPLE" || doc.review_status === "REVIEWED" ? badge("REVIEWED") : `<button class="btn small-button" onclick="reviewSource('${doc.document_id}')">Complete source review</button>`}</div>`).join("")}</div></div>
-      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose a production document</strong><div class="muted small">5 MB maximum · private to this workspace</div></label><div id="upload-status" role="status" aria-live="polite">${escapeHtml(uploadMessage)}</div></div>
+      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" multiple accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose production documents</strong><div class="muted small">Up to 20 PDF/TXT files · 5 MB each · private to this workspace</div></label><div id="upload-status" role="status" aria-live="polite">${escapeHtml(uploadMessage)}</div></div>
     </div>
     ${renderFeedback(1)}`;
 }
@@ -464,28 +464,34 @@ async function reviewSource(documentId) {
 }
 
 async function uploadDocument(event) {
-  const file = event.target.files[0];
-  if (!file || uploading) return;
+  if (uploading) return;
+  const files = Array.from(event.target?.files || []);
+  if (!files.length) return;
   const status = document.getElementById("upload-status");
   const zone = document.getElementById("upload-zone");
   const message = text => { uploadMessage = text; if (status) status.textContent = text; };
-  if (!/\.(pdf|txt)$/i.test(file.name)) { message("Choose a PDF or TXT document."); return; }
-  if (!file.size || file.size > 5 * 1024 * 1024) { message("Choose a nonempty document under 5 MB."); return; }
+  if (files.length > 20) { message("Choose no more than 20 documents per batch."); return; }
+  if (files.some(file => !/\.(pdf|txt)$/i.test(file.name))) { message("Choose PDF or TXT documents only."); return; }
+  if (files.some(file => !file.size || file.size > 5 * 1024 * 1024)) { message("Each document must be nonempty and under 5 MB."); return; }
   uploading = true;
   zone.classList.add("busy");
-  message(`Uploading ${file.name} — waiting for save confirmation…`);
-  const form = new FormData(); form.append("file", file);
+  let saved = 0;
   try {
-    const result = await api("/api/documents", { method: "POST", body: form });
-    state = result.workspace;
-    uploadMessage = `${result.result.name} saved. Analysis is running; this page will update automatically.`;
-    renderWorkspace();
+    for (const file of files) {
+      message(`Saving ${saved + 1} of ${files.length}: ${file.name}…`);
+      const form = new FormData(); form.append("file", file);
+      const result = await api("/api/documents", { method: "POST", body: form });
+      state = result.workspace;
+      saved += 1;
+    }
+    message(`${saved} document${saved === 1 ? "" : "s"} saved. Analysis is running; this page will update automatically.`);
   } catch (error) {
-    message(`Upload was not confirmed: ${error.message}. Refresh to check the production packet before retrying.`);
-    zone.classList.remove("busy");
+    message(`${saved} of ${files.length} saved. Upload was not confirmed: ${error.message}. Refresh to check the production packet before retrying the remaining files.`);
   } finally {
     uploading = false;
-    if (event.target.value !== undefined) event.target.value = "";
+    zone.classList.remove("busy");
+    if (event.target && event.target.value !== undefined) event.target.value = "";
+    if (state) renderWorkspace();
   }
 }
 
