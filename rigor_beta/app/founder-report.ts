@@ -94,18 +94,19 @@ export function renderCommands(parent: HTMLElement, values: unknown) {
     const timestamp = text(command.completed_at) || text(command.created_at);
     const date = Date.parse(timestamp);
     if (Number.isFinite(date)) article.append(node('p', `${new Date(date).toLocaleString()}${view.duration ? ` · ${view.duration}` : ''}`, 'report-meta'));
-    article.append(node('p', text(command.objective), 'report-objective'));
     if (view.summary) article.append(node('p', view.summary));
+    const report = document.createElement('details'); report.className = 'command-details';
+    report.append(node('summary', 'Open saved report'), node('p', text(command.objective), 'report-objective'));
     if (view.verified) article.append(node('p', 'Execution and specialist delegation verified by the server.', 'verified-proof'));
     if (view.delegates.length) {
       const list = document.createElement('ul'); list.className = 'delegate-list';
-      view.delegates.forEach(row => list.append(node('li', `${row.name} · ${row.status}`))); article.append(list);
+      view.delegates.forEach(row => list.append(node('li', `${row.name} · ${row.status}`))); report.append(list);
     }
     if (['FAILED', 'TIMED_OUT'].includes(view.rawStatus)) article.append(node('p', command.failure_code === 'OUTREACH_DELIVERABLES_MISSING'
       ? 'Outreach preparation is incomplete: the specialist did not return the required ten prospects and complete drafts. Any partial output below is not an approved outreach package.'
       : 'This review did not complete. Check the technical evidence for its failure code.', 'assessment-note'));
-    if (Object.keys(view.result).length) assessment(article, view.result);
-    evidence(article, command); parent.append(article);
+    if (Object.keys(view.result).length) assessment(report, view.result);
+    evidence(report, command); article.append(report); parent.append(article);
   }
   if (!parent.childNodes.length) parent.append(node('p', 'No commands yet. Run an internal review to create your first report.'));
 }
