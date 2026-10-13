@@ -37,6 +37,21 @@ describe("RIGOR beta model", () => {
     expect(readiness(state).status).toBe("BLOCKED");
   });
 
+  it("never marks a show or department ready with a rejected requirement", () => {
+    const state = activeProduction(createWorkspace("Safety PM", "PM"));
+    state.documents.push({ name: "venue.txt", status: "PROCESSED", source_kind: "SAMPLE" });
+    state.requirements.push({
+      requirement_id: "req_rejected", document_name: "venue.txt",
+      department: "Rigging", category: "RIGGING_LOAD", status: "REJECTED",
+      detail: "Rigging capacity request was rejected.", owner: "Head Rigger",
+    });
+    state.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+    expect(readiness(state)).toMatchObject({
+      status: "BLOCKED", rejected_requirements: 1,
+    });
+    expect(departmentSummary(state).find((item) => item.department === "Rigging")?.status).toBe("BLOCKED");
+  });
+
   it("normalizes feet and inches without equating different trim heights", () => {
     const make = (excerpt: string) => canonicalizeRequirement({
       department:"Rigging", category:"RIGGING_TRIM", excerpt,
