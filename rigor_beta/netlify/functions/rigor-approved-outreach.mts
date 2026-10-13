@@ -168,18 +168,27 @@ export default async (request: Request, context: Context) => {
     results: {},
   };
 
-  const sentToday = Object.values(state.results).filter(
-    (item) => item.status === "SENT" && item.sent_at?.slice(0, 10) === today,
-  ).length;
-  let remainingCapacity = Math.max(0, 3 - sentToday);
+  // No founder-imposed daily quota. Only exact pre-approved, due messages may be sent.
+  // Each invocation processes a small batch to respect provider pacing and function timeouts.
+  const pacificWeekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    weekday: "short",
+  }).format(new Date());
+  if (pacificWeekday === "Sat" || pacificWeekday === "Sun") {
+    return json({ detail: "Outreach is restricted to Pacific business days" }, 409);
+  }
+
+  const normalizedRecipients = batch.emails.map((email) => email.to.trim().toLowerCase());
+  if (new Set(normalizedRecipients).size !== normalizedRecipients.length) {
+    return json({ detail: "Duplicate recipient in approved outreach batch" }, 409);
+  }
 
   const due = batch.emails.filter(
-    (email) => email.send_on <= today && state.results[email.id]?.status !== "SENT",
+    (email) => email.send_on <= today && !state.results[email.id],
   );
 
   const attempted: SendRecord[] = [];
-  for (const email of due) {
-    if (remainingCapacity <= 0) break;
+  for (const email of due.slice(0, 10)) {
 
     const attemptedAt = new Date().toISOString();
     try {
@@ -195,7 +204,6 @@ export default async (request: Request, context: Context) => {
       };
       state.results[email.id] = record;
       attempted.push(record);
-      remainingCapacity -= 1;
     } catch (error) {
       const record: SendRecord = {
         id: email.id,
