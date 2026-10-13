@@ -36,6 +36,40 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it("runs John model in staging with sample evidence without changing readiness", async () => {
+    const sample = saved();
+    const { loadSampleProduction } = await import("./model.js");
+    loadSampleProduction(activeProduction(sample));
+    records.set(`workspace/${workspace.tester.tester_id}`, sample);
+    const before = structuredClone(saved());
+    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    fetchMock.mockImplementation(async (url: string) => String(url).includes("/agents/john/analyze")
+      ? Response.json({ agent: "John", mode: "MODEL_ADVISORY_ONLY",
+          release_decision: "HOLD_SHOW", autonomous_show_approval: false,
+          actions: [{ priority: "P0", department: "Power",
+            question: "Verify venue show power before load in.",
+            evidence_ids: [activeProduction(sample).requirements[0].requirement_id] }] })
+      : new Response(null, { status: 202 }));
+    const response = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ agent: "John", mode: "MODEL_ADVISORY_ONLY",
+      release_decision: "HOLD_SHOW", autonomous_show_approval: false, synthetic: true });
+    expect(result.actions[0].priority).toBe("P0");
+    expect(saved()).toEqual(before);
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/rigor/agents/john/analyze");
+  });
+
+  it("refuses John model on production deploy or real customer evidence", async () => {
+    const production = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    expect(production.status).toBe(403);
+    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    const real = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    expect(real.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+
   it("serves John's read-only brief only to authenticated workspace users", async () => {
     const unauthorized = await handler(new Request("https://rigor.test/api/agents/john/brief"), ctx);
     expect(unauthorized.status).toBe(401);
