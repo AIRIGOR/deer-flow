@@ -65,3 +65,5 @@ Coherent-flow proof: `coherentFlowCheck` may propose only an INTERNAL_TEST/OBSER
 Company action execution uses a bounded pulse context excerpt to satisfy DeerFlow’s 20,000-character request limit while preserving the full proposal evidence.
 
 Founder command recovery also runs hourly on published deployments while the dashboard is closed. Each pass claims at most two stale launches and retains the five-attempt cap. Single-command status polls recover their own queued launch. Recovery never dispatches outreach or consumes saved approvals; running and terminal commands are not relaunched.
+
+Company pulses use the shared DeerFlow integration adapter with bounded context. Company integration receipts require normalized runtime specialist receipts; model-only response fields never establish verified execution. PR 11 runs a protected live internal-command proof against the exact preview commit, verifies persistence and service authority boundaries, and saves only redacted proof flags. This does not authorize product promotion or prove browser login. Netlify CLI is updated to 27.12.1; its full tooling audit still reports 15 high findings.

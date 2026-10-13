@@ -35,7 +35,7 @@ describe("company pulse durable failure reporting", () => {
       const body = JSON.parse(String(init?.body));
       sentContext = body.context; sentObjective = body.objective;
       if (sentContext!.length > 30000) return new Response('{}', {status: 422});
-      return new Response(JSON.stringify({execution_receipts: ['rigor-product-ops', 'rigor-engineering', 'rigor-qa-security', 'rigor-market-intel', 'rigor-finance-runway', 'rigor-chief-of-staff'].map((agent, index) => ({agent, task_id: `task-${index}`, status: 'COMPLETE'})), state_updates: [], action_proposals: [], top_priorities: []}));
+      return new Response(JSON.stringify({current_state: "Reviewed", execution_receipts: ['rigor-product-ops', 'rigor-engineering', 'rigor-qa-security', 'rigor-market-intel', 'rigor-finance-runway', 'rigor-chief-of-staff'].map((agent, index) => ({agent, task_id: `task-${index}`, status: 'COMPLETE'})), state_updates: [], action_proposals: [], top_priorities: []}));
     }));
     const objective = 'Prepare outreach. '.repeat(200) + 'KEEP ALL EMAILS UNSENT';
     await runCompanyPulse(authorized(), context, objective);
@@ -94,11 +94,12 @@ describe("company pulse durable failure reporting", () => {
   it("records completion only after a valid pulse has persisted", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(
       String(url).endsWith("/api/rigor/company/pulse")
-        ? {execution_receipts: ["rigor-product-ops", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-finance-runway", "rigor-chief-of-staff"].map((agent, index) => ({agent, task_id: `task-${index}`, status: "COMPLETE"})), state_updates: [{record_type: "OBJECTIVE", title: "Release verification"}], action_proposals: [], top_priorities: []}
+        ? {current_state: "Reviewed", execution_receipts: ["rigor-product-ops", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-finance-runway", "rigor-chief-of-staff"].map((agent, index) => ({agent, task_id: `task-${index}`, status: "COMPLETE"})), state_updates: [{record_type: "OBJECTIVE", title: "Release verification"}], action_proposals: [], top_priorities: []}
         : {}
     ))));
     await pulse(authorized(), context);
     expect(records.get("pulse/last-attempt")).toMatchObject({status: "COMPLETE"});
+    expect(records.get("latest/company_pulse")).toMatchObject({status: "VERIFIED"});
     expect(records.get("pulse/latest")).toMatchObject({source: "RIGOR_AI_COMPANY_V1", durable_state_records: 1});
     const response = await health(new Request("https://example.test/api/company/health"), context);
     expect(response.status).toBe(200);

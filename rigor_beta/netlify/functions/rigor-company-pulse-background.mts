@@ -1,3 +1,4 @@
+import {deerFlowRequest, DeerFlowIntegrationError, coherentFlowCheck, integrationHealth} from "./_shared/deerflow.js";
 import { timingSafeEqual } from "node:crypto";
 import {companyStore} from "./_shared/company-store.js";
 import {boundedCompanyContext} from "./_shared/company-context.js";
@@ -390,38 +391,10 @@ export async function runCompanyPulse(request: Request, context: Context, founde
       actionQueue,
     );
 
-    const response = await fetch(
-      `${baseUrl.replace(/\/$/, "")}/api/rigor/company/pulse`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-RIGOR-Service-Token": expected,
-        },
-        body: JSON.stringify({
-          objective:
-            founderObjective?.trim() || "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
-          context: boundedCompanyContext(companyContext),
-        }),
-        signal: AbortSignal.timeout(13 * 60 * 1000),
-      },
-    );
-
-    if (!response.ok) {
-      await store.setJSON("pulse/last-attempt", {
-        started_at: startedAt,
-        completed_at: new Date().toISOString(),
-        status: "FAILED",
-        failure_code: `UPSTREAM_HTTP_${response.status}`,
-      });
-      console.error(
-        "RIGOR company pulse failed",
-        response.status,
-        "Upstream execution rejected",
-      );
-      if (founderObjective) throw new Error(`UPSTREAM_HTTP_${response.status}`);
-      return;
-    }
+    const response = await deerFlowRequest(context, "company_pulse", {
+      objective: founderObjective?.trim() || "Run the RIGOR founder operating review. Advance product proof, revenue readiness, customer value, capital readiness, and the safe AI-operated company action queue while preserving Founder authority.",
+      context: boundedCompanyContext(companyContext),
+    });
 
     const pulse = normalizeExecutionResult(await response.json()) as PulsePayload;
     if (!delegationVerified(pulse as unknown as Record<string, unknown>, undefined, true)) {
@@ -429,6 +402,8 @@ export async function runCompanyPulse(request: Request, context: Context, founde
       if (founderObjective) throw new Error("DELEGATION_NOT_VERIFIED");
       return;
     }
+    const flowCheck = coherentFlowCheck(await integrationHealth(context), context.deploy.id);
+    if (flowCheck) pulse.action_proposals = [...(pulse.action_proposals || []), flowCheck];
     const nextState = mergeState(companyState, pulse.state_updates || []);
     const nextActions = mergeActions(actionQueue, pulse.action_proposals || []);
     const counts = actionCounts(nextActions);
@@ -437,6 +412,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
       source: "RIGOR_AI_COMPANY_V1",
       context: companyContext,
       pulse,
+      deerflow_execution_id: response.headers.get("X-RIGOR-Execution-Id"),
     };
 
     const timestamp = envelope.generated_at.replace(/[:.]/g, "-");
@@ -497,7 +473,9 @@ export async function runCompanyPulse(request: Request, context: Context, founde
     }
     return {...envelope, durable_state_records: nextState.length, action_queue: counts};
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
+    const message = error instanceof DeerFlowIntegrationError
+      ? /^HTTP_\d{3}$/.test(error.code) ? `UPSTREAM_${error.code}` : error.code
+      : error instanceof Error ? error.message : "";
     const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED|COMPANY_CONTEXT_TOO_LARGE)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
     await store.setJSON("pulse/last-attempt", {
       started_at: startedAt,
