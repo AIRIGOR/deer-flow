@@ -449,6 +449,7 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const reviewed = scopedRequirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
   const actionable = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
   const owned = actionable.filter((item) => Boolean(item.owner)).length;
+  const rejectedRequirements = scopedRequirements.filter((item) => item.status === "REJECTED").length;
   const openConflicts = scopedConflicts.filter((item) => item.status !== "RESOLVED").length;
   const checks = scopedCheckpoints.filter((item) => item.status === "COMPLETE").length;
   const openIncidents = scopedIncidents.filter((item) => !String(item.resolution || "").trim());
@@ -474,7 +475,7 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const incidentScore = scopedIncidents.length ? 1 - openIncidents.length / scopedIncidents.length : 1;
   const computedScore = Math.round((requirementScore * 0.35 + ownershipScore * 0.2 + conflictScore * 0.2 + checkpointScore * 0.15 + incidentScore * 0.1) * 100);
   const score = unreviewedDocuments ? Math.min(computedScore, 95) : computedScore;
-  const status = openConflicts || blockingIncidents.length
+  const status = openConflicts || blockingIncidents.length || rejectedRequirements
     ? "BLOCKED"
     : reviewed < scopedRequirements.length || owned < actionable.length || openIncidents.length || unreviewedDocuments
       ? "NEEDS_REVIEW"
@@ -487,6 +488,7 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
     confirmed_requirements: reviewed,
     total_requirements: scopedRequirements.length,
     open_conflicts: openConflicts,
+    rejected_requirements: rejectedRequirements,
     open_incidents: openIncidents.length,
     blocking_incidents: blockingIncidents.length,
     completed_checkpoints: checks,
@@ -505,7 +507,8 @@ export function departmentSummary(input: WorkspaceState | ProductionState) {
     const ready = scoped.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
     const sourceNames = new Set(scoped.map((item) => item.document_name));
     const sourcesReviewed = state.documents.filter((doc) => sourceNames.has(doc.name) || doc.status === "PROCESSING" || doc.status === "FAILED").every(sourceReviewed);
-    const status = open || blockingIncidents.length ? "BLOCKED" : ready === scoped.length && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
+    const rejected = scoped.filter((item) => item.status === "REJECTED").length;
+    const status = open || blockingIncidents.length || rejected ? "BLOCKED" : ready === scoped.length && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
     return { department, total: scoped.length, ready, open_conflicts: open, open_incidents: openIncidents.length, status };
   });
 }
