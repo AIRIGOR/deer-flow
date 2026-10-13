@@ -1,6 +1,6 @@
 import { normalizeExecutionResult, delegationVerified } from "./_shared/founder.js";
 import { companyActionContext, deerFlowRequest } from "./_shared/deerflow.js";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {companyStore} from "./_shared/company-store.js";
 import type { Context } from "@netlify/functions";
 
@@ -56,11 +56,27 @@ function proposalFor(action: ActionQueueRecord) {
   };
 }
 
-async function persistQueue(
-  store: Awaited<ReturnType<typeof companyStore>>,
-  queue: ActionQueueRecord[],
-) {
-  await store.setJSON("actions/queue", queue);
+const automaticTypes = new Set(['INTERNAL_RESEARCH', 'INTERNAL_TEST', 'INTERNAL_DOCUMENT', 'OUTREACH_DRAFT', 'SUPPORT_DRAFT', 'APPLICATION_DRAFT']);
+function eligible(action: ActionQueueRecord) {
+  return action.status === 'APPROVED' && action.approval_required === false
+    && automaticTypes.has(action.action_type)
+    && ['OBSERVE', 'PREPARE', 'INTERNAL_EXECUTE'].includes(action.scope);
+}
+function claimKey(action: ActionQueueRecord) {
+  return 'actions/execution-claims/' + createHash('sha256').update(action.action_key).digest('hex');
+}
+async function patchQueue(store: Awaited<ReturnType<typeof companyStore>>, action: ActionQueueRecord, patch: Partial<ActionQueueRecord>, expectedStatus: ActionStatus) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const saved = await store.getWithMetadata('actions/queue', {type: 'json'});
+    if (!saved?.etag || !Array.isArray(saved.data)) return false;
+    const current = saved.data as ActionQueueRecord[];
+    const index = current.findIndex(row => row.action_key === action.action_key);
+    if (index < 0 || current[index].status !== expectedStatus || JSON.stringify(proposalFor(current[index])) !== JSON.stringify(proposalFor(action))) return false;
+    if (expectedStatus === 'APPROVED' && !eligible(current[index])) return false;
+    const next = current.map((row, i) => i === index ? {...row, ...patch} : row);
+    if ((await store.setJSON('actions/queue', next, {onlyIfMatch: saved.etag})).modified) return true;
+  }
+  throw new Error('QUEUE_UPDATE_CONFLICT');
 }
 
 async function chainNext(
@@ -124,26 +140,34 @@ export default async (request: Request, context: Context) => {
       | ActionQueueRecord[]
       | null) || [];
 
-  const index = queue.findIndex(
-    (item) => item.status === "APPROVED" && item.approval_required === false,
-  );
-  if (index < 0) {
-    console.log("RIGOR action runner: no approved internal action");
+  let action: ActionQueueRecord | undefined;
+  for (const candidate of queue.filter(eligible)) {
+    // Earlier releases recorded results without a claim ledger. Never replay them.
+    if (await store.get(`actions/results/${encodeURIComponent(candidate.action_key)}.json`, {type: 'json'})) continue;
+    const reserved = await store.setJSON(claimKey(candidate), {
+      action_key: candidate.action_key, status: 'RESERVED',
+      proposal: proposalFor(candidate), reserved_at: new Date().toISOString(),
+    }, {onlyIfNew: true});
+    if (reserved.modified) {action = candidate; break;}
+  }
+  if (!action) {
+    console.log('RIGOR action runner: no unclaimed eligible internal action');
     return;
   }
-
-  const action = queue[index];
-  const now = new Date().toISOString();
-  queue[index] = {
-    ...action,
-    status: "EXECUTING",
-    attempt_count: Number(action.attempt_count || 0) + 1,
-    last_error: null,
-    updated_at: now,
-  };
-  await persistQueue(store, queue);
+  const selected = action;
+  const reservationKey = claimKey(selected);
+  let executing = false;
 
   try {
+    const transitioned = await patchQueue(store, selected, {
+      status: 'EXECUTING', attempt_count: Number(selected.attempt_count || 0) + 1,
+      last_error: null, updated_at: new Date().toISOString(),
+    }, 'APPROVED');
+    if (!transitioned) {
+      await store.setJSON(reservationKey, {action_key: selected.action_key, status: 'CANCELLED', failure_code: 'PROPOSAL_CHANGED_BEFORE_EXECUTION', proposal: proposalFor(selected)});
+      return;
+    }
+    executing = true;
     const latest = await store.get("pulse/latest", { type: "json" });
     const response = await deerFlowRequest(context, "company_action", {
       proposal: proposalFor(action),
@@ -163,31 +187,24 @@ export default async (request: Request, context: Context) => {
       result,
     });
 
-    queue[index] = {
-      ...queue[index],
-      status: "COMPLETE",
-      result_ref: resultRef,
-      completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      last_error: null,
-    };
-    await persistQueue(store, queue);
+    await store.setJSON(reservationKey, {action_key: selected.action_key, status: 'COMPLETE', result_ref: resultRef, completed_at: new Date().toISOString(), proposal: proposalFor(selected)});
+    await patchQueue(store, selected, {
+      status: 'COMPLETE', result_ref: resultRef, completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(), last_error: null,
+    }, 'EXECUTING');
     console.log("RIGOR action completed", action.action_key, resultRef);
 
-    const remaining = queue.some(
-      (item) => item.status === "APPROVED" && item.approval_required === false,
-    );
+    const current = await store.get('actions/queue', {type: 'json'}) as ActionQueueRecord[] | null;
+    const remaining = Array.isArray(current) && current.some(eligible);
     if (remaining) {
       await chainNext(request, expected, depth);
     }
   } catch (error) {
-    queue[index] = {
-      ...queue[index],
-      status: "FAILED",
-      last_error: error instanceof Error ? error.message : "execution failed",
-      updated_at: new Date().toISOString(),
-    };
-    await persistQueue(store, queue);
-    console.error("RIGOR action runner exception", action.action_key, error);
+    const code = error instanceof Error && ['DELEGATION_NOT_VERIFIED', 'QUEUE_UPDATE_CONFLICT'].includes(error.message) ? error.message : 'ACTION_EXECUTION_FAILED';
+    // Keep the reservation after failures or uncertain completion; never auto-retry.
+    const claim = await store.get(reservationKey, {type: 'json'});
+    if (claim?.status !== 'COMPLETE') await store.setJSON(reservationKey, {action_key: selected.action_key, status: 'FAILED', failure_code: code, proposal: proposalFor(selected)});
+    if (executing) await patchQueue(store, selected, {status: 'FAILED', last_error: code, updated_at: new Date().toISOString()}, 'EXECUTING').catch(() => {});
+    console.error('RIGOR action runner failed', selected.action_key, code);
   }
 };

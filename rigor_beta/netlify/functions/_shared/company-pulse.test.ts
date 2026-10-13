@@ -5,13 +5,14 @@ const { store, records } = vi.hoisted(() => {
   const records = new Map<string, unknown>();
   return {records, store: {
     get: vi.fn(async (key: string) => records.get(key) ?? null),
-    setJSON: vi.fn(async (key: string, value: unknown) => { records.set(key, value); }),
+    getWithMetadata: vi.fn(async (key: string) => records.has(key) ? {data: records.get(key), etag: "current"} : null),
+    setJSON: vi.fn(async (key: string, value: unknown) => { records.set(key, value); return {modified: true}; }),
     list: vi.fn(async () => ({blobs: []})),
     delete: vi.fn(async () => {}),
   }};
 });
 vi.mock("@netlify/blobs", () => ({getStore: () => store, getDeployStore: () => store}));
-import pulse, {runCompanyPulse, buildCompanyContext} from "../rigor-company-pulse-background.mjs";
+import pulse, {runCompanyPulse, buildCompanyContext, persistActionProposals} from "../rigor-company-pulse-background.mjs";
 import health from "../rigor-company-health.mjs";
 
 const context = {deploy: {context: "production"}} as Context;
@@ -26,6 +27,15 @@ beforeEach(() => {
 });
 
 describe("company pulse durable failure reporting", () => {
+  it('rebases proposals on current worker state and never reopens completed or failed actions', async () => {
+    const proposal = {action_type:'INTERNAL_TEST' as const,scope:'OBSERVE' as const,title:'Read only proof',payload:{objective:'read'}};
+    const old={...proposal,action_key:'INTERNAL_TEST:read-only-proof',status:'FAILED',approval_required:false,last_error:'ACTION_EXECUTION_FAILED'};
+    records.set('actions/queue',[old]);
+    const next = await persistActionProposals(store as any,[proposal]);
+    expect(next[0]).toMatchObject({status:'FAILED',last_error:'ACTION_EXECUTION_FAILED'});
+    expect(store.setJSON).toHaveBeenCalledWith('actions/queue',expect.any(Array),{onlyIfMatch:'current'});
+  });
+
   it("submits growing saved history within the backend context limit", async () => {
     const saved = {record_key: 'OBJECTIVE:outreach', record_type: 'OBJECTIVE', title: 'Outreach', payload: {artifact: 'x'.repeat(40000)}};
     records.set('state/records', [saved]);

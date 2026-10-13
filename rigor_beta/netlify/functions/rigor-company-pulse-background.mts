@@ -112,6 +112,7 @@ const AUTO_ALLOWED_ACTIONS = new Set<ActionType>([
 
 const TERMINAL_ACTION_STATUSES = new Set<ActionStatus>([
   "COMPLETE",
+  "FAILED",
   "REJECTED",
   "CANCELLED",
 ]);
@@ -306,7 +307,7 @@ function mergeActions(
     if (!proposal?.action_type || !proposal?.scope || !proposal?.title) continue;
     const key = actionKey(proposal);
     const previous = byKey.get(key);
-    if (previous && TERMINAL_ACTION_STATUSES.has(previous.status)) {
+    if (previous && (TERMINAL_ACTION_STATUSES.has(previous.status) || previous.status === "EXECUTING")) {
       continue;
     }
     const policy = actionPolicy(proposal);
@@ -332,6 +333,17 @@ function mergeActions(
       return b.updated_at.localeCompare(a.updated_at);
     })
     .slice(0, 250);
+}
+
+export async function persistActionProposals(store: Awaited<ReturnType<typeof companyStore>>, proposals: ActionProposal[]) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const saved = await store.getWithMetadata('actions/queue', {type: 'json'});
+    const current = Array.isArray(saved?.data) ? saved.data as ActionQueueRecord[] : [];
+    const next = mergeActions(current, proposals);
+    const options = saved?.etag ? {onlyIfMatch: saved.etag} : {onlyIfNew: true};
+    if ((await store.setJSON('actions/queue', next, options)).modified) return next;
+  }
+  throw new Error('ACTION_QUEUE_UPDATE_CONFLICT');
 }
 
 function actionCounts(queue: ActionQueueRecord[]) {
@@ -406,7 +418,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
     const flowCheck = coherentFlowCheck(await integrationHealth(context), context.deploy.id);
     if (flowCheck) pulse.action_proposals = [...(pulse.action_proposals || []), flowCheck];
     const nextState = mergeState(companyState, pulse.state_updates || []);
-    const nextActions = mergeActions(actionQueue, pulse.action_proposals || []);
+    const nextActions = await persistActionProposals(store, pulse.action_proposals || []);
     const counts = actionCounts(nextActions);
     const envelope = {
       generated_at: new Date().toISOString(),
@@ -418,7 +430,6 @@ export async function runCompanyPulse(request: Request, context: Context, founde
 
     const timestamp = envelope.generated_at.replace(/[:.]/g, "-");
     await store.setJSON("state/records", nextState);
-    await store.setJSON("actions/queue", nextActions);
     await store.setJSON("pulse/latest", {
       ...envelope,
       durable_state_records: nextState.length,
@@ -477,7 +488,7 @@ export async function runCompanyPulse(request: Request, context: Context, founde
     const message = error instanceof DeerFlowIntegrationError
       ? /^HTTP_\d{3}$/.test(error.code) ? `UPSTREAM_${error.code}` : error.code
       : error instanceof Error ? error.message : "";
-    const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED|COMPANY_CONTEXT_TOO_LARGE)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
+    const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED|COMPANY_CONTEXT_TOO_LARGE|ACTION_QUEUE_UPDATE_CONFLICT)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
     await store.setJSON("pulse/last-attempt", {
       started_at: startedAt,
       completed_at: new Date().toISOString(),
