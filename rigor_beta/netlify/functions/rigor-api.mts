@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import type { Context, Config } from "@netlify/functions";
-import pdfParse from "pdf-parse";
+import { readPdfPages } from "./_shared/pdf-text.js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./_shared/deerflow.js";
 import { suggestDocumentType } from "./_shared/document-classification.js";
@@ -314,18 +314,9 @@ export async function processUpload(request: Request, context: Context) {
     if (initial.document.status !== "PROCESSING") return;
     const raw = await store.get(`upload/${initial.state.workspace.workspace_id}/${job.productionId}/${job.documentId}`, { type: "arrayBuffer" });
     if (!raw) throw new Error("Saved document unavailable");
-    const pages: string[] = [];
-    if (/\.pdf$/i.test(initial.document.name)) {
-      await pdfParse(Buffer.from(raw), { pagerender: async (page: any) => {
-        const content = await page.getTextContent();
-        let lastY: number | undefined;
-        const text = content.items.map((item: any) => {
-          const y = item.transform?.[5]; const prefix = lastY !== undefined && y !== lastY ? "\n" : " ";
-          lastY = y; return prefix + item.str;
-        }).join("");
-        pages.push(text); return text;
-      } });
-    } else pages.push(new TextDecoder().decode(raw));
+    const pages = /\.pdf$/i.test(initial.document.name)
+      ? await readPdfPages(raw)
+      : [new TextDecoder().decode(raw)];
     if (!pages.some(page => page.trim())) throw new Error("No readable text found. Use a text PDF or TXT document.");
     const analysis = await analyzeWithDeerFlow(context, initial.document.name, pages);
     const deerFlowRequirements = analysis.requirements;
