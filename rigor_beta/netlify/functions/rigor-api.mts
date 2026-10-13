@@ -4,6 +4,7 @@ import type { Context, Config } from "@netlify/functions";
 import pdfParse from "pdf-parse";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./_shared/deerflow.js";
+import { suggestDocumentType } from "./_shared/document-classification.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
 import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
@@ -334,7 +335,7 @@ export async function processUpload(request: Request, context: Context) {
     const extracted = ingestDeerFlowRequirements(production, document.name, deerFlowRequirements);
     const recovered = reconcileSourceRequirements(production, document.name, pages);
     extracted.push(...recovered); invalidateChangedCheckpoints(production, extracted);
-    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now() });
+    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now(), ...suggestDocumentType(document.name, pages) });
     delete document.processing_error;
     event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, requirements: extracted.length, analysis_engine: document.analysis_engine });
     await save(store, state);
