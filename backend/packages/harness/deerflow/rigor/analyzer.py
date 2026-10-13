@@ -138,7 +138,9 @@ def _normalize_department(value: str) -> str:
     return "Production"
 
 
-def _parse_result(content: object) -> RigorAnalysisResult:
+def _parse_result(
+    content: object, *, source_pages: dict[int, str]
+) -> RigorAnalysisResult:
     text = extract_response_text(content)
     text = strip_think_blocks(text)
     text = strip_markdown_code_fence(text)
@@ -150,6 +152,18 @@ def _parse_result(content: object) -> RigorAnalysisResult:
 
     normalized: list[AnalyzedRequirement] = []
     for item in result.requirements:
+        # Never allow model-generated citations to point outside the supplied
+        # chunk or to quote text that is not present on the cited page.
+        if item.source_page is None or item.source_page not in source_pages:
+            raise RigorAnalysisError(
+                "RIGOR analyzer returned a requirement without a valid source page"
+            )
+        source_text = " ".join(source_pages[item.source_page].split()).casefold()
+        cited_excerpt = " ".join(item.source_excerpt.split()).casefold()
+        if cited_excerpt not in source_text:
+            raise RigorAnalysisError(
+                "RIGOR analyzer returned a source excerpt absent from its cited page"
+            )
         normalized.append(
             item.model_copy(
                 update={
@@ -205,7 +219,12 @@ class RigorDocumentAnalyzer:
                     HumanMessage(content=prompt),
                 ]
             )
-            collected.extend(_parse_result(response.content).requirements)
+            collected.extend(
+                _parse_result(
+                    response.content,
+                    source_pages={page_number: text for page_number, text in chunk},
+                ).requirements
+            )
 
         seen: set[tuple[str, str, str | None, int | None, str]] = set()
         deduped: list[AnalyzedRequirement] = []
