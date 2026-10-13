@@ -9,7 +9,7 @@ vi.mock("@netlify/blobs", () => ({ getStore: () => ({
   setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
   delete: async (key: string) => { records.delete(key); },
 }) }));
-vi.mock("pdf-parse", () => ({ default: pdf }));
+vi.mock("./pdf-text.js", () => ({ readPdfPages: pdf }));
 import handler, { processUpload } from "../rigor-api.mjs";
 let waits: Promise<unknown>[];
 let ctx: Context;
@@ -57,12 +57,12 @@ describe("durable document upload", () => {
   });
   it("preserves page boundaries, latest human decisions and production selection", async () => {
     await upload("tour.pdf"); await Promise.all(waits);
-    pdf.mockImplementation(async (_bytes, opts) => {
-      for (let i = 0; i < 90; i++) await opts.pagerender({ getTextContent: async () => ({ items: [{ str: "Lighting requires 400 amps of power.", transform: [0,0,0,0,0,10] }] }) });
+    pdf.mockImplementation(async () => {
       const latest = saved();
       const added = createProduction(latest.workspace.workspace_id, { show_name: "Other show", artist: "Artist", venue: "Venue", city: "City", show_date: "2027-01-01" }, 2);
       latest.productions.push(added); latest.workspace.active_production_id = added.production.production_id;
       records.set(`workspace/${workspace.tester.tester_id}`, latest);
+      return Array(90).fill("Lighting requires 400 amps of power.");
     });
     await worker();
     expect(saved().productions[0].documents[0].page_count).toBe(90);
