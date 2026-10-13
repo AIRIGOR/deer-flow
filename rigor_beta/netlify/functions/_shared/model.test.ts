@@ -37,6 +37,41 @@ describe("RIGOR beta model", () => {
     expect(readiness(state).status).toBe("BLOCKED");
   });
 
+  it("blocks stale source packs even after every requirement and checkpoint is approved", () => {
+    const state = activeProduction(createWorkspace("Stale Source PM", "PM"));
+    state.documents.push({
+      name: "venue-power.txt", status: "PROCESSED", source_kind: "TESTER",
+      review_status: "REVIEWED", expires_at: "2020-01-01T00:00:00.000Z",
+    });
+    state.requirements.push({
+      requirement_id: "power-1", document_name: "venue-power.txt", department: "Power",
+      category: "POWER_CAPACITY", detail: "Venue power is 400A.", status: "CONFIRMED",
+      owner: "Venue Electrician", confidence: 0.98,
+    });
+    state.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+    expect(readiness(state)).toMatchObject({ status: "BLOCKED", stale_documents: 1 });
+    expect(departmentSummary(state).find((item) => item.department === "Power")?.status).toBe("BLOCKED");
+    state.documents[0].expires_at = "2099-01-01T00:00:00.000Z";
+    expect(readiness(state).status).toBe("SHOW_READY");
+  });
+
+  it("blocks unverified low-confidence evidence despite a confirmed checkbox", () => {
+    const state = activeProduction(createWorkspace("Evidence PM", "PM"));
+    state.documents.push({ name: "venue.txt", status: "PROCESSED", source_kind: "TESTER", review_status: "REVIEWED" });
+    state.requirements.push({
+      requirement_id: "power-uncertain", document_name: "venue.txt", department: "Power",
+      category: "POWER_CAPACITY", detail: "Power may be 400A.", status: "CONFIRMED",
+      owner: "Power Lead", confidence: 0.41,
+    });
+    state.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+    expect(readiness(state)).toMatchObject({ status: "BLOCKED", unverified_requirements: 1 });
+    expect(departmentSummary(state).find((item) => item.department === "Power")?.status).toBe("BLOCKED");
+    state.requirements[0].evidence_verified = true;
+    expect(readiness(state).status).toBe("SHOW_READY");
+    state.requirements[0].source_verified = false;
+    expect(readiness(state).status).toBe("BLOCKED");
+  });
+
   it("never marks a show or department ready with a rejected requirement", () => {
     const state = activeProduction(createWorkspace("Safety PM", "PM"));
     state.documents.push({ name: "venue.txt", status: "PROCESSED", source_kind: "SAMPLE" });
