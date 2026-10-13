@@ -204,14 +204,14 @@ async function reportPdf(state: ProductionState, department: string | null) {
   draw(`${score.unreviewed_documents} source documents awaiting full review`, 8);
 
   section("Open items / assumptions");
-  const openRequirements = requirements.filter((item) => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status));
+  const openRequirements = requirements.filter((item) => !["CONFIRMED", "RESOLVED"].includes(item.status));
   const ownerGaps = requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status) && !item.owner);
   const openConflicts = conflicts.filter((item) => item.status !== "RESOLVED");
   const openIncidents = incidents.filter((item) => !String(item.resolution || "").trim());
   if (!openRequirements.length && !ownerGaps.length && !openConflicts.length && !openIncidents.length && !score.unreviewed_documents) {
     draw("No open items in this report scope.", 9);
   } else {
-    for (const item of openRequirements) draw(`REVIEW · ${item.department} · ${item.detail || item.title}`, 8);
+    for (const item of openRequirements) draw(`${item.status === "REJECTED" ? "BLOCKED / REJECTED" : "REVIEW"} · ${item.department} · ${item.detail || item.title}`, 8);
     for (const item of ownerGaps) draw(`OWNER · ${item.department} · ${item.title}`, 8);
     for (const item of openConflicts) draw(`CONFLICT · ${item.severity} · ${item.department} · ${item.title}`, 8);
     for (const item of openIncidents) draw(`INCIDENT · ${item.severity} · ${item.department} · ${item.summary}`, 8);
