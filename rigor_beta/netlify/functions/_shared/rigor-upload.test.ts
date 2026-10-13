@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { Context } from "@netlify/functions";
 import { activeProduction, createProduction, createWorkspace, progress, readiness } from "./model.js";
 const { records, pdf } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn() }));
@@ -180,4 +181,65 @@ describe("durable document upload", () => {
     const result = readiness(production, production.requirements, [], [], []);
     expect(result.status).not.toBe("SHOW_READY"); expect(result.unreviewed_documents).toBe(1);
   });
+  it("runs ten genuine PDF uploads through durable worker, conflict detection and both report exports", async () => {
+    // Unlike the text-packet regression, this exercises real PDF bytes and pdfjs extraction.
+    const actualParser = await vi.importActual<typeof import("./pdf-text.js")>("./pdf-text.js");
+    pdf.mockImplementation((raw: ArrayBuffer) => actualParser.readPdfPages(raw));
+    fetchMock.mockImplementation(async (url: string, options: any) => {
+      if (!String(url).includes("gateway.test")) return new Response(null, { status: 202 });
+      const pages: string[] = JSON.parse(options.body).pages;
+      const excerpt = pages[0].includes("Show power") ? pages[0] : null;
+      return Response.json({ requirements: excerpt ? [{
+        department: "Power", category: "POWER_CAPACITY", requirement_text: excerpt,
+        source_excerpt: excerpt, source_page: 1, confidence: 0.99,
+      }] : [] });
+    });
+    const documents = [
+      ["artist-rider.pdf", "Artist technical rider. Show power must provide 400A service."],
+      ["venue-pack.pdf", "Venue technical specifications. Show power must provide 200A service."],
+      ["stage-plot.pdf", "Stage plot: stage width 48 feet."],
+      ["audio-list.pdf", "Audio input list: 32 channels."],
+      ["lighting.pdf", "Lighting rider: DMX universe 1."],
+      ["video.pdf", "Video rider: LED wall and signal paths."],
+      ["rigging.pdf", "Rigging specification: point load 600 kg."],
+      ["hospitality.pdf", "Hospitality rider: crew meals for 17."],
+      ["show-schedule.pdf", "Show schedule: doors at 19:00."],
+      ["trucking.pdf", "Truck manifest: dock access required."],
+    ] as const;
+    for (const [name, text] of documents) {
+      const document = await PDFDocument.create();
+      const font = await document.embedFont(StandardFonts.Helvetica);
+      document.addPage([612, 792]).drawText(text, { x: 36, y: 700, size: 12, font });
+      const form = new FormData();
+      form.append("file", new File([new Uint8Array(await document.save())], name, { type: "application/pdf" }));
+      expect((await handler(request("/api/documents", form), ctx)).status).toBe(202);
+      await Promise.all(waits.splice(0));
+    }
+    const jobs = [...records.keys()].filter(key => key.startsWith("document-job/"));
+    expect(jobs).toHaveLength(10);
+    for (const key of jobs) {
+      await processUpload(new Request("https://rigor.test/worker", {
+        method: "POST", body: JSON.stringify({ jobId: key.split("/")[1] }),
+      }), ctx);
+    }
+    const state = activeProduction(saved());
+    expect(state.documents).toHaveLength(10);
+    expect(state.documents.every(doc => doc.status === "PROCESSED" && doc.page_count === 1)).toBe(true);
+    expect(state.conflicts.some(item => item.category === "POWER_CAPACITY" && item.status === "OPEN")).toBe(true);
+    expect(readiness(state).status).toBe("BLOCKED");
+    expect(state.documents.find(doc => doc.name === "hospitality.pdf")?.suggested_type).toBe("HOSPITALITY");
+    for (const path of ["/api/reports/advance.pdf", "/api/reports/advance.pdf?department=Power"]) {
+      const response = await handler(request(path), ctx);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/pdf");
+      expect(new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()).slice(0, 4))).toBe("%PDF");
+    }
+    const other = saved();
+    other.productions.push(createProduction(other.workspace.workspace_id, { show_name: "Independent second show" }, 2));
+    other.workspace.active_production_id = other.productions[1].production.production_id;
+    expect(activeProduction(other).documents).toHaveLength(0);
+    expect(activeProduction(other).conflicts).toHaveLength(0);
+    expect(readiness(activeProduction(other)).status).not.toBe("SHOW_READY");
+  });
+
 });
