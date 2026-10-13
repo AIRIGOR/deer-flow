@@ -3,11 +3,12 @@ import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
 
 export const OPERATING_MOTTO = "Flow like water";
-export type DeerFlowOperation = "document_analysis" | "company_pulse" | "company_action";
+export type DeerFlowOperation = "document_analysis" | "company_pulse" | "company_action" | "john_pm";
 const routes = {
   document_analysis: { path: "/api/rigor/analyze", timeout: 10 * 60 * 1000 },
   company_pulse: { path: "/api/rigor/company/pulse", timeout: 13 * 60 * 1000 },
   company_action: { path: "/api/rigor/company/action/execute", timeout: 10 * 60 * 1000 },
+  john_pm: { path: "/api/rigor/agents/john/analyze", timeout: 45 * 1000 },
 };
 
 function integrationStore(context: Context) {
@@ -58,6 +59,12 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
         !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1)) {
         throw new DeerFlowIntegrationError("INVALID_SOURCE_PROVENANCE");
       }
+    } else if (operation === "john_pm" &&
+      (data.agent !== "John" || data.mode !== "MODEL_ADVISORY_ONLY" || data.release_decision !== "HOLD_SHOW" ||
+        data.autonomous_show_approval !== false || !Array.isArray(data.actions) || data.actions.length > 20 ||
+        data.actions.some((item: any) => !["P0", "P1", "P2"].includes(item.priority) ||
+          typeof item.question !== "string" || !Array.isArray(item.evidence_ids) || !item.evidence_ids.length))) {
+      throw new DeerFlowIntegrationError("INVALID_PM_RESPONSE");
     } else if (operation === "company_pulse" &&
       (typeof data.current_state !== "string" || !Array.isArray(data.top_priorities) || !Array.isArray(data.state_updates))) {
       throw new DeerFlowIntegrationError("INVALID_RESPONSE");
