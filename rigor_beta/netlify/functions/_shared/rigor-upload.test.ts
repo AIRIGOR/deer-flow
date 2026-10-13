@@ -39,6 +39,30 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it("loads John's 14-source rehearsal only into an empty staging production", async () => {
+    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    const response = await handler(request("/api/agents/john/fixture", "{}"), ctx);
+    expect(response.status).toBe(200);
+    const fixture = await response.json();
+    expect(fixture.show.show_name).toContain("Celestial Circuit");
+    expect(fixture.documents).toHaveLength(14);
+    expect(fixture.requirements.length).toBeGreaterThanOrEqual(12);
+    expect(fixture.readiness.status).toBe("BLOCKED");
+    expect(fixture.readiness.open_conflicts).toBeGreaterThanOrEqual(2);
+    expect(fixture.documents.every((doc: any) => doc.source_kind === "SAMPLE")).toBe(true);
+    const repeat = await handler(request("/api/agents/john/fixture", "{}"), ctx);
+    expect(repeat.status).toBe(409);
+    expect(saved().productions).toHaveLength(1);
+  });
+
+  it("blocks John fixture on production and before authentication", async () => {
+    const production = await handler(request("/api/agents/john/fixture", "{}"), ctx);
+    expect(production.status).toBe(403);
+    const anonymous = await handler(new Request("https://rigor.test/api/agents/john/fixture", { method: "POST", body: "{}" }), ctx);
+    expect(anonymous.status).toBe(401);
+  });
+
+
   it("runs John model in staging with sample evidence without changing readiness", async () => {
     const sample = saved();
     const { loadSampleProduction } = await import("./model.js");
