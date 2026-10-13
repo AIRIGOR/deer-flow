@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from deerflow.models import create_chat_model
 from deerflow.utils.llm_text import (
@@ -89,6 +90,15 @@ class AnalyzedRequirement(BaseModel):
     source_excerpt: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
 
+    @field_validator("normalized_value", mode="before")
+    @classmethod
+    def normalize_numeric_value(cls, value: object) -> object:
+        # Models sometimes emit a JSON number for a scalar capacity or quantity.
+        # Preserve its value without admitting booleans, containers, or nonfinite numbers.
+        if type(value) is int or (type(value) is float and math.isfinite(value)):
+            return str(value)
+        return value
+
 
 class RigorAnalysisResult(BaseModel):
     requirements: list[AnalyzedRequirement] = Field(default_factory=list)
@@ -156,11 +166,7 @@ def _parse_result(content: object) -> RigorAnalysisResult:
                     "department": _normalize_department(item.department),
                     "category": item.category.strip().upper().replace(" ", "_")[:80],
                     "requirement_text": " ".join(item.requirement_text.split())[:1200],
-                    "normalized_value": (
-                        " ".join(item.normalized_value.split())[:240]
-                        if item.normalized_value
-                        else None
-                    ),
+                    "normalized_value": (" ".join(item.normalized_value.split())[:240] if item.normalized_value else None),
                     "unit": item.unit.strip()[:40] if item.unit else None,
                     "source_excerpt": " ".join(item.source_excerpt.split())[:1200],
                     "confidence": round(float(item.confidence), 3),
@@ -190,15 +196,8 @@ class RigorDocumentAnalyzer:
         collected: list[AnalyzedRequirement] = []
 
         for chunk in chunks:
-            source = "\n\n".join(
-                f"[[PAGE {page_number}]]\n{text}" for page_number, text in chunk
-            )
-            prompt = (
-                f"Document name: {document_name}\n"
-                "Analyze the following source pages. The [[PAGE N]] markers are authoritative "
-                "for source_page. Return JSON only.\n\n"
-                f"{source}"
-            )
+            source = "\n\n".join(f"[[PAGE {page_number}]]\n{text}" for page_number, text in chunk)
+            prompt = f"Document name: {document_name}\nAnalyze the following source pages. The [[PAGE N]] markers are authoritative for source_page. Return JSON only.\n\n{source}"
             response = await model.ainvoke(
                 [
                     SystemMessage(content=_SYSTEM_PROMPT),

@@ -41,8 +41,13 @@ describe("shared DeerFlow execution contract", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("aborted", "TimeoutError"))); await expect(deerFlowRequest(context, "document_analysis", { pages: ["source"] })).rejects.toThrow("TIMEOUT");
     expect((await integrationHealth(context)).operations.document_analysis).toMatchObject({ status: "FAILED", error_code: "TIMEOUT" });
   });
+  it('rejects model-only company completions rather than verifying integration', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({current_state: 'Claimed', top_priorities: [], state_updates: []})));
+    await expect(deerFlowRequest(context, 'company_pulse', {objective: 'Review'})).rejects.toThrow('DELEGATION_NOT_VERIFIED');
+    expect(records.get('latest/company_pulse')).toMatchObject({status: 'FAILED', error_code: 'DELEGATION_NOT_VERIFIED'});
+  });
   it("uses the same gateway/auth for 3NETRA company pulse and action", async () => {
-    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ current_state: "Reviewed", top_priorities: [], state_updates: [] })).mockResolvedValueOnce(Response.json({ status: "COMPLETE", result_summary: "Internal execution completed" })); vi.stubGlobal("fetch", fetcher);
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ current_state: "Reviewed", top_priorities: [], state_updates: [], execution_receipts: ["rigor-product-ops", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-finance-runway", "rigor-chief-of-staff"].map((agent,index)=>({agent, task_id: `task-${index}`, status: "COMPLETE"})) })).mockResolvedValueOnce(Response.json({ status: "COMPLETE", result_summary: "Internal execution completed", execution_receipts: [{agent:"rigor-qa-security", task_id:"qa-task", status:"COMPLETE"}] })); vi.stubGlobal("fetch", fetcher);
     await deerFlowRequest(context, "company_pulse", { objective: "Review" }); await deerFlowRequest(context, "company_action", { proposal: { scope: "INTERNAL_EXECUTE" } });
     expect(fetcher.mock.calls.map(c => c[0])).toEqual(["https://gateway.test/api/rigor/company/pulse", "https://gateway.test/api/rigor/company/action/execute"]); expect(fetcher.mock.calls.every(c => c[1].headers["X-RIGOR-Service-Token"] === "test-token")).toBe(true);
     expect(records.get("latest/company_pulse").status).toBe("VERIFIED"); expect(records.get("latest/company_action").status).toBe("VERIFIED");

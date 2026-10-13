@@ -1144,6 +1144,8 @@ See `docs/` directory for detailed documentation:
 
 ## RIGOR Company Subagents
 
+Document analysis in `deerflow.rigor.analyzer` converts finite JSON numbers in `normalized_value` to text before validation; booleans, containers, and nonfinite numbers remain invalid. Regression coverage lives in `tests/test_rigor_analyzer.py`.
+
 RIGOR adds six bounded built-in subagents in
 `packages/harness/deerflow/subagents/builtins/rigor_company.py`:
 

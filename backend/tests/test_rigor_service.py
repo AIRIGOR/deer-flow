@@ -15,6 +15,7 @@ def test_rigor_service_health():
         "service": "rigor-deerflow-intelligence",
         "company_team": "v1",
         "action_executor": "v1",
+        "company_execution_receipts": "v1",
     }
 
 

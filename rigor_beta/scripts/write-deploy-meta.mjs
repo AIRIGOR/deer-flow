@@ -6,6 +6,7 @@ const payload = {
   branch: process.env.BRANCH || null,
   context: process.env.CONTEXT || null,
   deploy_url: process.env.DEPLOY_URL || null,
+  release_checkpoint: process.env.RIGOR_RELEASE_CHECKPOINT || null,
   generated_at: new Date().toISOString(),
 };
 
