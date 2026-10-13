@@ -5,6 +5,7 @@ import { readPdfPages } from "./_shared/pdf-text.js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./_shared/deerflow.js";
 import { suggestDocumentType } from "./_shared/document-classification.js";
+import { johnPmBrief } from "./_shared/john-ai-pm.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
 import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
@@ -381,6 +382,7 @@ export default async (request: Request, context: Context) => {
     const auth = await authenticated(request, context); if (!auth) return fail("Start or resume your RIGOR session", 401);
     const { store, state } = auth;
     if (path === "/api/workspace" && request.method === "GET") { return json(snapshot(state)); }
+    if (path === "/api/agents/john/brief" && request.method === "GET") { return json(johnPmBrief(state)); }
     const documentReviewMatch = path.match(/^\/api\/documents\/([^/]+)\/review$/);
     if (documentReviewMatch && request.method === "POST") {
       const production = activeProduction(state);
@@ -523,5 +525,5 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
 };
