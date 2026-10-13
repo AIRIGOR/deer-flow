@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 
 from app.gateway.authz import require_permission
 from app.gateway.deps import get_rigor_manager
+from deerflow.rigor.john_pm import JohnEvidence, JohnPmAgent, JohnPmError
+
 from deerflow.rigor import (
     DocumentProcessingStatus,
     DocumentType,
@@ -143,6 +145,29 @@ class RequirementUpdateRequest(BaseModel):
 class AnalyzeDocumentRequest(BaseModel):
     document_name: str = Field(min_length=1, max_length=255)
     pages: list[str] = Field(min_length=1, max_length=120)
+
+
+class JohnPmRequest(BaseModel):
+    synthetic: bool = True
+    evidence: list[JohnEvidence] = Field(min_length=1, max_length=80)
+
+
+@router.post("/agents/john/analyze")
+async def analyze_john_pm(request: Request, body: JohnPmRequest):
+    """Synthetic, read-only model advisory. No show state can be mutated."""
+    configured_token = os.getenv("RIGOR_SERVICE_TOKEN", "").strip()
+    provided_token = request.headers.get("x-rigor-service-token", "").strip()
+    if not configured_token:
+        raise HTTPException(status_code=503, detail="RIGOR service authentication is not configured")
+    if not provided_token or not hmac.compare_digest(provided_token, configured_token):
+        raise HTTPException(status_code=401, detail="Invalid RIGOR service token")
+    if body.synthetic is not True:
+        raise HTTPException(status_code=403, detail="John is restricted to synthetic rehearsal")
+    try:
+        result = await JohnPmAgent().analyze(evidence=body.evidence)
+    except JohnPmError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return result.model_dump()
 
 
 @router.post("/analyze")
