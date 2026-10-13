@@ -138,9 +138,7 @@ def _normalize_department(value: str) -> str:
     return "Production"
 
 
-def _parse_result(
-    content: object, *, source_pages: dict[int, str]
-) -> RigorAnalysisResult:
+def _parse_result(content: object, *, source_pages: dict[int, str]) -> RigorAnalysisResult:
     text = extract_response_text(content)
     text = strip_think_blocks(text)
     text = strip_markdown_code_fence(text)
