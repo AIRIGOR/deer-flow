@@ -186,6 +186,8 @@ function renderWorkspace() {
           <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} · ${r.open_incidents || 0} open incident${(r.open_incidents || 0) === 1 ? "" : "s"} · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
         </div>
       </div></section>
+      ${!state.production.sample_demo && !state.documents.length && !state.requirements.length ?
+        '<section class="wrap" style="margin-top:16px"><div class="callout"><strong>John AI PM rehearsal</strong> · Load a 14-source fictional arena tour into this empty workspace (staging only). <button class="btn small-button" onclick="loadJohnTour()">Load fictional tour</button></div></section>' : ""}
       ${state.production.sample_demo ? renderJohnPanel() : ""}
       <nav class="wrap flow-path" aria-label="RIGOR production path">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
       <section class="wrap stage">${renderSession()}</section>
@@ -214,6 +216,16 @@ function renderJohnPanel() {
       </div>
     </div>
   </section>`;
+}
+
+async function loadJohnTour() {
+  try {
+    state = await api("/api/agents/john/fixture", { method: "POST", body: "{}" });
+    johnReport = null;
+    selectedSession = 1;
+    renderWorkspace();
+    showToast("John's fictional world tour loaded.");
+  } catch (error) { showToast(error.message, true); }
 }
 
 async function runJohnBrief() {
