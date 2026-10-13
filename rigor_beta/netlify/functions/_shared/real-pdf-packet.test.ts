@@ -22,7 +22,7 @@ async function makePdf(content: string) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   pdf.addPage([612, 792]).drawText(content, { x: 48, y: 740, size: 11, font });
-  return Buffer.from(await pdf.save());
+  return Buffer.from(await pdf.save({ useObjectStreams: false }));
 }
 
 describe("RIGOR actual PDF packet regression", () => {
