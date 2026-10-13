@@ -9,6 +9,8 @@ let uploadMessage = "";
 let uploading = false;
 let documentPollTimer = null;
 let showAllRequirements = sessionStorage.getItem("rigorShowAllRequirements") === "1";
+let johnReport = null;
+let johnBusy = false;
 
 const departments = ["Audio", "Backline", "Communications", "Hospitality", "Labor", "Lighting", "Medical", "Merchandise", "Power", "Production", "Rigging", "Security", "Stage Management", "Video"];
 
@@ -184,6 +186,7 @@ function renderWorkspace() {
           <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} · ${r.open_incidents || 0} open incident${(r.open_incidents || 0) === 1 ? "" : "s"} · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
         </div>
       </div></section>
+      ${state.production.sample_demo ? renderJohnPanel() : ""}
       <nav class="wrap flow-path" aria-label="RIGOR production path">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
       <section class="wrap stage">${renderSession()}</section>
     </main>
@@ -191,6 +194,40 @@ function renderWorkspace() {
   </div>`;
   bindSessionEvents();
   scheduleDocumentPoll();
+}
+
+function renderJohnPanel() {
+  const actions = johnReport?.actions || johnReport?.deterministic_actions || [];
+  return `<section class="wrap" aria-label="John AI Production Manager" style="margin-top:18px">
+    <div class="card">
+      <div class="card-header"><div><div class="eyebrow">Synthetic touring PM · John</div>
+      <h3>John AI PM · Tour stress test</h3><p class="muted small">Read-only evidence review. John cannot approve a show or change production records.</p></div>
+      <div class="actions"><button class="btn small-button" onclick="runJohnBrief()" ${johnBusy ? "disabled" : ""}>Review with John</button>
+      <button class="btn primary small-button" onclick="runJohnModel()" ${johnBusy ? "disabled" : ""}>Run model · staging only</button></div></div>
+      <div id="john-results" role="status" aria-live="polite">
+      ${johnBusy ? '<p>John is examining the synthetic production…</p>' : johnReport
+        ? `<div class="callout warning"><strong>${escapeHtml(johnReport.release_decision)}</strong> · ${escapeHtml(johnReport.mode)} · ${actions.length} recommendations. No autonomous show approval.</div>
+           <div class="stack">${actions.slice(0, 20).map(a => `<article class="requirement-row">
+           <div><strong>${escapeHtml(a.priority)} · ${escapeHtml(a.department)}</strong><p class="muted small">${escapeHtml(a.question || a.message)}</p>
+           <div class="muted small">Evidence: ${escapeHtml((a.evidence_ids || a.evidence || []).join(", ") || "Not supplied")}</div></div></article>`).join("")}</div>`
+        : '<p class="muted small">Run John’s evidence review to see his prioritized questions and production blockers.</p>'}
+      </div>
+    </div>
+  </section>`;
+}
+
+async function runJohnBrief() {
+  johnBusy = true; renderWorkspace();
+  try { johnReport = await api("/api/agents/john/brief"); }
+  catch (error) { showToast(error.message, true); }
+  finally { johnBusy = false; if (state) renderWorkspace(); }
+}
+
+async function runJohnModel() {
+  johnBusy = true; renderWorkspace();
+  try { johnReport = await api("/api/agents/john/analyze", { method: "POST", body: "{}" }); }
+  catch (error) { showToast(error.message, true); }
+  finally { johnBusy = false; if (state) renderWorkspace(); }
 }
 
 function renderSession() {
