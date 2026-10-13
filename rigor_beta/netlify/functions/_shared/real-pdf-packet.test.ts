@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { createRequire } from "node:module";
-const pdfParse = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{ numpages: number; text: string }>;
+const pdfParse = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer, options?: { version: string }) => Promise<{ numpages: number; text: string }>;
 import { activeProduction, createWorkspace, extractRequirements, readiness, rebuildConflicts } from "./model.js";
 import { suggestDocumentType } from "./document-classification.js";
 
@@ -32,7 +32,7 @@ describe("RIGOR actual PDF packet regression", () => {
     for (const [name, content] of packet) {
       const bytes = await makePdf(content);
       expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
-      const parsed = await pdfParse(bytes);
+      const parsed = await pdfParse(bytes, { version: "v2.0.550" });
       expect(parsed.numpages).toBe(1);
       expect(parsed.text).toContain(content);
       const suggested = suggestDocumentType(name, [parsed.text]);
