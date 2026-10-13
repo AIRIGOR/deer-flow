@@ -403,7 +403,7 @@ export default async (request: Request, context: Context) => {
       const brief = johnPmBrief(current);
       const evidence = current.requirements.slice(0, 45).map(req => ({
         source_id: String(req.requirement_id),
-        text: String(req.detail || req.title || "").slice(0, 1000),
+        text: `[${String(req.department)}] ${String(req.detail || req.title || "")} | ${String(req.document_name || "unknown source")} page ${String(req.page_number || "?")}`.slice(0, 1000),
       }));
       if (!evidence.length) return fail("No synthetic evidence available", 422);
       try {
