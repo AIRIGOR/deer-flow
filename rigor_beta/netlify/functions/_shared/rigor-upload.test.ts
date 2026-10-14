@@ -39,6 +39,15 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it("accepts a faithful model citation with normalized source whitespace", async () => {
+    const response = await upload("wrapped-source.txt", "Lighting requires\n400 amps of power.");
+    expect(response.status).toBe(202);
+    await worker();
+    const production = activeProduction(saved());
+    expect(production.documents[0].status).toBe("PROCESSED");
+    expect(production.requirements.some(item => item.analysis_engine === "DEERFLOW")).toBe(true);
+  });
+
   it("John model challenges the loaded fictional tour without changing its blockers", async () => {
     ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
     expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(200);
