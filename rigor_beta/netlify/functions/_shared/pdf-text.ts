@@ -1,6 +1,5 @@
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-
 export async function readPdfPages(raw: ArrayBuffer): Promise<string[]> {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const loading = getDocument({ data: new Uint8Array(raw), useSystemFonts: true, disableFontFace: true });
   try {
     const pdf = await loading.promise;
