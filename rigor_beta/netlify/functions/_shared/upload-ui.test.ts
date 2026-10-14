@@ -25,6 +25,36 @@ describe("upload UI", () => {
     await runInContext("uploadDocument(testEvent)", h.context);
     expect(h.fetch).not.toHaveBeenCalled(); expect(h.nodes["upload-status"].textContent).toContain("PDF or TXT");
   });
+  it("uploads multiple selected documents sequentially", async () => {
+    const h = harness();
+    h.fetch.mockImplementation(async () => Response.json({ workspace: {} }));
+    runInContext("renderWorkspace = () => {}", h.context);
+    h.context.testEvent = { target: { files: [
+      new File(["Power 400A"], "tour.txt"),
+      new File(["Power 200A"], "venue.txt"),
+    ], value: "selected" } };
+    await runInContext("uploadDocument(testEvent)", h.context);
+    expect(h.fetch).toHaveBeenCalledTimes(2);
+    expect(h.fetch.mock.calls.map(call => call[1].body.get("file").name)).toEqual(["tour.txt", "venue.txt"]);
+    expect(h.nodes["upload-status"].textContent).toContain("2 documents saved");
+    expect(h.context.testEvent.target.value).toBe("");
+  });
+  it("stops a batch on an unconfirmed save and reports the partial count", async () => {
+    const h = harness();
+    h.fetch.mockResolvedValueOnce(Response.json({ workspace: {} }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Temporary failure" }), {
+        status: 503, headers: { "content-type": "application/json" },
+      }));
+    runInContext("renderWorkspace = () => {}", h.context);
+    h.context.testEvent = { target: { files: [
+      new File(["Power 400A"], "tour.txt"),
+      new File(["Power 200A"], "venue.txt"),
+    ], value: "selected" } };
+    await runInContext("uploadDocument(testEvent)", h.context);
+    expect(h.fetch).toHaveBeenCalledTimes(2);
+    expect(h.nodes["upload-status"].textContent).toContain("1 of 2 saved");
+    expect(h.nodes["upload-status"].textContent).toContain("Refresh");
+  });
   it("wires drag/drop to the same upload path", () => {
     const h = harness(); runInContext("bindSessionEvents()", h.context);
     const preventDefault = vi.fn();

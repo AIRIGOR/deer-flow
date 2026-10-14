@@ -1,9 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import type { Context, Config } from "@netlify/functions";
-import pdfParse from "pdf-parse";
+import { readPdfPages } from "./_shared/pdf-text.js";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./_shared/deerflow.js";
+import { suggestDocumentType } from "./_shared/document-classification.js";
+import { johnPmBrief, loadJohnFixture } from "./_shared/john-ai-pm.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
 import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
@@ -65,7 +67,18 @@ async function analyzeWithDeerFlow(context: Context, documentName: string, pages
   return { requirements: payload.requirements, receiptId: response.headers.get("X-RIGOR-Execution-Id") };
 }
 
-function ingestDeerFlowRequirements(production: ProductionState, documentName: string, items: DeerFlowRequirement[]) {
+function ingestDeerFlowRequirements(production: ProductionState, documentName: string, pages: string[], items: DeerFlowRequirement[]) {
+  if (!Array.isArray(items)) throw new Error("Invalid analysis requirements payload");
+  const normalized = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  for (const candidate of items) {
+    const page = candidate.source_page;
+    const excerpt = candidate.source_excerpt;
+    if (!Number.isInteger(page) || !page || page < 1 || page > pages.length
+      || typeof excerpt !== "string" || !excerpt.trim()
+      || !normalized(pages[page - 1]).includes(normalized(excerpt))) {
+      throw new Error("Unverified model source citation");
+    }
+  }
   const seen = new Set(production.requirements.map((item) => `${item.document_name}|${item.excerpt}`));
   const created: Record<string, any>[] = [];
   for (const candidate of items) {
@@ -203,14 +216,14 @@ async function reportPdf(state: ProductionState, department: string | null) {
   draw(`${score.unreviewed_documents} source documents awaiting full review`, 8);
 
   section("Open items / assumptions");
-  const openRequirements = requirements.filter((item) => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status));
+  const openRequirements = requirements.filter((item) => !["CONFIRMED", "RESOLVED"].includes(item.status));
   const ownerGaps = requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status) && !item.owner);
   const openConflicts = conflicts.filter((item) => item.status !== "RESOLVED");
   const openIncidents = incidents.filter((item) => !String(item.resolution || "").trim());
   if (!openRequirements.length && !ownerGaps.length && !openConflicts.length && !openIncidents.length && !score.unreviewed_documents) {
     draw("No open items in this report scope.", 9);
   } else {
-    for (const item of openRequirements) draw(`REVIEW · ${item.department} · ${item.detail || item.title}`, 8);
+    for (const item of openRequirements) draw(`${item.status === "REJECTED" ? "BLOCKED / REJECTED" : "REVIEW"} · ${item.department} · ${item.detail || item.title}`, 8);
     for (const item of ownerGaps) draw(`OWNER · ${item.department} · ${item.title}`, 8);
     for (const item of openConflicts) draw(`CONFLICT · ${item.severity} · ${item.department} · ${item.title}`, 8);
     for (const item of openIncidents) draw(`INCIDENT · ${item.severity} · ${item.department} · ${item.summary}`, 8);
@@ -313,28 +326,19 @@ export async function processUpload(request: Request, context: Context) {
     if (initial.document.status !== "PROCESSING") return;
     const raw = await store.get(`upload/${initial.state.workspace.workspace_id}/${job.productionId}/${job.documentId}`, { type: "arrayBuffer" });
     if (!raw) throw new Error("Saved document unavailable");
-    const pages: string[] = [];
-    if (/\.pdf$/i.test(initial.document.name)) {
-      await pdfParse(Buffer.from(raw), { pagerender: async (page: any) => {
-        const content = await page.getTextContent();
-        let lastY: number | undefined;
-        const text = content.items.map((item: any) => {
-          const y = item.transform?.[5]; const prefix = lastY !== undefined && y !== lastY ? "\n" : " ";
-          lastY = y; return prefix + item.str;
-        }).join("");
-        pages.push(text); return text;
-      } });
-    } else pages.push(new TextDecoder().decode(raw));
+    const pages = /\.pdf$/i.test(initial.document.name)
+      ? await readPdfPages(raw)
+      : [new TextDecoder().decode(raw)];
     if (!pages.some(page => page.trim())) throw new Error("No readable text found. Use a text PDF or TXT document.");
     const analysis = await analyzeWithDeerFlow(context, initial.document.name, pages);
     const deerFlowRequirements = analysis.requirements;
     // Rebase on current state after slow analysis, preserving production selection and human decisions.
     const { state, production, document } = await load();
     if (document.status !== "PROCESSING") return;
-    const extracted = ingestDeerFlowRequirements(production, document.name, deerFlowRequirements);
+    const extracted = ingestDeerFlowRequirements(production, document.name, pages, deerFlowRequirements);
     const recovered = reconcileSourceRequirements(production, document.name, pages);
     extracted.push(...recovered); invalidateChangedCheckpoints(production, extracted);
-    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now() });
+    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now(), ...suggestDocumentType(document.name, pages) });
     delete document.processing_error;
     event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, requirements: extracted.length, analysis_engine: document.analysis_engine });
     await save(store, state);
@@ -378,6 +382,42 @@ export default async (request: Request, context: Context) => {
     const auth = await authenticated(request, context); if (!auth) return fail("Start or resume your RIGOR session", 401);
     const { store, state } = auth;
     if (path === "/api/workspace" && request.method === "GET") { return json(snapshot(state)); }
+    if (path === "/api/agents/john/brief" && request.method === "GET") { return json(johnPmBrief(state)); }
+    if (path === "/api/agents/john/fixture" && request.method === "POST") {
+      if (context.deploy.context === "production") return fail("John fixture is staging-only", 403);
+      const current = activeProduction(state);
+      if (current.documents.length || current.requirements.length || current.incidents.length) {
+        return fail("Create an empty production for John's rehearsal", 409);
+      }
+      loadJohnFixture(current);
+      await save(store, state);
+      return json(snapshot(state));
+    }
+    if (path === "/api/agents/john/analyze" && request.method === "POST") {
+      if (context.deploy.context === "production") return fail("John model requires staging", 403);
+      const current = activeProduction(state);
+      if (!current.production.sample_demo ||
+          current.documents.some(doc => doc.source_kind !== "SAMPLE")) {
+        return fail("John model requires an isolated synthetic production", 403);
+      }
+      const brief = johnPmBrief(current);
+      const evidence = current.requirements.slice(0, 45).map(req => ({
+        source_id: String(req.requirement_id),
+        text: `[${String(req.department)}] ${String(req.detail || req.title || "")} | ${String(req.document_name || "unknown source")} page ${String(req.page_number || "?")}`.slice(0, 1000),
+      }));
+      if (!evidence.length) return fail("No synthetic evidence available", 422);
+      try {
+        const response = await deerFlowRequest(context, "john_pm", { synthetic: true, evidence });
+        const analysis = await response.json();
+        return json({ agent: "John", synthetic: true, mode: "MODEL_ADVISORY_ONLY",
+          release_decision: "HOLD_SHOW", autonomous_show_approval: false,
+          readiness: brief.readiness, actions: analysis.actions,
+          deterministic_actions: brief.actions });
+      } catch (error) {
+        if (error instanceof DeerFlowIntegrationError) return fail(error.message, 503);
+        return fail("John model unavailable", 503);
+      }
+    }
     const documentReviewMatch = path.match(/^\/api\/documents\/([^/]+)\/review$/);
     if (documentReviewMatch && request.method === "POST") {
       const production = activeProduction(state);
@@ -520,5 +560,5 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/agents/john/analyze", "/api/agents/john/fixture", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
 };

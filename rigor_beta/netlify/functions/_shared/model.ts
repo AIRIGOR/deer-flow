@@ -99,6 +99,19 @@ export function affectsDepartment(item: RecordMap, department: string) {
   return item.department === department || item.affected_departments?.includes(department) === true;
 }
 
+function sourceStale(document: RecordMap) {
+  const expiresAt = typeof document.expires_at === "string" ? Date.parse(document.expires_at) : NaN;
+  return document.stale === true || document.superseded === true ||
+    (Number.isFinite(expiresAt) && expiresAt <= Date.now());
+}
+
+function evidenceUnverified(requirement: RecordMap) {
+  return requirement.source_verified === false ||
+    requirement.verification_status === "UNVERIFIED" ||
+    (typeof requirement.confidence === "number" && requirement.confidence < 0.65 &&
+      requirement.evidence_verified !== true);
+}
+
 function sourceReviewed(document: RecordMap) {
   return (!document.status || document.status === "PROCESSED") && (document.source_kind === "SAMPLE" || ((document.doc_type !== "UPLOADED" || document.analysis_engine === "DEERFLOW") && document.review_status === "REVIEWED"));
 }
@@ -419,9 +432,10 @@ export function progress(input: WorkspaceState | ProductionState) {
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
   const openIncidents = state.incidents.filter((item) => !String(item.resolution || "").trim()).length;
   const reviewTarget = state.requirements.length;
-  const sourcesReviewed = state.documents.every(sourceReviewed);
+  const sourcesReviewed = state.documents.every((doc) => sourceReviewed(doc) && !sourceStale(doc));
+  const evidenceReviewed = state.requirements.every((req) => req.status !== "REJECTED" && !evidenceUnverified(req));
   const ownerTarget = actionable.length;
-  const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget && sourcesReviewed;
+  const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget && sourcesReviewed && evidenceReviewed;
   const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned === ownerTarget;
   const showDayComplete = sessionTwoComplete && checks === state.checkpoints.length && openIncidents === 0;
   const sessions: Record<string, RecordMap> = {
@@ -446,9 +460,12 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const sourceNames = new Set(scopedRequirements.map((item) => item.document_name));
   const documents = requirements ? state.documents.filter((doc) => sourceNames.has(doc.name) || doc.status === "PROCESSING" || doc.status === "FAILED") : state.documents;
   const unreviewedDocuments = documents.filter((doc) => !sourceReviewed(doc)).length;
+  const staleDocuments = documents.filter(sourceStale).length;
+  const unverifiedRequirements = scopedRequirements.filter(evidenceUnverified).length;
   const reviewed = scopedRequirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
   const actionable = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
   const owned = actionable.filter((item) => Boolean(item.owner)).length;
+  const rejectedRequirements = scopedRequirements.filter((item) => item.status === "REJECTED").length;
   const openConflicts = scopedConflicts.filter((item) => item.status !== "RESOLVED").length;
   const checks = scopedCheckpoints.filter((item) => item.status === "COMPLETE").length;
   const openIncidents = scopedIncidents.filter((item) => !String(item.resolution || "").trim());
@@ -465,6 +482,8 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
       completed_checkpoints: checks,
       total_checkpoints: scopedCheckpoints.length,
       unreviewed_documents: unreviewedDocuments,
+      stale_documents: staleDocuments,
+      unverified_requirements: unverifiedRequirements,
     };
   }
   const requirementScore = reviewed / scopedRequirements.length;
@@ -474,7 +493,7 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const incidentScore = scopedIncidents.length ? 1 - openIncidents.length / scopedIncidents.length : 1;
   const computedScore = Math.round((requirementScore * 0.35 + ownershipScore * 0.2 + conflictScore * 0.2 + checkpointScore * 0.15 + incidentScore * 0.1) * 100);
   const score = unreviewedDocuments ? Math.min(computedScore, 95) : computedScore;
-  const status = openConflicts || blockingIncidents.length
+  const status = openConflicts || blockingIncidents.length || rejectedRequirements || staleDocuments || unverifiedRequirements
     ? "BLOCKED"
     : reviewed < scopedRequirements.length || owned < actionable.length || openIncidents.length || unreviewedDocuments
       ? "NEEDS_REVIEW"
@@ -487,11 +506,14 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
     confirmed_requirements: reviewed,
     total_requirements: scopedRequirements.length,
     open_conflicts: openConflicts,
+    rejected_requirements: rejectedRequirements,
     open_incidents: openIncidents.length,
     blocking_incidents: blockingIncidents.length,
     completed_checkpoints: checks,
     total_checkpoints: scopedCheckpoints.length,
     unreviewed_documents: unreviewedDocuments,
+    stale_documents: staleDocuments,
+    unverified_requirements: unverifiedRequirements,
   };
 }
 
@@ -505,7 +527,10 @@ export function departmentSummary(input: WorkspaceState | ProductionState) {
     const ready = scoped.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
     const sourceNames = new Set(scoped.map((item) => item.document_name));
     const sourcesReviewed = state.documents.filter((doc) => sourceNames.has(doc.name) || doc.status === "PROCESSING" || doc.status === "FAILED").every(sourceReviewed);
-    const status = open || blockingIncidents.length ? "BLOCKED" : ready === scoped.length && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
+    const rejected = scoped.filter((item) => item.status === "REJECTED").length;
+    const stale = state.documents.some((doc) => (sourceNames.has(doc.name) || doc.status === "PROCESSING" || doc.status === "FAILED") && sourceStale(doc));
+    const unverified = scoped.some(evidenceUnverified);
+    const status = open || blockingIncidents.length || rejected || stale || unverified ? "BLOCKED" : ready === scoped.length && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
     return { department, total: scoped.length, ready, open_conflicts: open, open_incidents: openIncidents.length, status };
   });
 }

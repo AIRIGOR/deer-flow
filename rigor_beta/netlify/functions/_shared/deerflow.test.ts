@@ -7,6 +7,20 @@ const context = { deploy: { context: "production" } } as Context;
 const candidate = { department: "Video", category: "VIDEO_POWER", requirement_text: "Provide 400 amps.", source_excerpt: "Provide 400 amps.", source_page: 90, confidence: .95 };
 beforeEach(() => { records.clear(); vi.restoreAllMocks(); vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } }); });
 describe("shared DeerFlow execution contract", () => {
+  it("rejects John's fabricated source IDs at the gateway boundary", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      agent: "John", mode: "MODEL_ADVISORY_ONLY", release_decision: "HOLD_SHOW",
+      autonomous_show_approval: false,
+      actions: [{ priority: "P0", department: "Power", question: "Verify source.",
+        evidence_ids: ["fabricated-id"] }],
+    })));
+    await expect(deerFlowRequest(context, "john_pm", {
+      synthetic: true, evidence: [{ source_id: "real-id", text: "Tour requires 400A power" }],
+    })).rejects.toThrow("INVALID_PM_SOURCE_CITATION");
+    expect(records.get("latest/john_pm")).toMatchObject({ status: "FAILED", error_code: "INVALID_PM_SOURCE_CITATION" });
+  });
+
+
   it("keeps oversized action context within the backend request limit", () => {
     const context = companyActionContext("proof-action", { result: '"\\'.repeat(30000) });
     expect(context.length).toBeLessThanOrEqual(20000);
