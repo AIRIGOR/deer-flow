@@ -78,4 +78,8 @@ Security status: the October 8 dependency refresh removes the reported proxy-add
 
 ## Revenue-readiness repair branch (October 2026)
 
+Source citation comparison normalizes PDF line breaks and repeated whitespace before matching an excerpt to its cited page. This accepts faithful wrapped excerpts while preserving rejection of fabricated text and out-of-range pages.
+
+The deployed PDF parser retains its native canvas dependency and loads only when parsing a PDF. A parser dependency failure must not prevent session creation, health checks or TXT uploads from starting.
+
 The UI accepts up to 20 PDF/TXT files per selection (5 MB each), saves them sequentially, and reports partial failures without automatic duplicate retries. Document-type suggestions are based on extracted text, are explicitly advisory, and always require human review. Model-extracted page citations and excerpts are validated against supplied source text. Rejected requirements block both show and department readiness and appear in Master and Department PDFs. These changes require end-to-end production validation before deployment.
