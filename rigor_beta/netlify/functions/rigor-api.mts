@@ -69,7 +69,7 @@ async function analyzeWithDeerFlow(context: Context, documentName: string, pages
 
 function ingestDeerFlowRequirements(production: ProductionState, documentName: string, pages: string[], items: DeerFlowRequirement[]) {
   if (!Array.isArray(items)) throw new Error("Invalid analysis requirements payload");
-  const normalized = (value: string) => value.replace(/\\s+/g, " ").trim().toLocaleLowerCase();
+  const normalized = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
   for (const candidate of items) {
     const page = candidate.source_page;
     const excerpt = candidate.source_excerpt;
