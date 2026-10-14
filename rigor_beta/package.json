@@ -9,6 +9,7 @@
     "netlify:build": "npm run check && npm test && node scripts/write-deploy-meta.mjs"
   },
   "dependencies": {
+    "@napi-rs/canvas": "0.1.100",
     "@netlify/blobs": "^10.0.10",
     "@netlify/functions": "^6.0.0",
     "pdf-lib": "^1.17.1",
