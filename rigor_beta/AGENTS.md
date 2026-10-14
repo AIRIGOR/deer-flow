@@ -1,5 +1,9 @@
 # RIGOR beta checks
 
+Source provenance comparisons must collapse actual whitespace (`/\s+/g`), not literal backslash-s sequences. Keep the wrapped-source citation regression alongside fabricated-citation rejection in rigor-upload.test.ts.
+
+PDF.js and its direct native canvas dependency must remain external in the Netlify bundle. Import PDF.js inside readPdfPages so parser startup cannot crash all API routes. Verify the packaged function on staging; local PDF tests alone do not prove native modules ship correctly.
+
 This module publishes `app/static` and bundles `netlify/functions/rigor-api.mts`.
 `netlify.toml` explicitly runs `npm run check` before function bundling.
 
