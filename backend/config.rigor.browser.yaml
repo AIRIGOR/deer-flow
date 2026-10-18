@@ -1,0 +1,73 @@
+# Optional browser-enabled RIGOR backend configuration.
+# Staging opt-in only: requires Playwright + Chromium + one Gateway worker.
+# This is a separate config so existing RIGOR backend startup is unchanged.
+# Research agents may use isolated anonymous Chromium sessions. Never attach CDP,
+# forward private-network requests, or use this browser for authenticated work.
+config_version: 29
+log_level: info
+
+models:
+  - name: rigor-analyzer
+    display_name: RIGOR Analyzer
+    use: langchain_openai:ChatOpenAI
+    model: $RIGOR_MODEL
+    api_key: $RIGOR_MODEL_API_KEY
+    base_url: $RIGOR_MODEL_BASE_URL
+    temperature: 0
+    max_retries: 2
+
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  allow_host_bash: false
+
+
+tools:
+  - name: web_search
+    group: web
+    use: deerflow.community.ddg_search.tools:web_search_tool
+    max_results: 5
+  - name: web_fetch
+    group: web
+    use: deerflow.community.jina_ai.tools:web_fetch_tool
+    timeout: 10
+
+  # Interactive public-web research for approved RIGOR research agents.
+  - name: browser_navigate
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_navigate_tool
+    headless: true
+    timeout_ms: 30000
+    viewport_width: 1280
+    viewport_height: 720
+    allow_private_addresses: false
+    allow_unguarded_cdp: false
+  - name: browser_snapshot
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_snapshot_tool
+  - name: browser_click
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_click_tool
+  - name: browser_type
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_type_tool
+  - name: browser_get_text
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_get_text_tool
+    max_chars: 12000
+  - name: browser_back
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_back_tool
+  - name: browser_screenshot
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_screenshot_tool
+  - name: browser_close
+    group: browser
+    use: deerflow.community.browser_automation.tools:browser_close_tool
+
+subagents:
+  max_total_per_run: 6
+  timeout_seconds: 1800
+
+skills:
+  path: /app/skills
+  container_path: /mnt/skills
