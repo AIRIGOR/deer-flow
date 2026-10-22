@@ -18,6 +18,16 @@ import {
 } from "./model.js";
 
 describe("RIGOR beta model", () => {
+  it("retains venue labor availability when the analyzer falls back or omits it", () => {
+    const state = activeProduction(createWorkspace("Labor Proof", "PM"));
+    extractRequirements(state, "tour.txt", ["Labor call requires 36 stagehands at 08:00."]);
+    const recovered = reconcileSourceRequirements(state, "venue.txt", ["Labor call provides 24 stagehands at 08:00."]);
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]).toMatchObject({category: "LABOR_CALL", normalized_value: "24STAGEHANDS", status: "NEEDS_CONFIRMATION", coverage_review_required: true});
+    expect(state.conflicts).toHaveLength(1);
+    expect(state.conflicts[0]).toMatchObject({category: "LABOR_CALL", status: "OPEN"});
+    expect(readiness(state).status).toBe("BLOCKED");
+  });
   it("detects all four guided-sample contradictions", () => {
     const workspace = createWorkspace("Comparison PM", "PM");
     loadSampleProduction(workspace);

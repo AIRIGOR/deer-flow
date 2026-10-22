@@ -1,4 +1,24 @@
 type QueueRecord = { status?: string };
+export type PulseAttempt = {
+  started_at: string;
+  completed_at?: string;
+  status: "RUNNING" | "COMPLETE" | "FAILED";
+  failure_code?: string;
+};
+
+// A previous successful pulse does not hide a more recent failed invocation.
+export function companyPulseHealth(attempt: PulseAttempt | null, latestAt?: string, now = Date.now()) {
+  const newerAttempt = attempt && (!latestAt || attempt.started_at >= latestAt);
+  const timedOut = newerAttempt && attempt.status === "RUNNING"
+    && now - Date.parse(attempt.started_at) > 15 * 60 * 1000;
+  const failed = Boolean(newerAttempt && (attempt.status === "FAILED" || timedOut));
+  return {
+    status: failed ? "degraded" : "ok",
+    latest_attempt_status: timedOut ? "TIMED_OUT" : attempt?.status || null,
+    latest_attempt_at: attempt?.started_at || null,
+    latest_attempt_failure: failed ? (timedOut ? "PULSE_TIMEOUT" : attempt?.failure_code || "PULSE_FAILED") : null,
+  };
+}
 type QueueCounts = {
   total?: number;
   approved?: number;

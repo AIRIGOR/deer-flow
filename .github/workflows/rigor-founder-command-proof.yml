@@ -1,0 +1,33 @@
+name: RIGOR Founder Command Proof
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'rigor_beta/**'
+      - '.github/workflows/rigor-founder-command-proof.yml'
+permissions:
+  contents: read
+jobs:
+  internal-command-proof:
+    if: github.event.pull_request.number == 11 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/rigor-pod-live-proof-20260930'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: rigor-founder-command-proof
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify exact-deploy internal command and authority boundaries
+        working-directory: rigor_beta
+        env:
+          RIGOR_AUTOMATION_TOKEN: ${{ secrets.RIGOR_AUTOMATION_TOKEN }}
+          PROOF_COMMIT: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/live-founder-command-proof.py --url https://deploy-preview-11--rigor-flow-preview.netlify.app --commit "$PROOF_COMMIT"
+      - name: Save redacted proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: rigor-founder-command-proof
+          path: rigor_beta/.artifacts/founder-command-proof/proof.json
+          if-no-files-found: ignore

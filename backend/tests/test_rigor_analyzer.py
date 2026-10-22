@@ -61,12 +61,66 @@ async def test_rigor_analyzer_returns_structured_source_backed_requirements():
 
 @pytest.mark.asyncio
 async def test_rigor_analyzer_rejects_invalid_model_json():
-    analyzer = RigorDocumentAnalyzer(
-        model_factory=lambda: FakeModel("not valid json")
-    )
+    analyzer = RigorDocumentAnalyzer(model_factory=lambda: FakeModel("not valid json"))
 
     with pytest.raises(RigorAnalysisError, match="invalid structured JSON"):
         await analyzer.analyze(
             document_name="Venue Pack.pdf",
             pages=["Venue must provide 200A show power."],
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("value", "expected"), [(42, "42"), (36.5, "36.5"), (0, "0")])
+async def test_rigor_analyzer_preserves_numeric_normalized_values(value, expected):
+    import json
+
+    model = FakeModel(
+        json.dumps(
+            {
+                "requirements": [
+                    {
+                        "department": "Rigging",
+                        "category": "RIGGING_TRIM",
+                        "requirement_text": "Minimum trim is 42 ft.",
+                        "normalized_value": value,
+                        "unit": "ft",
+                        "source_page": 1,
+                        "source_excerpt": "Minimum trim is 42 ft.",
+                        "confidence": 0.96,
+                    }
+                ]
+            }
+        )
+    )
+    result = await RigorDocumentAnalyzer(model_factory=lambda: model).analyze(document_name="synthetic.txt", pages=["Minimum trim is 42 ft."])
+    assert result.requirements[0].normalized_value == expected
+    assert result.requirements[0].unit == "ft"
+    assert result.requirements[0].source_excerpt == "Minimum trim is 42 ft."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [True, {"value": 42}, [42], float("nan"), float("inf")])
+async def test_rigor_analyzer_rejects_non_scalar_or_nonfinite_normalized_values(value):
+    import json
+
+    model = FakeModel(
+        json.dumps(
+            {
+                "requirements": [
+                    {
+                        "department": "Rigging",
+                        "category": "RIGGING_TRIM",
+                        "requirement_text": "Minimum trim is 42 ft.",
+                        "normalized_value": value,
+                        "unit": "ft",
+                        "source_page": 1,
+                        "source_excerpt": "Minimum trim is 42 ft.",
+                        "confidence": 0.96,
+                    }
+                ]
+            }
+        )
+    )
+    with pytest.raises(RigorAnalysisError):
+        await RigorDocumentAnalyzer(model_factory=lambda: model).analyze(document_name="synthetic.txt", pages=["Minimum trim is 42 ft."])

@@ -51,6 +51,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Full project dependency audit
+        run: npm audit --audit-level=high
+
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
 
@@ -59,6 +62,9 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Bundle Founder client
+        run: npm run build:founder
 
   rigor-core:
     runs-on: ubuntu-latest
@@ -92,3 +98,4 @@ jobs:
           tests/test_rigor_company_operator.py
           tests/test_rigor_company_action_executor.py
           tests/test_rigor_company_state.py
+          tests/test_rigor_execution_receipts.py

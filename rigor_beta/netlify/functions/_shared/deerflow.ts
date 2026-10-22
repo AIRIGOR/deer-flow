@@ -1,3 +1,4 @@
+import {normalizeExecutionResult, delegationVerified} from "./founder.js";
 import { randomUUID } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
@@ -47,8 +48,10 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
       signal: AbortSignal.timeout(routes[operation].timeout),
     });
     if (!response.ok) throw new DeerFlowIntegrationError(`HTTP_${response.status}`);
-    const data = await response.json();
+    const rawData = await response.json();
+    const data = operation === "document_analysis" ? rawData : normalizeExecutionResult(rawData);
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new DeerFlowIntegrationError("INVALID_RESPONSE");
+    if (operation !== "document_analysis" && !delegationVerified(data, operation === "company_action" ? (payload.proposal as {owner_agent?: string})?.owner_agent : undefined, operation === "company_pulse")) throw new DeerFlowIntegrationError("DELEGATION_NOT_VERIFIED");
     if (operation === "document_analysis") {
       const pages = payload.pages as string[];
       if (!Array.isArray(data.requirements) || data.requirements.some((item: any) =>

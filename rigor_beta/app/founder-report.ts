@@ -1,0 +1,162 @@
+type Data = Record<string, unknown>;
+export const object = (value: unknown): Data => value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
+export const text = (value: unknown): string => typeof value === 'string' ? value : '';
+export const items = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+const names: Record<string, string> = {
+  RUN_COMPANY_PULSE: 'Company cycle', RELEASE_REVIEW: 'Release review', MOAT_REVIEW: 'Product moat review', COMPANY_REVIEW: 'Company review', PREPARE_OUTREACH: 'Outreach preparation',
+  'rigor-product-ops': 'Product operations', 'rigor-engineering': 'Engineering', 'rigor-qa-security': 'QA and security',
+  'rigor-market-intel': 'Market intelligence', 'rigor-partnerships-capital': 'Partnerships and capital', 'rigor-chief-of-staff': 'Chief of Staff',
+};
+export const label = (value: unknown) => names[text(value)] || text(value).replace(/^rigor-/, '').replace(/[_-]/g, ' ').toLowerCase();
+export function commandFailure(commandValue: unknown): string {
+  const command = object(commandValue), code = text(command.failure_code);
+  if (command.status === 'TIMED_OUT') return 'No completion receipt arrived within the execution window. Check the saved worker status before submitting another command.';
+  const reasons: Record<string,string> = {
+    SERVICE_NOT_CONFIGURED: 'The execution connection is not configured. Check the protected service settings.',
+    LAUNCH_RETRY_EXHAUSTED: 'The worker did not start after five launch attempts. Check the worker connection before creating another command.',
+    DELEGATION_NOT_VERIFIED: 'The service did not return verified specialist receipts. This work cannot be counted as completed.',
+    INVALID_EXECUTION_RESULT: 'The execution response did not contain the required result. Check the service contract.',
+    OUTREACH_DELIVERABLES_MISSING: 'The specialist did not return the complete prospect and draft package. Partial output remains available for review.',
+    PREVIEW_REDEPLOYED: 'This unfinished command was recovered from an earlier deployment. It was not automatically rerun.',
+    COMPANY_CONTEXT_TOO_LARGE: 'Saved context exceeds the execution limit. Check context budgeting before submitting another command.',
+  };
+  if (reasons[code]) return reasons[code];
+  if (/^UPSTREAM_HTTP_(401|403)$/.test(code)) return 'The execution service rejected authentication. Check the protected connection settings.';
+  if (code === 'UPSTREAM_HTTP_422') return 'The execution service rejected the request format or size. Check objective and context limits.';
+  if (code === 'UPSTREAM_HTTP_429') return 'The execution service is rate limited. Check the saved status and allow it to recover before submitting another command.';
+  if (/^UPSTREAM_HTTP_5\d{2}$/.test(code)) return 'The execution service returned a server error. Check service health before submitting another command.';
+  return 'This review did not complete. Check the saved technical evidence and service health before submitting another command.';
+}
+export function report(commandValue: unknown) {
+  const command = object(commandValue), result = object(command.result), receipt = object(command.execution_receipt);
+  const status = text(command.status);
+  const statuses: Record<string, string> = {COMPLETE: 'Review completed', QUEUED: 'Waiting to start', RUNNING: 'Review in progress', FAILED: 'Review failed', TIMED_OUT: 'Review timed out'};
+  if (command.kind === 'PREPARE_OUTREACH') Object.assign(statuses, {COMPLETE: 'Draft package prepared', RUNNING: 'Preparing outreach', FAILED: 'Preparation incomplete'});
+  const start = Date.parse(text(command.started_at)), end = Date.parse(text(command.completed_at));
+  return {
+    title: label(command.kind), status: statuses[status] || 'Status unavailable', rawStatus: status,
+    summary: ['FAILED', 'TIMED_OUT'].includes(status) ? commandFailure(command) : text(result.result_summary) || text(result.current_state),
+    duration: Number.isFinite(start) && Number.isFinite(end) && end >= start ? `${Math.round((end - start) / 1000)} seconds` : '',
+    verified: status === 'COMPLETE' && receipt.command_id === command.command_id && receipt.delegation_verified === true,
+    delegates: items(receipt.execution_receipts).map(object).map(row => ({name: label(row.agent), status: row.status === 'COMPLETE' ? 'Completed' : label(row.status)})),
+    assessmentStatus: 'UNVERIFIED',
+    result,
+  };
+}
+function node(tag: string, content: string, className?: string) {
+  const element = document.createElement(tag); element.textContent = content;
+  if (className) element.className = className;
+  return element;
+}
+function evidence(parent: HTMLElement, value: unknown) {
+  const details = document.createElement('details'); details.className = 'technical-evidence';
+  details.append(node('summary', 'View technical evidence'), node('pre', JSON.stringify(value, null, 2)));
+  parent.append(details);
+}
+function section(parent: HTMLElement, title: string, value: unknown) {
+  const entries = items(value).filter(item => typeof item === 'string' && item.trim());
+  if (!entries.length) return;
+  parent.append(node('h4', title));
+  const list = document.createElement('ul'); entries.forEach(item => list.append(node('li', text(item)))); parent.append(list);
+}
+function assessment(parent: HTMLElement, result: Data) {
+  const packet = object(result.outreach_package);
+  if (packet.version === 'RIGOR_OUTREACH_V1') {renderOutreach(parent, packet); return;}
+  parent.append(node('p', 'UNVERIFIED agent assessment · Security claims require a code or configuration reference and a reproducible test or authoritative log for the deployed commit. Statements about MFA, defects and readiness require independent review.', 'assessment-note'));
+  section(parent, 'Priorities', result.top_priorities);
+  section(parent, 'Reported risks to verify', result.blockers_risks);
+  section(parent, 'Decisions requested', result.founder_approvals);
+  section(parent, 'Proposed next actions', result.next_actions);
+  const markdown = text(result.artifact_markdown);
+  if (markdown) {
+    const content = document.createElement('div'); content.className = 'written-report';
+    // Treat generated content as text; never execute HTML or model-supplied links.
+    for (const block of markdown.split(/\n\s*\n/).filter(Boolean)) {
+      const heading = block.match(/^#{1,6}\s+([^\n]+)$/);
+      content.append(node(heading ? 'h4' : 'p', heading ? heading[1] : block));
+    }
+    parent.append(content);
+  }
+}
+function renderOutreach(parent: HTMLElement, packet: Data) {
+  parent.append(node('p', 'Ten prospects · Ten introductory drafts · Ten follow-ups · UNSENT. Source claims require verification; preparation does not approve sending.', 'assessment-note'));
+  section(parent, 'Three proposed first approaches', packet.top_three);
+  section(parent, 'Missing evidence', packet.missing_evidence);
+  const table = document.createElement('table'); table.className = 'prospect-table';
+  const head = document.createElement('tr');
+  ['Organization', 'Category', 'Geography', 'Priority'].forEach(title => head.append(node('th', title)));
+  table.append(head);
+  for (const value of items(packet.prospects)) {
+    const p = object(value), row = document.createElement('tr');
+    [text(p.organization), label(p.category), text(p.geography), label(p.priority)].forEach(cell => row.append(node('td', cell)));
+    table.append(row);
+  }
+  const wrap = document.createElement('div'); wrap.className = 'prospect-table-wrap'; wrap.append(table); parent.append(wrap);
+  for (const value of items(packet.prospects)) {
+    const p = object(value), draft = document.createElement('details'); draft.className = 'written-report';
+    draft.append(node('summary', `${text(p.organization)} · ${label(p.category)} · ${label(p.priority)}`));
+    draft.append(node('p', `Geography: ${text(p.geography)}`));
+    draft.append(node('p', `Decision-maker: ${text(p.decision_maker) || 'Unknown'} · ${text(p.decision_maker_role) || 'Role unverified'}`));
+    draft.append(node('p', `Public contact route: ${text(p.contact_route)}`));
+    draft.append(node('h4', 'Fit and operational problem'), node('p', text(p.fit)), node('p', text(p.operational_problem)));
+    section(draft, 'Sources and reported support', items(p.sources).map(object).map(s => `${text(s.supports)} — ${text(s.url)}`));
+    section(draft, 'Verification gaps', p.verification_gaps);
+    draft.append(node('h4', `Subject: ${text(p.subject)}`), node('p', text(p.introduction)), node('h4', 'Follow-up draft'), node('p', text(p.follow_up)));
+    parent.append(draft);
+  }
+}
+export function renderCommands(parent: HTMLElement, values: unknown) {
+  parent.replaceChildren();
+  for (const value of items(values)) {
+    const command = object(value), view = report(command), article = document.createElement('article'); article.className = 'command-report';
+    const heading = document.createElement('div'); heading.className = 'report-heading';
+    heading.append(node('h3', view.title), node('span', view.status, `report-status ${view.rawStatus === 'COMPLETE' ? 'complete' : ''}`)); article.append(heading);
+    const timestamp = text(command.completed_at) || text(command.created_at);
+    const date = Date.parse(timestamp);
+    if (Number.isFinite(date)) article.append(node('p', `${new Date(date).toLocaleString()}${view.duration ? ` · ${view.duration}` : ''}`, 'report-meta'));
+    if (view.summary && !['FAILED', 'TIMED_OUT'].includes(view.rawStatus)) article.append(node('p', 'Agent assessment · UNVERIFIED claims', 'assessment-note'));
+    if (view.summary) article.append(node('p', view.summary));
+    const savedReport = document.createElement('details'); savedReport.className = 'command-details';
+    savedReport.append(node('summary', 'Open saved report'), node('p', text(command.objective), 'report-objective'));
+    if (view.verified) article.append(node('p', 'Verified execution facts: this command completed with correlated specialist receipts. Report conclusions remain unverified.', 'verified-proof'));
+    if (view.delegates.length) {
+      const list = document.createElement('ul'); list.className = 'delegate-list';
+      view.delegates.forEach(row => list.append(node('li', `${row.name} · ${row.status}`))); savedReport.append(list);
+    }
+    if (['FAILED', 'TIMED_OUT'].includes(view.rawStatus)) article.append(node('p', command.failure_code === 'OUTREACH_DELIVERABLES_MISSING'
+      ? 'Outreach preparation is incomplete: the specialist did not return the required ten prospects and complete drafts. Any partial output below is not an approved outreach package.'
+      : 'This review did not complete. Check the technical evidence for its failure code.', 'assessment-note'));
+    if (Object.keys(view.result).length) assessment(savedReport, view.result);
+    evidence(savedReport, command); article.append(savedReport); parent.append(article);
+  }
+  if (!parent.childNodes.length) parent.append(node('p', 'No commands yet. Run an internal review to create your first report.'));
+}
+export function renderPulse(parent: HTMLElement, value: unknown) {
+  parent.replaceChildren();
+  if (!value) { parent.append(node('p', 'No completed company cycle yet.')); return; }
+  const result = object(object(value).pulse);
+  parent.append(node('p', 'Agent assessment · UNVERIFIED claims', 'assessment-note'));
+  if (text(result.current_state)) parent.append(node('p', text(result.current_state)));
+  assessment(parent, result); evidence(parent, value);
+}
+export function renderState(parent: HTMLElement, recordsValue: unknown, actionsValue: unknown) {
+  parent.replaceChildren(); const records = items(recordsValue), actions = items(actionsValue);
+  parent.append(node('p', 'Saved agent assessments and proposals · Claims await independent evidence review.', 'assessment-note'));
+  parent.append(node('p', `${records.length} saved company records · ${actions.length} tracked actions`, 'report-meta'));
+  for (const [heading, entries] of [['Saved records', records], ['Action queue', actions]] as const) {
+    if (!entries.length) continue;
+    parent.append(node('h3', heading));
+    for (const value of entries) {
+      const row = object(value), article = document.createElement('article'); article.className = 'state-record';
+      const decision = object(row.review).decision;
+      const dispatch = object(row.email_execution).status;
+      const status = dispatch ? `Email ${label(dispatch)}` : decision === 'APPROVE' ? 'Approved · not sent' : decision ? label(decision) : label(row.status);
+      article.append(node('h4', text(row.title)), node('p', [status, label(row.priority), label(row.owner_agent)].filter(Boolean).join(' · '), 'report-meta'));
+      if (text(row.summary)) article.append(node('p', text(row.summary)));
+      if (row.approval_required === true && !decision && !dispatch) article.append(node('p', 'Founder approval required', 'assessment-note'));
+      parent.append(article);
+    }
+  }
+  parent.append(node('p', 'Saved assessments and proposals are company records; their claims still need verification.', 'assessment-note'));
+  evidence(parent, {records: recordsValue, actions: actionsValue});
+}
