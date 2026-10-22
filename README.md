@@ -1000,3 +1000,5 @@ See [docs/rigor-ai-company-team.md](docs/rigor-ai-company-team.md) for the opera
 
 
 RIGOR's AI company layer also includes durable company state for objectives, milestones, relationships, feedback, risks, experiments, and runway. The `rigor-company-operator` skill coordinates five specialist reports plus one Chief of Staff synthesis per operating cycle.
+
+Founder operations are published at https://founder.akhasha.com/founder. The independently deployed RIGOR product is https://rigor-beta.netlify.app/. Earlier preview history stays isolated and accessible from Founder settings; see `rigor_beta/README.md` for publication and execution limits.

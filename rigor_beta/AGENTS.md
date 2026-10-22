@@ -14,7 +14,7 @@ complete production. Keep department isolation covered by regression tests.
 Never print environment values or session cookies. Verify configuration by
 presence and an authenticated ingestion result. Building does not authorize
 deployment.
-Dependency security gate: Node.js 24, Netlify Functions 6, CLI 27, and Vitest 5. The CLI-scoped sharp 0.35.5 override patches its image-tool dependency. Full and production-only npm audits must pass; CI must fail on a production audit failure.
+Dependency security gate: Node.js 24, Netlify Functions 6, and Vitest 5. Netlify CLI is separate operator tooling, not an application dependency. Full and production-only project audits must pass; they do not assess platform-managed or separately installed CLI tooling. Preserve the independent runtime security gate.
 
 Pod 2 rules: canonicalize source facts before building conflicts. Keep original model labels for audit; never compare unlike physical constraints as the same category. Include affected departments in report scope and readiness. New contradictions must reopen affected checkpoints, and source review must remain a separate gate from requirement confirmation. Source reconciliation is a rule-assisted candidate pass, not an exhaustive extraction guarantee. Uploaded documents require explicit full-source review; only labeled sample documents bypass that gate. Exercise the eight-constraint scenario and recorded DeerFlow omission regression before releasing these rules.
 
@@ -75,3 +75,5 @@ Report provenance: completed task receipts verify execution only. The server sta
 Automatic action dispatch rechecks its internal action/scope allowlist and reserves a durable per-action execution claim before calling DeerFlow. Overlapping workers and stale queue replays cannot dispatch the same action twice. Claims remain after failure or uncertain completion; no automatic retry is allowed. Queue lifecycle updates use bounded compare-and-swap on freshly loaded state and preserve unrelated changes. A changed proposal cannot be dispatched under its earlier reservation. Legacy saved results also prevent replay.
 
 Company pulse action proposals rebase on the current queue with bounded compare-and-swap. Executing and terminal actions, including failures, keep their existing revision and lifecycle status. A failed automatic action requires investigation before any explicit retry; later pulses cannot reopen it.
+
+Founder production publication preserves preview history in its original isolated store. Keep the earlier-history link and separate product-beta URL in Founder settings/navigation. Do not migrate preview approvals or execution receipts into production automatically.
