@@ -1,5 +1,9 @@
 # RIGOR Netlify Beta
 
+Live acceptance uses `python scripts/live-pod-proof.py --url TARGET --expected-commit EXACT_SHA` only on an authorized environment. Upload acceptance (202) is followed by bounded read-only polling of the saved document; failed, missing, mismatched-production or unreceipted analysis never passes. The deployed commit must match before mutations and after the scenario. Run `python -m unittest discover -s scripts -p 'test_live_pod_proof.py' -v` for synthetic loopback contract tests; these do not certify real intelligence or PDF layout.
+
+Company execution verification accepts only the nine registered RIGOR runtime roles. A company cycle requires five distinct registered specialists and one Chief of Staff; unknown, empty, or altered names fail verification. This checks role identity in authenticated gateway receipts, not the accuracy of agent conclusions.
+
 This package is the standalone, hands-on RIGOR evaluator experience. Each tester receives an isolated workspace with capacity for three productions. New productions start without canned requirements or conflicts; uploaded source documents drive the operational record.
 
 Every production advances independently through three end-to-end stages:

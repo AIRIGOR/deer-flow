@@ -67,6 +67,14 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Use Python for offline acceptance harness tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test asynchronous proof contract without live services
+        run: python -m unittest discover -s scripts -p 'test_live_pod_proof.py' -v
+
       - name: Bundle Founder client
         run: npm run build:founder
 

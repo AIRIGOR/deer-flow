@@ -1,5 +1,9 @@
 # RIGOR beta checks
 
+Keep `scripts/live-pod-proof.py` aligned with asynchronous HTTP 202 uploads. Poll the exact saved document and production with a finite deadline, require its DeerFlow receipt, and verify `--expected-commit` before any mutation and at completion. Never print upstream failure bodies. Run its loopback unittest harness; synthetic HTTP/PDF fixtures are contract evidence only.
+
+`delegationVerified` must reject roles outside the backend `execution_receipts.py` AGENTS registry. Keep that allowlist synchronized; run founder.test.ts and deerflow.test.ts after changes. Pulse verification still requires five distinct specialists and exactly one Chief of Staff. Role checks alone do not prove assessment accuracy.
+
 Citation acceptance requires a whitespace-normalized literal excerpt on its cited page. Do not use fuzzy matching to turn an unsupported quotation into evidence. Shared integration receipts bind to context.deploy.id; a coherence review requires both receipts from that same deployment. Legacy unbound receipts remain historical evidence only. These checks verify citation location and execution scope, not semantic accuracy or product readiness.
 
 This module publishes `app/static` and bundles `netlify/functions/rigor-api.mts`.

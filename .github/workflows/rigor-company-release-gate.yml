@@ -27,7 +27,7 @@ jobs:
           test "$code" = 401
       - name: Require strict AI ingestion and product gates
         working-directory: rigor_beta
-        run: python scripts/live-pod-proof.py --url "$RIGOR_URL"
+        run: python scripts/live-pod-proof.py --url "$RIGOR_URL" --expected-commit "${{ github.sha }}"
       - name: Require two fresh cycles and one persisted founder command
         working-directory: rigor_beta
         run: python scripts/live-company-proof.py --url "$RIGOR_URL"

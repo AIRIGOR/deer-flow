@@ -7,6 +7,13 @@ const context = { deploy: { context: "production", id: "deploy-1" } } as Context
 const candidate = { department: "Video", category: "VIDEO_POWER", requirement_text: "Provide 400 amps.", source_excerpt: "Provide 400 amps.", source_page: 90, confidence: .95 };
 beforeEach(() => { records.clear(); vi.restoreAllMocks(); vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } }); });
 describe("shared DeerFlow execution contract", () => {
+  it("rejects a pulse with unregistered specialists before saving verified evidence", async () => {
+    const agents = ["invented-agent", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-finance-runway", "rigor-chief-of-staff"];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ current_state: "Claimed", top_priorities: [], state_updates: [],
+      execution_receipts: agents.map((agent, index) => ({ agent, task_id: `task-${index}`, status: "COMPLETE" })) })));
+    await expect(deerFlowRequest(context, "company_pulse", { objective: "Review" })).rejects.toThrow("DELEGATION_NOT_VERIFIED");
+    expect(records.get("latest/company_pulse")).toMatchObject({ status: "FAILED", error_code: "DELEGATION_NOT_VERIFIED" });
+  });
   it("keeps oversized action context within the backend request limit", () => {
     const context = companyActionContext("proof-action", { result: '"\\'.repeat(30000) });
     expect(context.length).toBeLessThanOrEqual(20000);

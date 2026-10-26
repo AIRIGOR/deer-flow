@@ -51,12 +51,19 @@ export function founderJson(value: unknown, status = 200) {
   }});
 }
 
+// Keep aligned with backend deerflow/rigor/execution_receipts.py AGENTS.
+const registeredExecutionAgents = new Set([
+  "rigor-chief-of-staff", "rigor-product-ops", "rigor-engineering", "rigor-qa-security",
+  "rigor-market-intel", "rigor-partnerships-capital", "rigor-growth-revenue",
+  "rigor-customer-success", "rigor-finance-runway",
+]);
+
 export function delegationVerified(result: Record<string, unknown>, owner?: string, pulse = false) {
   const receipts = result.execution_receipts;
   if (!Array.isArray(receipts)) return false;
   const valid = receipts.every((item) => item?.status === "COMPLETE"
     && typeof item.task_id === "string" && item.task_id.length > 0
-    && typeof item.agent === "string");
+    && typeof item.agent === "string" && registeredExecutionAgents.has(item.agent));
   if (!valid || new Set(receipts.map((item) => item.task_id)).size !== receipts.length) return false;
   if (pulse) return receipts.length === 6 && new Set(receipts.map((item) => item.agent)).size === 6
     && receipts.filter((item) => item.agent === "rigor-chief-of-staff").length === 1;
