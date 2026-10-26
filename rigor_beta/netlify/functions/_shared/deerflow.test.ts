@@ -3,7 +3,7 @@ import type { Context } from "@netlify/functions";
 import { companyActionContext, coherentFlowCheck, deerFlowRequest, integrationHealth } from "./deerflow.js";
 const { records } = vi.hoisted(() => ({ records: new Map<string, any>() }));
 vi.mock("@netlify/blobs", () => { const store = () => ({ setJSON: async (key: string, value: any) => records.set(key, structuredClone(value)), get: async (key: string) => records.get(key) ?? null }); return { getStore: store, getDeployStore: store }; });
-const context = { deploy: { context: "production" } } as Context;
+const context = { deploy: { context: "production", id: "deploy-1" } } as Context;
 const candidate = { department: "Video", category: "VIDEO_POWER", requirement_text: "Provide 400 amps.", source_excerpt: "Provide 400 amps.", source_page: 90, confidence: .95 };
 beforeEach(() => { records.clear(); vi.restoreAllMocks(); vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } }); });
 describe("shared DeerFlow execution contract", () => {
@@ -15,10 +15,26 @@ describe("shared DeerFlow execution contract", () => {
   });
   it("queues only an internal evidence review after both real prerequisites verify", async () => {
     expect(coherentFlowCheck(await integrationHealth(context), "deploy-1")).toBeNull();
-    records.set("latest/document_analysis", { status: "VERIFIED", execution_id: "document-proof" });
+    records.set("latest/document_analysis", { status: "VERIFIED", execution_id: "document-proof", deploy_id: "deploy-1" });
     expect(coherentFlowCheck(await integrationHealth(context), "deploy-1")).toBeNull();
-    records.set("latest/company_pulse", { status: "VERIFIED", execution_id: "pulse-proof" });
+    records.set("latest/company_pulse", { status: "VERIFIED", execution_id: "pulse-proof", deploy_id: "deploy-1" });
     expect(coherentFlowCheck(await integrationHealth(context), "deploy-1")).toMatchObject({ action_type: "INTERNAL_TEST", scope: "OBSERVE", owner_agent: "rigor-qa-security", evidence_refs: ["document-proof", "pulse-proof"] });
+  });
+  it("does not reuse earlier or unbound receipts for a deployment review", async () => {
+    for (const deploy_id of [undefined, "old-deploy"]) {
+      for (const operation of ["document_analysis", "company_pulse"]) records.set(`latest/${operation}`, {status: "VERIFIED", execution_id: operation, deploy_id});
+      expect(coherentFlowCheck(await integrationHealth(context), "deploy-1")).toBeNull();
+    }
+  });
+  it("rejects invented quotations and citations to the wrong page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({requirements: [{...candidate, source_page: 1}]})));
+    await expect(deerFlowRequest(context, "document_analysis", {pages: ["No power confirmed.", candidate.source_excerpt]})).rejects.toThrow("INVALID_SOURCE_PROVENANCE");
+    expect(records.get("latest/document_analysis")).toMatchObject({status: "FAILED", deploy_id: "deploy-1"});
+  });
+  it("accepts whitespace-normalized quotations without rewriting source facts", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({requirements: [{...candidate, source_page: 1}]})));
+    await deerFlowRequest(context, "document_analysis", {pages: ["Provide\n 400\tamps."]});
+    expect(records.get("latest/document_analysis")).toMatchObject({status: "VERIFIED", deploy_id: "deploy-1"});
   });
   it("submits every page with a background budget and a durable receipt", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ requirements: [candidate] })); vi.stubGlobal("fetch", fetcher); const deadline = vi.spyOn(AbortSignal, "timeout");

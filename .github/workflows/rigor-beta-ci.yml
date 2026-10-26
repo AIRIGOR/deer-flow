@@ -20,6 +20,10 @@ on:
       - ".github/workflows/rigor-company-release-gate.yml"
   pull_request:
     paths:
+      - ".github/workflows/rigor-beta-ci.yml"
+      - "backend/packages/harness/deerflow/persistence/rigor/**"
+      - "backend/packages/harness/deerflow/persistence/models/__init__.py"
+      - "backend/packages/harness/deerflow/persistence/migrations/versions/*rigor*.py"
       - "rigor_beta/**"
       - "backend/app/gateway/routers/rigor.py"
       - "backend/app/rigor_service.py"
@@ -65,6 +69,19 @@ jobs:
 
       - name: Bundle Founder client
         run: npm run build:founder
+
+      - name: Record tested revision
+        run: |
+          mkdir -p .artifacts
+          git rev-parse HEAD > .artifacts/tested-commit.txt
+          git rev-parse HEAD^{tree} > .artifacts/tested-tree.txt
+          git diff --exit-code
+
+      - name: Preserve revision evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: rigor-tested-revision
+          path: rigor_beta/.artifacts/tested-*.txt
 
   rigor-core:
     runs-on: ubuntu-latest

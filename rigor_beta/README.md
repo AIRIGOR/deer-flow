@@ -136,3 +136,9 @@ Automatic action dispatch rechecks its internal action/scope allowlist and reser
 ## October 22 Founder publication
 
 The canonical Founder workspace is https://founder.akhasha.com/founder. Production commands use the existing production company store. Prior preview commands, drafts, approvals and send receipts stay in their original isolated preview store, linked from Founder settings. No history or send permissions are automatically copied across environments. The RIGOR product link opens the separately deployed https://rigor-beta.netlify.app/ so publishing Founder operations cannot overwrite its newer document-intake fixes. Publication does not establish product readiness or verified unattended execution.
+
+## October 26 certification repair
+
+The shared DeerFlow adapter rejects quotations absent from their cited source page and binds new execution receipts to their deployment. Coherence reviews require current-deployment receipts. This verifies citation location, not extraction completeness or assessment accuracy. Human source review and all existing approval gates remain required.
+
+Verify with `npm ci`, `npm run check`, `npm test`, both full and production `npm audit --audit-level=high`, and `npx --yes netlify-cli@27.12.1 build --context production --offline`. These commands do not deploy. Hosted CI records the actual tested commit/tree; a pull-request merge-tree result is not a post-merge release certification.

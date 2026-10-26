@@ -30,7 +30,7 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
   const executionId = randomUUID();
   const startedAt = new Date().toISOString();
   const started = Date.now();
-  const receipt = { execution_id: executionId, operation, started_at: startedAt, engine: "DEERFLOW" };
+  const receipt = { execution_id: executionId, operation, started_at: startedAt, engine: "DEERFLOW", deploy_id: context.deploy.id || null };
   const save = async (status: string, extra: Record<string, unknown> = {}) => {
     const record = { ...receipt, status, ...extra };
     await store.setJSON(`execution/${executionId}`, record);
@@ -58,7 +58,9 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
         !item || typeof item.requirement_text !== "string" || !item.requirement_text.trim() ||
         typeof item.source_excerpt !== "string" || !item.source_excerpt.trim() ||
         !Number.isInteger(item.source_page) || item.source_page < 1 || item.source_page > pages.length ||
-        !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1)) {
+        !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1 ||
+        typeof pages[item.source_page - 1] !== "string" ||
+        !pages[item.source_page - 1].replace(/\s+/g, " ").trim().includes(item.source_excerpt.replace(/\s+/g, " ").trim()))) {
         throw new DeerFlowIntegrationError("INVALID_SOURCE_PROVENANCE");
       }
     } else if (operation === "company_pulse" &&
@@ -89,7 +91,9 @@ export async function integrationHealth(context: Context) {
 export function coherentFlowCheck(integration: Awaited<ReturnType<typeof integrationHealth>>, deployId: string) {
   const analysis = integration.operations.document_analysis;
   const pulse = integration.operations.company_pulse;
-  if (analysis?.status !== "VERIFIED" || pulse?.status !== "VERIFIED") return null;
+  if (!deployId || analysis?.status !== "VERIFIED" || pulse?.status !== "VERIFIED" ||
+    analysis.deploy_id !== deployId || pulse.deploy_id !== deployId ||
+    !analysis.execution_id || !pulse.execution_id) return null;
   return {
     action_type: "INTERNAL_TEST" as const,
     scope: "OBSERVE" as const,

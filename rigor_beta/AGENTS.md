@@ -1,5 +1,7 @@
 # RIGOR beta checks
 
+Citation acceptance requires a whitespace-normalized literal excerpt on its cited page. Do not use fuzzy matching to turn an unsupported quotation into evidence. Shared integration receipts bind to context.deploy.id; a coherence review requires both receipts from that same deployment. Legacy unbound receipts remain historical evidence only. These checks verify citation location and execution scope, not semantic accuracy or product readiness.
+
 This module publishes `app/static` and bundles `netlify/functions/rigor-api.mts`.
 `netlify.toml` explicitly runs `npm run check` before function bundling.
 

@@ -55,6 +55,21 @@ describe("durable document upload", () => {
     const count = activeProduction(saved()).requirements.length;
     await worker(); expect(activeProduction(saved()).requirements).toHaveLength(count);
   });
+  it("fails fabricated analysis without ingesting requirements or releasing readiness", async () => {
+    await upload(); await Promise.all(waits);
+    fetchMock.mockResolvedValue(Response.json({requirements: [{department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Provide 800 amps.", source_excerpt: "Provide 800 amps.", source_page: 1, confidence: .99}]}));
+    await worker();
+    const production = activeProduction(saved());
+    expect(production.documents[0]).toMatchObject({status: "FAILED", review_status: "PENDING"});
+    expect(production.requirements).toHaveLength(0);
+    expect(readiness(production).status).not.toBe("SHOW_READY");
+    expect([...records.keys()].some(key => key.startsWith("upload/"))).toBe(true);
+    for (const suffix of ["", "?department=Lighting"]) {
+      const response = await handler(request(`/api/reports/advance.pdf${suffix}`), ctx);
+      expect(response.status).toBe(200);
+      expect(new TextDecoder().decode((await response.arrayBuffer()).slice(0, 5))).toBe("%PDF-");
+    }
+  });
   it("preserves page boundaries, latest human decisions and production selection", async () => {
     await upload("tour.pdf"); await Promise.all(waits);
     pdf.mockImplementation(async (_bytes, opts) => {
