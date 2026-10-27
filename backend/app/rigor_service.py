@@ -6,7 +6,7 @@ import hmac
 import os
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from deerflow.rigor import (
     CompanyActionProposal,
@@ -18,6 +18,7 @@ from deerflow.rigor import (
     RigorCompanyPulseError,
     RigorDocumentAnalyzer,
 )
+from deerflow.rigor.john_pm import JohnEvidence, JohnPmAgent, JohnPmError
 
 app = FastAPI(
     title="RIGOR DeerFlow Intelligence",
@@ -30,6 +31,11 @@ app = FastAPI(
 class AnalyzeDocumentRequest(BaseModel):
     document_name: str = Field(min_length=1, max_length=255)
     pages: list[str] = Field(min_length=1, max_length=120)
+
+
+class JohnAnalyzeRequest(BaseModel):
+    synthetic: StrictBool
+    evidence: list[JohnEvidence] = Field(min_length=1, max_length=80)
 
 
 class CompanyPulseRequest(BaseModel):
@@ -89,6 +95,25 @@ async def analyze_document(
         )
     except RigorAnalysisError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return result.model_dump()
+
+
+@app.post("/api/rigor/agents/john/analyze")
+async def analyze_john(
+    body: JohnAnalyzeRequest,
+    x_rigor_service_token: str | None = Header(default=None),
+):
+    _authorize(x_rigor_service_token)
+    if os.getenv("RIGOR_JOHN_STAGING_ENABLED") != "true":
+        raise HTTPException(status_code=403, detail="John requires isolated staging")
+    if body.synthetic is not True:
+        raise HTTPException(status_code=422, detail="Synthetic evidence is required")
+    if sum(len(item.text) for item in body.evidence) > 25000:
+        raise HTTPException(status_code=413, detail="Synthetic evidence exceeds the PM analysis limit")
+    try:
+        result = await JohnPmAgent().analyze(evidence=body.evidence)
+    except JohnPmError as exc:
+        raise HTTPException(status_code=502, detail="John model response unavailable or invalid") from exc
     return result.model_dump()
 
 

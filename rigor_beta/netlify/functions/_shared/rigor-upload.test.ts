@@ -35,10 +35,27 @@ beforeEach(() => {
   records.set(`workspace/${workspace.tester.tester_id}`, structuredClone(workspace));
   records.set(`session/${createHash("sha256").update("test-session").digest("hex")}`, { testerId: workspace.tester.tester_id, expiresAt: "2099-01-01" });
   ctx = { deploy: { context: "production" }, waitUntil: (p: Promise<unknown>) => waits.push(p) } as unknown as Context;
-  vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } });
+  vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_JOHN_STAGING_ENABLED" ? "true" : name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } });
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it.each([undefined, "false", "TRUE"])("keeps the isolated John fixture disabled with flag %s", async (flag) => {
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" } } as Context;
+    vi.stubGlobal("Netlify", { env: { get: () => flag } });
+    expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(403);
+  });
+  it("authorizes John's fixture on the explicitly enabled isolated staging site even in production deploy context", async () => {
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" } } as Context;
+    vi.stubGlobal("Netlify", { env: { get: (key: string) => key === "RIGOR_JOHN_STAGING_ENABLED" ? "true" : undefined } });
+    expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(200);
+  });
+
+  it.each(["017e4a4d-7db9-4e61-88fd-56dd2b2be844", "unknown-site", ""])("denies John's fixture on unapproved site %s even with the flag and a preview context", async (id) => {
+    ctx = { ...ctx, site: { id }, deploy: { context: "deploy-preview" } } as Context;
+    vi.stubGlobal("Netlify", { env: { get: () => "true" } });
+    expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(403);
+    expect(saved().productions[0].documents).toHaveLength(0);
+  });
   it("accepts a faithful model citation with normalized source whitespace", async () => {
     const response = await upload("wrapped-source.txt", "Lighting requires\n400 amps of power.");
     expect(response.status).toBe(202);
@@ -49,7 +66,7 @@ describe("durable document upload", () => {
   });
 
   it("John model challenges the loaded fictional tour without changing its blockers", async () => {
-    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
     expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(200);
     const before = structuredClone(saved());
     const sourceId = activeProduction(before).requirements[0].requirement_id;
@@ -72,7 +89,7 @@ describe("durable document upload", () => {
 
 
   it("loads John's 14-source rehearsal only into an empty staging production", async () => {
-    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
     const response = await handler(request("/api/agents/john/fixture", "{}"), ctx);
     expect(response.status).toBe(200);
     const fixture = await response.json();
@@ -101,7 +118,7 @@ describe("durable document upload", () => {
     loadSampleProduction(activeProduction(sample));
     records.set(`workspace/${workspace.tester.tester_id}`, sample);
     const before = structuredClone(saved());
-    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
     fetchMock.mockImplementation(async (url: string) => String(url).includes("/agents/john/analyze")
       ? Response.json({ agent: "John", mode: "MODEL_ADVISORY_ONLY",
           release_decision: "HOLD_SHOW", autonomous_show_approval: false,
@@ -122,7 +139,7 @@ describe("durable document upload", () => {
   it("refuses John model on production deploy or real customer evidence", async () => {
     const production = await handler(request("/api/agents/john/analyze", "{}"), ctx);
     expect(production.status).toBe(403);
-    ctx = { ...ctx, deploy: { context: "deploy-preview" } } as Context;
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
     const real = await handler(request("/api/agents/john/analyze", "{}"), ctx);
     expect(real.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();

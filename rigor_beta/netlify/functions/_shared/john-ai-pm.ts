@@ -1,4 +1,11 @@
 import { activeProduction, extractRequirements, newId, now, readiness, type ProductionState, type WorkspaceState } from "./model.js";
+import type { Context } from "@netlify/functions";
+
+// Deploy context is a build category, not an environment authorization boundary.
+export function johnStagingAuthorized(context: Context): boolean {
+  return context.site?.id === "96331e39-86a9-45a3-910c-edd321d60bb7"
+    && Netlify.env.get("RIGOR_JOHN_STAGING_ENABLED") === "true";
+}
 
 /**
  * John is RIGOR's fictional touring Production Manager test persona.

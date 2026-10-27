@@ -503,3 +503,5 @@ See the [LICENSE](../LICENSE) file in the project root.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+John rehearsal: POST /api/rigor/agents/john/analyze requires the existing shared service token, RIGOR_JOHN_STAGING_ENABLED=true and explicit synthetic=true evidence. John has no tools or mutation authority; validated output always holds the show. Missing staging authorization fails closed. RIGOR_MODEL_API_KEY is the model credential variable; enter it privately in the staging runtime.
