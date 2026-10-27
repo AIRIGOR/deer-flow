@@ -1,5 +1,9 @@
 # RIGOR Netlify Beta
 
+Workspace edits now reject stale concurrent changes with HTTP 409; reload the current workspace before retrying. Background upload analysis reserves one execution per job and does not automatically replay uncertain work. Source bytes remain saved and the show stays blocked until analysis is resolved. These safeguards do not establish a cross-object database transaction or complete disaster recovery.
+
+New uploads retain a versioned source binding with document identity, saved-byte hash and byte length. Analysis checks that binding before using the file, and derived requirements retain it. Equal filenames remain separate documents. Existing records remain readable; pending legacy jobs are labeled as bindings of currently saved bytes, without claiming original-upload integrity. See `docs/RIGOR_INTEGRATION_CONTRACTS.md` and the release gates for remaining consistency limitations.
+
 Live acceptance uses `python scripts/live-pod-proof.py --url TARGET --expected-commit EXACT_SHA` only on an authorized environment. Upload acceptance (202) is followed by bounded read-only polling of the saved document; failed, missing, mismatched-production or unreceipted analysis never passes. The deployed commit must match before mutations and after the scenario. Run `python -m unittest discover -s scripts -p 'test_live_pod_proof.py' -v` for synthetic loopback contract tests; these do not certify real intelligence or PDF layout.
 
 Company execution verification accepts only the nine registered RIGOR runtime roles. A company cycle requires five distinct registered specialists and one Chief of Staff; unknown, empty, or altered names fail verification. This checks role identity in authenticated gateway receipts, not the accuracy of agent conclusions.

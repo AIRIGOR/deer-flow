@@ -1,6 +1,7 @@
 declare const Netlify: { env: { get(key: string): string | undefined } } | undefined;
 
 import { CHECKPOINTS, DEPARTMENTS, DOCUMENTS, KEYWORDS, REQUIREMENTS } from "./seed.js";
+import type { SourceProvenanceV1 } from "./source-provenance.js";
 
 export type RecordMap = Record<string, any>;
 export type ProductionState = {
@@ -105,8 +106,9 @@ function sourceReviewed(document: RecordMap) {
 
 // Reconcile obvious source sentences that the model omitted. This assists human
 // document review; it is not a claim of exhaustive semantic extraction.
-export function reconcileSourceRequirements(state: ProductionState, documentName: string, pages: string[]) {
-  const existing = state.requirements.filter((item) => item.document_name === documentName);
+export function reconcileSourceRequirements(state: ProductionState, documentName: string, pages: string[], source?: SourceProvenanceV1) {
+  const existing = state.requirements.filter((item) => source
+    ? item.source_provenance?.document_id === source.document_id : item.document_name === documentName);
   const scratch = createProduction(state.production.workspace_id);
   const candidates = extractRequirements(scratch, documentName, pages);
   const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -117,6 +119,7 @@ export function reconcileSourceRequirements(state: ProductionState, documentName
   }));
   for (const candidate of recovered) {
     candidate.production_id = state.production.production_id;
+    if (source) candidate.source_provenance = source;
     candidate.source_kind = "SOURCE_REVIEW";
     candidate.analysis_engine = "SOURCE_RECONCILIATION";
     candidate.coverage_review_required = true;

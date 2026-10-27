@@ -5,6 +5,7 @@ import pdfParse from "pdf-parse";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./_shared/deerflow.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
+import { sourceProvenance, verifySourceProvenance, type SourceProvenanceV1 } from "./_shared/source-provenance.js";
 import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
 const COOKIE = "rigor_beta_session";
@@ -25,6 +26,20 @@ function json(data: unknown, status = 200, headers: Record<string, string> = {})
 
 function fail(detail: string, status = 422) { return json({ detail }, status); }
 function hash(value: string) { return createHash("sha256").update(value).digest("hex"); }
+class WorkspaceConflict extends Error {
+  constructor() { super("Workspace changed during this request. Reload current state before retrying."); }
+}
+const workspaceRevisions = new WeakMap<WorkspaceState, {key: string; etag: string}>();
+
+async function loadWorkspace(store: ReturnType<typeof getStore>, testerId: string) {
+  const key = `workspace/${testerId}`;
+  const saved = await store.getWithMetadata(key, { type: "json" });
+  if (!saved) return null;
+  if (!saved.etag) throw new Error("Workspace revision unavailable; updates are blocked");
+  const state = normalizeWorkspace(saved.data as WorkspaceState);
+  workspaceRevisions.set(state, {key, etag: saved.etag});
+  return state;
+}
 function cookieValue(request: Request) {
   return request.headers.get("cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1) ?? null;
 }
@@ -35,13 +50,18 @@ async function authenticated(request: Request, context: Context) {
   const store = storeFor(context);
   const session = await store.get(`session/${hash(token)}`, { type: "json" }) as { testerId: string; expiresAt: string } | null;
   if (!session || session.expiresAt <= now()) return null;
-  const stored = await store.get(`workspace/${session.testerId}`, { type: "json" }) as WorkspaceState | null;
-  return stored ? { store, state: normalizeWorkspace(stored) } : null;
+  const state = await loadWorkspace(store, session.testerId);
+  return state ? { store, state } : null;
 }
 
 async function save(store: ReturnType<typeof getStore>, state: WorkspaceState) {
+  const revision = workspaceRevisions.get(state);
+  if (!revision || revision.key !== `workspace/${state.tester.tester_id}`) throw new WorkspaceConflict();
   state.workspace.updated_at = now();
-  await store.setJSON(`workspace/${state.tester.tester_id}`, state);
+  const result = await store.setJSON(revision.key, state, {onlyIfMatch: revision.etag});
+  if (!result.modified) throw new WorkspaceConflict();
+  if (result.etag) workspaceRevisions.set(state, {...revision, etag: result.etag});
+  else workspaceRevisions.delete(state); // The write committed; another write requires a fresh revision.
 }
 
 async function body(request: Request) {
@@ -65,14 +85,14 @@ async function analyzeWithDeerFlow(context: Context, documentName: string, pages
   return { requirements: payload.requirements, receiptId: response.headers.get("X-RIGOR-Execution-Id") };
 }
 
-function ingestDeerFlowRequirements(production: ProductionState, documentName: string, items: DeerFlowRequirement[]) {
-  const seen = new Set(production.requirements.map((item) => `${item.document_name}|${item.excerpt}`));
+function ingestDeerFlowRequirements(production: ProductionState, documentName: string, items: DeerFlowRequirement[], source: SourceProvenanceV1) {
+  const seen = new Set(production.requirements.map((item) => `${item.source_provenance?.document_id || `legacy:${item.document_name}`}|${item.page_number}|${item.excerpt}`));
   const created: Record<string, any>[] = [];
   for (const candidate of items) {
     const detail = String(candidate.requirement_text || "").trim();
     const excerpt = String(candidate.source_excerpt || detail).trim();
     if (!detail || !excerpt) continue;
-    const dedupeKey = `${documentName}|${excerpt}`;
+    const dedupeKey = `${source.document_id}|${candidate.source_page}|${excerpt}`;
     if (seen.has(dedupeKey)) continue;
     const item = {
       requirement_id: newId("req"),
@@ -90,6 +110,7 @@ function ingestDeerFlowRequirements(production: ProductionState, documentName: s
       owner: null,
       due_at: null,
       document_name: documentName,
+      source_provenance: source,
       page_number: Number(candidate.source_page) > 0 ? Number(candidate.source_page) : null,
       source_location: Number(candidate.source_page) > 0 ? `Page ${Number(candidate.source_page)}` : null,
       excerpt,
@@ -282,7 +303,7 @@ async function queueUpload(request: Request, context: Context, state: WorkspaceS
       });
       if (response.status !== 202) throw new Error("Background analysis could not start");
     } catch {
-      const latest = await store.get(`workspace/${state.tester.tester_id}`, { type: "json" }) as WorkspaceState | null;
+      const latest = await loadWorkspace(store, state.tester.tester_id);
       const doc = latest?.productions.find(p => p.production.production_id === production.production.production_id)?.documents.find(d => d.document_id === documentId);
       if (latest && doc && doc.status === "PROCESSING") {
         doc.status = "FAILED"; doc.processing_error = "Document saved, but analysis could not start. Retry analysis.";
@@ -300,9 +321,8 @@ export async function processUpload(request: Request, context: Context) {
   const job = await store.get(`document-job/${jobId}`, { type: "json" }) as { testerId: string; productionId: string; documentId: string } | null;
   if (!job) return;
   const load = async () => {
-    const stored = await store.get(`workspace/${job.testerId}`, { type: "json" }) as WorkspaceState | null;
-    if (!stored) throw new Error("Workspace unavailable");
-    const state = normalizeWorkspace(stored);
+    const state = await loadWorkspace(store, job.testerId);
+    if (!state) throw new Error("Workspace unavailable");
     const production = state.productions.find(p => p.production.production_id === job.productionId);
     const document = production?.documents.find(d => d.document_id === job.documentId);
     if (!production || !document) throw new Error("Document unavailable");
@@ -313,6 +333,15 @@ export async function processUpload(request: Request, context: Context) {
     if (initial.document.status !== "PROCESSING") return;
     const raw = await store.get(`upload/${initial.state.workspace.workspace_id}/${job.productionId}/${job.documentId}`, { type: "arrayBuffer" });
     if (!raw) throw new Error("Saved document unavailable");
+    const identity = { document_id: job.documentId, production_id: job.productionId, workspace_id: initial.state.workspace.workspace_id };
+    const source = verifySourceProvenance(initial.document.source_provenance, identity, raw);
+    const attemptId = hash(jobId);
+    const claimed = await store.setJSON(`document-execution/${attemptId}`, {
+      status: "RESERVED", attempt_id: attemptId, ...identity, source_provenance: source,
+      deploy_id: context.deploy.id || null, started_at: now(),
+    }, {onlyIfNew: true});
+    // Retain claims after failure/uncertainty; only an explicit retry creates a new job capability.
+    if (!claimed.modified) return;
     const pages: string[] = [];
     if (/\.pdf$/i.test(initial.document.name)) {
       await pdfParse(Buffer.from(raw), { pagerender: async (page: any) => {
@@ -331,18 +360,19 @@ export async function processUpload(request: Request, context: Context) {
     // Rebase on current state after slow analysis, preserving production selection and human decisions.
     const { state, production, document } = await load();
     if (document.status !== "PROCESSING") return;
-    const extracted = ingestDeerFlowRequirements(production, document.name, deerFlowRequirements);
-    const recovered = reconcileSourceRequirements(production, document.name, pages);
+    verifySourceProvenance(document.source_provenance, identity, raw);
+    const extracted = ingestDeerFlowRequirements(production, document.name, deerFlowRequirements, source);
+    const recovered = reconcileSourceRequirements(production, document.name, pages, source);
     extracted.push(...recovered); invalidateChangedCheckpoints(production, extracted);
-    Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now() });
+    Object.assign(document, { source_provenance: source, status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now() });
     delete document.processing_error;
-    event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, requirements: extracted.length, analysis_engine: document.analysis_engine });
+    event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, attempt_id: attemptId, requirements: extracted.length, analysis_engine: document.analysis_engine, source_provenance: source, analysis_receipt_id: analysis.receiptId });
     await save(store, state);
   } catch (error) {
     const { state, production, document } = await load();
     if (document.status === "PROCESSING") {
-      document.status = "FAILED"; document.processing_error = error instanceof DeerFlowIntegrationError ? error.message : "Analysis failed. Retry analysis or upload a readable PDF/TXT.";
-      event(production, "DOCUMENT_PROCESSING_FAILED", { document_id: job.documentId });
+      document.status = "FAILED"; document.processing_error = error instanceof DeerFlowIntegrationError || error instanceof WorkspaceConflict ? error.message : "Analysis failed. Retry analysis or upload a readable PDF/TXT.";
+      event(production, "DOCUMENT_PROCESSING_FAILED", { document_id: job.documentId, ...(error instanceof WorkspaceConflict ? {error_code: "WORKSPACE_CONFLICT"} : {}) });
       await save(store, state);
     }
     console.error("Document processing failed", error instanceof Error ? error.name : "Unknown error");
@@ -387,7 +417,8 @@ export default async (request: Request, context: Context) => {
       if (document.doc_type === "UPLOADED" && document.analysis_engine !== "DEERFLOW") return fail("Verified DeerFlow analysis is required. Retry analysis before completing source review.");
       const data = await body(request);
       if (data.complete_source_review !== true) return fail("Confirm the complete source document has been reviewed");
-      const candidates = production.requirements.filter((req) => req.document_name === document.name);
+      const candidates = production.requirements.filter((req) => req.source_provenance
+        ? req.source_provenance.document_id === document.document_id : req.document_name === document.name);
       if (candidates.some((req) => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(req.status))) return fail("Review the document's requirement candidates first");
       document.review_status = "REVIEWED";
       document.reviewed_by = state.tester.display_name;
@@ -492,11 +523,13 @@ export default async (request: Request, context: Context) => {
       const safeName = file.name.replace(/[^A-Za-z0-9._ -]/g, "_").trim().slice(0, 120) || "uploaded-document";
       if (!/\.(pdf|txt)$/i.test(safeName)) return fail("Upload a PDF or TXT document");
       const documentId = newId("doc");
-      await store.set(`upload/${state.workspace.workspace_id}/${production.production.production_id}/${documentId}`, await file.arrayBuffer());
+      const rawBytes = await file.arrayBuffer();
+      const source = sourceProvenance({ document_id: documentId, production_id: production.production.production_id, workspace_id: state.workspace.workspace_id }, rawBytes);
+      await store.set(`upload/${state.workspace.workspace_id}/${production.production.production_id}/${documentId}`, rawBytes);
       production.documents.push({ document_id: documentId, production_id: production.production.production_id,
         workspace_id: state.workspace.workspace_id, name: safeName, doc_type: "UPLOADED", status: "PROCESSING",
-        review_status: "PENDING", page_count: 0, source_kind: "TESTER", created_at: now(), processing_started_at: now() });
-      event(production, "DOCUMENT_SAVED", { document_id: documentId });
+        review_status: "PENDING", page_count: 0, source_kind: "TESTER", source_provenance: source, created_at: now(), processing_started_at: now() });
+      event(production, "DOCUMENT_SAVED", { document_id: documentId, source_provenance: source });
       await save(store, state);
       await queueUpload(request, context, state, production, documentId);
       return json({ result: { document_id: documentId, name: safeName, status: "PROCESSING" }, workspace: snapshot(state) }, 202);
@@ -516,7 +549,7 @@ export default async (request: Request, context: Context) => {
       const department = url.searchParams.get("department"); if (department && !(DEPARTMENTS as readonly string[]).includes(department)) return fail("Invalid department"); const bytes = await reportPdf(production, department); const pdfBody = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer; const filename = `RIGOR-${production.show.show_name}-${department || "Master"}-Advance-Report.pdf`.replace(/[^A-Za-z0-9.-]+/g, "-"); return new Response(pdfBody, { headers: { ...commonHeaders("application/pdf"), "Content-Disposition": `attachment; filename=\"${filename}\"` } });
     }
     return fail("Not found", 404);
-  } catch (error) { console.error(error); return fail(error instanceof Error ? error.message : "Unexpected server error", 500); }
+  } catch (error) { console.error(error); return fail(error instanceof Error ? error.message : "Unexpected server error", error instanceof WorkspaceConflict ? 409 : 500); }
 };
 
 export const config: Config = {

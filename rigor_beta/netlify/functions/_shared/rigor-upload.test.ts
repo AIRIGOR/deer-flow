@@ -5,8 +5,15 @@ import { activeProduction, createProduction, createWorkspace, progress, readines
 const { records, pdf } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn() }));
 vi.mock("@netlify/blobs", () => ({ getStore: () => ({
   get: async (key: string) => records.has(key) ? structuredClone(records.get(key)) : null,
+  getWithMetadata: async (key: string) => records.has(key) ? { data: structuredClone(records.get(key)), etag: createHash("sha256").update(JSON.stringify(records.get(key))).digest("hex") } : null,
   set: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
-  setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
+  setJSON: async (key: string, value: any, options?: {onlyIfMatch?: string; onlyIfNew?: boolean}) => {
+    if (options?.onlyIfNew && records.has(key)) return {modified: false};
+    const currentEtag = records.has(key) ? createHash("sha256").update(JSON.stringify(records.get(key))).digest("hex") : null;
+    if (options?.onlyIfMatch && options.onlyIfMatch !== currentEtag) return {modified: false};
+    records.set(key, structuredClone(value));
+    return {modified: true, etag: createHash("sha256").update(JSON.stringify(value)).digest("hex")};
+  },
   delete: async (key: string) => { records.delete(key); },
 }) }));
 vi.mock("pdf-parse", () => ({ default: pdf }));
@@ -35,6 +42,84 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it("reserves one intelligence execution for overlapping deliveries of the same upload job", async () => {
+    await upload(); await Promise.all(waits);
+    await Promise.all([worker(), worker()]);
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("gateway.test"))).toHaveLength(1);
+    const production = activeProduction(saved());
+    expect(production.events.filter(event => event.type === "DOCUMENT_PROCESSED")).toHaveLength(1);
+    expect(production.documents[0].status).toBe("PROCESSED");
+  });
+  it("does not replay an uncertain reserved upload execution or fabricate completion", async () => {
+    await upload(); await Promise.all(waits);
+    const job = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const attemptId = createHash("sha256").update(job.jobId).digest("hex");
+    records.set(`document-execution/${attemptId}`, {status: "RESERVED"});
+    fetchMock.mockClear();
+    await processUpload(new Request("https://rigor.test/worker", {method: "POST", body: JSON.stringify(job)}), ctx);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(activeProduction(saved()).documents[0].status).toBe("PROCESSING");
+    expect(readiness(activeProduction(saved())).status).not.toBe("SHOW_READY");
+    expect(records.get(`document-execution/${attemptId}`).status).toBe("RESERVED");
+  });
+  it("rejects a racing workspace write instead of losing a production and its audit event", async () => {
+    const details = JSON.stringify({show_name: "Concurrent Show", artist: "Test Artist", venue: "Test Venue", city: "Test City", show_date: "2026-12-01"});
+    const responses = await Promise.all([handler(request("/api/productions", details), ctx), handler(request("/api/productions", details), ctx)]);
+    expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+    const latest = saved();
+    expect(latest.productions).toHaveLength(2);
+    expect(activeProduction(latest).events.filter(item => item.type === "PRODUCTION_CREATED")).toHaveLength(1);
+  });
+  it("binds saved bytes and extracted requirements to an immutable source identity", async () => {
+    await upload(); await Promise.all(waits);
+    const document = activeProduction(saved()).documents[0];
+    expect(document.source_provenance).toMatchObject({ schema_version: "rigor.source.v1", document_id: document.document_id,
+      production_id: document.production_id, workspace_id: document.workspace_id,
+      sha256: createHash("sha256").update("Lighting requires 400 amps of power.").digest("hex"), byte_length: 36 });
+    await worker();
+    for (const requirement of activeProduction(saved()).requirements) expect(requirement.source_provenance).toEqual(document.source_provenance);
+  });
+  it("fails changed raw bytes before calling the intelligence gateway", async () => {
+    await upload(); await Promise.all(waits);
+    const key = [...records.keys()].find(key => key.startsWith("upload/"))!;
+    records.set(key, new TextEncoder().encode("Changed source content").buffer);
+    fetchMock.mockClear();
+    await processUpload(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify({ jobId: [...records.keys()].find(key => key.startsWith("document-job/"))!.split("/")[1] }) }), ctx);
+    expect(activeProduction(saved()).documents[0].status).toBe("FAILED");
+    expect(activeProduction(saved()).requirements).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(records.has(key)).toBe(true);
+  });
+  it("keeps equal filenames as separate sources rather than silently deduplicating their facts", async () => {
+    await upload("tour.txt"); await Promise.all(waits); await worker();
+    const original = activeProduction(saved()).requirements[0];
+    fetchMock.mockClear();
+    await upload("tour.txt"); await Promise.all(waits); await worker();
+    const production = activeProduction(saved());
+    const sourced = production.requirements.filter(item => item.excerpt === original.excerpt);
+    expect(sourced).toHaveLength(2);
+    expect(new Set(sourced.map(item => item.source_provenance.document_id)).size).toBe(2);
+    expect(sourced[0].requirement_id).toBe(original.requirement_id);
+  });
+  it.each(["workspace_id", "production_id", "document_id"])("rejects a source binding from another %s before analysis", async field => {
+    await upload(); await Promise.all(waits);
+    const latest = saved();
+    activeProduction(latest).documents[0].source_provenance[field] = "other-identity";
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    const jobId = [...records.keys()].find(key => key.startsWith("document-job/"))!.split("/")[1];
+    fetchMock.mockClear();
+    await processUpload(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify({jobId}) }), ctx);
+    expect(activeProduction(saved()).documents[0].status).toBe("FAILED");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("labels legacy pending sources as bindings of currently saved bytes", async () => {
+    await upload(); await Promise.all(waits);
+    const latest = saved(); delete activeProduction(latest).documents[0].source_provenance;
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    await worker();
+    expect(activeProduction(saved()).documents[0].source_provenance.capture).toBe("LEGACY_PROCESSING");
+    expect(activeProduction(saved()).documents[0].status).toBe("PROCESSED");
+  });
   it("persists raw bytes and processing state before parsing or analysis", async () => {
     const response = await upload("tour.pdf");
     expect(response.status).toBe(202);
