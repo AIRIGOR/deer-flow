@@ -2,6 +2,13 @@ import {normalizeExecutionResult, delegationVerified} from "./founder.js";
 import { randomUUID } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
+import type { SourceProvenanceV1 } from "./source-provenance.js";
+
+export type AnalysisContextV1 = Readonly<{
+  schema_version: "rigor.analysis-context.v1";
+  attempt_id: string;
+  source_provenance: SourceProvenanceV1;
+}>;
 
 export const OPERATING_MOTTO = "Flow like water";
 export type DeerFlowOperation = "document_analysis" | "company_pulse" | "company_action";
@@ -25,15 +32,17 @@ export class DeerFlowIntegrationError extends Error {
 
 // RIGOR product and 3NETRA company operations use the same authenticated gateway,
 // bounded execution, sanitized failures, and durable execution receipts.
-export async function deerFlowRequest(context: Context, operation: DeerFlowOperation, payload: Record<string, unknown>) {
+export async function deerFlowRequest(context: Context, operation: DeerFlowOperation, payload: Record<string, unknown>, analysisContext?: AnalysisContextV1) {
   const store = integrationStore(context);
   const executionId = randomUUID();
   const startedAt = new Date().toISOString();
   const started = Date.now();
-  const receipt = { execution_id: executionId, operation, started_at: startedAt, engine: "DEERFLOW", deploy_id: context.deploy.id || null };
+  const receipt = { execution_id: executionId, operation, started_at: startedAt, engine: "DEERFLOW", deploy_id: context.deploy.id || null,
+    ...(analysisContext ? {analysis_context: analysisContext} : {}) };
   const save = async (status: string, extra: Record<string, unknown> = {}) => {
     const record = { ...receipt, status, ...extra };
     await store.setJSON(`execution/${executionId}`, record);
+    if (analysisContext) await store.setJSON(`attempt/${operation}/${analysisContext.attempt_id}`, record);
     await store.setJSON(`latest/${operation}`, record);
   };
   await save("RUNNING");
@@ -83,9 +92,12 @@ export async function integrationHealth(context: Context) {
   const store = integrationStore(context);
   const operations = Object.keys(routes) as DeerFlowOperation[];
   const receipts = await Promise.all(operations.map(operation => store.get(`latest/${operation}`, { type: "json" })));
+  // Health is public: source/tenant identifiers and private attempt correlation must stay in the evidence store.
+  const publicFields = new Set(["execution_id", "operation", "started_at", "completed_at", "engine", "deploy_id", "status", "duration_ms", "error_code", "pages_submitted", "requirements_returned"]);
+  const publicReceipts = receipts.map(receipt => receipt ? Object.fromEntries(Object.entries(receipt).filter(([key]) => publicFields.has(key))) : {status: "UNVERIFIED"});
   return { motto: OPERATING_MOTTO, components: { product: "RIGOR", runtime: "DEERFLOW", company_operator: "3NETRA" },
     configured: Boolean(Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim() && Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim()),
-    operations: Object.fromEntries(operations.map((operation, index) => [operation, receipts[index] || { status: "UNVERIFIED" }])) };
+    operations: Object.fromEntries(operations.map((operation, index) => [operation, publicReceipts[index]])) };
 }
 
 export function coherentFlowCheck(integration: Awaited<ReturnType<typeof integrationHealth>>, deployId: string) {
@@ -93,7 +105,8 @@ export function coherentFlowCheck(integration: Awaited<ReturnType<typeof integra
   const pulse = integration.operations.company_pulse;
   if (!deployId || analysis?.status !== "VERIFIED" || pulse?.status !== "VERIFIED" ||
     analysis.deploy_id !== deployId || pulse.deploy_id !== deployId ||
-    !analysis.execution_id || !pulse.execution_id) return null;
+    typeof analysis.execution_id !== "string" || !analysis.execution_id.trim() ||
+    typeof pulse.execution_id !== "string" || !pulse.execution_id.trim()) return null;
   return {
     action_type: "INTERNAL_TEST" as const,
     scope: "OBSERVE" as const,

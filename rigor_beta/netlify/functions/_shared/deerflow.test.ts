@@ -7,6 +7,19 @@ const context = { deploy: { context: "production", id: "deploy-1" } } as Context
 const candidate = { department: "Video", category: "VIDEO_POWER", requirement_text: "Provide 400 amps.", source_excerpt: "Provide 400 amps.", source_page: 90, confidence: .95 };
 beforeEach(() => { records.clear(); vi.restoreAllMocks(); vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } }); });
 describe("shared DeerFlow execution contract", () => {
+  it("durably correlates document receipts to their source attempt without exposing that context in health", async () => {
+    const source = {schema_version: "rigor.source.v1" as const, document_id: "private-document", workspace_id: "private-workspace", production_id: "private-production", sha256: "b".repeat(64), byte_length: 36, capture: "UPLOAD" as const};
+    const trace = {schema_version: "rigor.analysis-context.v1" as const, attempt_id: "a".repeat(64), source_provenance: source};
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({requirements: [{...candidate, source_page: 1}]})));
+    const response = await deerFlowRequest(context, "document_analysis", {pages: [candidate.source_excerpt]}, trace);
+    const executionId = response.headers.get("X-RIGOR-Execution-Id");
+    expect(records.get(`execution/${executionId}`)).toMatchObject({status: "VERIFIED", analysis_context: trace});
+    expect(records.get(`attempt/document_analysis/${trace.attempt_id}`)).toMatchObject({execution_id: executionId, status: "VERIFIED", analysis_context: trace});
+    const publicHealth = JSON.stringify(await integrationHealth(context));
+    expect(publicHealth).not.toContain("private-document");
+    expect(publicHealth).not.toContain("private-workspace");
+    expect(publicHealth).not.toContain("analysis_context");
+  });
   it("rejects a pulse with unregistered specialists before saving verified evidence", async () => {
     const agents = ["invented-agent", "rigor-engineering", "rigor-qa-security", "rigor-market-intel", "rigor-finance-runway", "rigor-chief-of-staff"];
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ current_state: "Claimed", top_priorities: [], state_updates: [],

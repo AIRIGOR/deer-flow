@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rigor:analysis-context:v1",
+  "title": "Private RIGOR analysis attempt correlation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attempt_id", "source_provenance"],
+  "properties": {
+    "schema_version": {"const": "rigor.analysis-context.v1"},
+    "attempt_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_provenance": {"$ref": "source-provenance.v1.schema.json"}
+  }
+}

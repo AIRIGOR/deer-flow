@@ -6,7 +6,7 @@ Statuses are VERIFIED, PARTIAL, FAILED, BLOCKED, NOT TESTED. Track implementatio
 
 Critical unresolved gates:
 
-1. Shared truth: revision-checked product updates and per-job execution reservations are locally tested. Prove real cross-key failure/recovery and concurrency behavior; reconcile any backend/product ownership before dual writes.
+1. Shared truth: the bounded canonical-aggregate/recovery contract now has real-store process interruption and concurrent-edit evidence. Global ACID, broad disaster recovery/retention, privileged audit tamper resistance and any future backend/product ownership cutover remain explicit gates. Never dual-write a show by assumption.
 2. Infrastructure: establish the actual isolated staging gateway, scoped runtime authentication and provider/model configuration without inventing endpoints or copying production credentials.
 3. Provenance/CI: exact candidate -> hosted checks -> build/source archive -> published deploy; historical runs do not certify a different tree.
 4. Required document scenario: venue packet, tour rider and revision with consequential hidden conflict; exact quotations/source hashes; authorized department resolution; change invalidates downstream decisions.

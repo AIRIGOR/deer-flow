@@ -1,5 +1,7 @@
 # RIGOR Netlify Beta
 
+Upload recovery now tracks the current analysis attempt so late results or errors cannot overwrite a newer retry. Private receipts retain source/attempt correlation across interruption; public health hides that private context. To exercise real process interruption locally, run `node scripts/recovery-proof/run.mjs deer-flow-dev-frontend:latest` with Docker running and the image already built. The test uses only new network-isolated containers and synthetic data, preserves its evidence under `.artifacts/recovery-proof`, and does not start or modify your DeerFlow stack. It is not a live intelligence test.
+
 Workspace edits now reject stale concurrent changes with HTTP 409; reload the current workspace before retrying. Background upload analysis reserves one execution per job and does not automatically replay uncertain work. Source bytes remain saved and the show stays blocked until analysis is resolved. These safeguards do not establish a cross-object database transaction or complete disaster recovery.
 
 New uploads retain a versioned source binding with document identity, saved-byte hash and byte length. Analysis checks that binding before using the file, and derived requirements retain it. Equal filenames remain separate documents. Existing records remain readable; pending legacy jobs are labeled as bindings of currently saved bytes, without claiming original-upload integrity. See `docs/RIGOR_INTEGRATION_CONTRACTS.md` and the release gates for remaining consistency limitations.

@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import type { Context } from "@netlify/functions";
 import { activeProduction, createProduction, createWorkspace, progress, readiness } from "./model.js";
-const { records, pdf } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn() }));
+const { records, pdf, failRaw, failJob, beforeWorkspaceWrite } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn(), failRaw: vi.fn(), failJob: vi.fn(), beforeWorkspaceWrite: vi.fn() }));
 vi.mock("@netlify/blobs", () => ({ getStore: () => ({
   get: async (key: string) => records.has(key) ? structuredClone(records.get(key)) : null,
   getWithMetadata: async (key: string) => records.has(key) ? { data: structuredClone(records.get(key)), etag: createHash("sha256").update(JSON.stringify(records.get(key))).digest("hex") } : null,
-  set: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
+  set: async (key: string, value: any) => { if(failRaw()) throw new Error("PRIVATE_STORAGE_DETAIL"); records.set(key, structuredClone(value)); },
   setJSON: async (key: string, value: any, options?: {onlyIfMatch?: string; onlyIfNew?: boolean}) => {
+    if(key.startsWith("document-job/") && failJob()) throw new Error("PRIVATE_STORAGE_DETAIL");
+    if(key.startsWith("workspace/")) beforeWorkspaceWrite(key);
     if (options?.onlyIfNew && records.has(key)) return {modified: false};
     const currentEtag = records.has(key) ? createHash("sha256").update(JSON.stringify(records.get(key))).digest("hex") : null;
     if (options?.onlyIfMatch && options.onlyIfMatch !== currentEtag) return {modified: false};
@@ -33,6 +35,7 @@ async function worker() {
 }
 const saved = () => records.get(`workspace/${workspace.tester.tester_id}`);
 beforeEach(() => {
+  failRaw.mockReset(); failJob.mockReset(); beforeWorkspaceWrite.mockReset();
   records.clear(); waits = []; pdf.mockReset();
   workspace = createWorkspace("Upload Tester", "PM");
   records.set(`workspace/${workspace.tester.tester_id}`, structuredClone(workspace));
@@ -41,7 +44,71 @@ beforeEach(() => {
   vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } });
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
+afterEach(() => vi.useRealTimers());
 describe("durable document upload", () => {
+  it("does not accept an upload or expose storage details when raw persistence fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    failRaw.mockReturnValue(true);
+    const response = await upload();
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("PRIVATE_STORAGE_DETAIL");
+    expect(activeProduction(saved()).documents).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("preserves a winning edit when upload metadata cannot commit and never dispatches the rejected upload", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    beforeWorkspaceWrite.mockImplementationOnce((key: string) => {const latest=records.get(key);latest.workspace.concurrent_note="winning-edit";records.set(key,latest);});
+    expect((await upload()).status).toBe(409);
+    expect(saved().workspace.concurrent_note).toBe("winning-edit");
+    expect(activeProduction(saved()).documents).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect([...records.keys()].some(key=>key.startsWith("document-job/"))).toBe(false);
+    expect([...records.keys()].some(key=>key.startsWith("upload/"))).toBe(true); // Retained orphan evidence, not an accepted document.
+  });
+  it("retains saved source intent across job-persistence failure and permits only an explicit aged retry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    failJob.mockReturnValue(true);
+    const response=await upload(); expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("PRIVATE_STORAGE_DETAIL");
+    const document=activeProduction(saved()).documents[0]; expect(document.status).toBe("PROCESSING");
+    expect(readiness(activeProduction(saved())).status).not.toBe("SHOW_READY");
+    expect(fetchMock).not.toHaveBeenCalled();
+    failJob.mockReturnValue(false);
+    vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(Date.now()+17*60*1000);
+    expect((await handler(request(`/api/documents/${document.document_id}/retry`,"{}"),ctx)).status).toBe(202);
+    await Promise.all(waits);await worker();
+    expect(activeProduction(saved()).documents[0].status).toBe("PROCESSED");
+    expect(activeProduction(saved()).requirements).toHaveLength(1);
+  });
+  it("does not mark a newer attempt failed when an older background dispatch fails late", async () => {
+    let releaseDispatch: (value: Response) => void;
+    fetchMock.mockImplementation(async () => new Promise<Response>(resolve => {releaseDispatch = resolve;}));
+    expect((await upload()).status).toBe(202);
+    await vi.waitFor(() => expect(releaseDispatch).toBeTypeOf("function"));
+    const latest = saved(); activeProduction(latest).documents[0].analysis_attempt_id = "b".repeat(64);
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    releaseDispatch!(new Response(null, {status: 503})); await Promise.all(waits);
+    expect(activeProduction(saved()).documents[0]).toMatchObject({status: "PROCESSING", analysis_attempt_id: "b".repeat(64)});
+  });
+  it.each(["success", "failure"])("does not let a stale analysis %s overwrite a newer attempt", async outcome => {
+    await upload(); await Promise.all(waits);
+    const oldJob = JSON.parse(fetchMock.mock.calls[0][1].body);
+    let resolveResponse: (value: Response) => void;
+    let rejectResponse: (reason: Error) => void;
+    fetchMock.mockImplementation(async () => new Promise<Response>((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; }));
+    const pending = processUpload(new Request("https://rigor.test/worker", {method: "POST", body: JSON.stringify(oldJob)}), ctx);
+    await vi.waitFor(() => expect(resolveResponse).toBeTypeOf("function"));
+    const latest = saved(); const doc = activeProduction(latest).documents[0];
+    doc.analysis_attempt_id = "b".repeat(64); doc.processing_started_at = new Date(Date.now() + 1000).toISOString();
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    if (outcome === "success") resolveResponse!(Response.json({requirements: [{department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95}]}));
+    else rejectResponse!(new Error("Synthetic interrupted old attempt"));
+    await pending;
+    const production = activeProduction(saved());
+    expect(production.documents[0]).toMatchObject({status: "PROCESSING", analysis_attempt_id: "b".repeat(64)});
+    expect(production.requirements).toHaveLength(0);
+    expect(production.events.some(event => ["DOCUMENT_PROCESSED", "DOCUMENT_PROCESSING_FAILED"].includes(event.type))).toBe(false);
+  });
   it("reserves one intelligence execution for overlapping deliveries of the same upload job", async () => {
     await upload(); await Promise.all(waits);
     await Promise.all([worker(), worker()]);
