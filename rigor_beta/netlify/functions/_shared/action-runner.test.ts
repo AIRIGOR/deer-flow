@@ -1,5 +1,6 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 import type {Context} from '@netlify/functions';
+import {createHash} from 'node:crypto';
 const mocks=vi.hoisted(()=>{
  const records=new Map<string,any>(); let revision=0;
  const store={
@@ -26,6 +27,16 @@ beforeEach(()=>{
  mocks.execute.mockImplementation(async()=>Response.json({status:'COMPLETE',result_summary:'Reviewed',execution_receipts:[{task_id:'actual-qa-call',agent:'rigor-qa-security',status:'COMPLETE'}]}));
 });
 describe('automatic company action authority and concurrency',()=>{
+ it.each(['RESERVED','RUNNING'])('holds an interrupted %s claim without redispatch or retry',async(status)=>{
+  const pending=action();
+  const key='actions/execution-claims/'+createHash('sha256').update(pending.action_key).digest('hex');
+  const receipt={action_key:pending.action_key,status,reserved_at:'2020-01-01T00:00:00Z'};
+  mocks.records.set(key,receipt);
+  mocks.records.set('actions/queue',[pending]);
+  await runner(request(),context);
+  expect(mocks.execute).not.toHaveBeenCalled();
+  expect(mocks.records.get(key)).toEqual(receipt);
+ });
  it('executes a queued internal action once under overlapping worker invocations',async()=>{
   mocks.records.set('actions/queue',[action()]);
   await Promise.all([runner(request(),context),runner(request(),context)]);

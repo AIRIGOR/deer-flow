@@ -1,5 +1,15 @@
 # RIGOR Netlify Beta
 
+Upload recovery now tracks the current analysis attempt so late results or errors cannot overwrite a newer retry. Private receipts retain source/attempt correlation across interruption; public health hides that private context. To exercise real process interruption locally, run `node scripts/recovery-proof/run.mjs deer-flow-dev-frontend:latest` with Docker running and the image already built. The test uses only new network-isolated containers and synthetic data, preserves its evidence under `.artifacts/recovery-proof`, and does not start or modify your DeerFlow stack. It is not a live intelligence test.
+
+Workspace edits now reject stale concurrent changes with HTTP 409; reload the current workspace before retrying. Background upload analysis reserves one execution per job and does not automatically replay uncertain work. Source bytes remain saved and the show stays blocked until analysis is resolved. These safeguards do not establish a cross-object database transaction or complete disaster recovery.
+
+New uploads retain a versioned source binding with document identity, saved-byte hash and byte length. Analysis checks that binding before using the file, and derived requirements retain it. Equal filenames remain separate documents. Existing records remain readable; pending legacy jobs are labeled as bindings of currently saved bytes, without claiming original-upload integrity. See `docs/RIGOR_INTEGRATION_CONTRACTS.md` and the release gates for remaining consistency limitations.
+
+Live acceptance uses `python scripts/live-pod-proof.py --url TARGET --expected-commit EXACT_SHA` only on an authorized environment. Upload acceptance (202) is followed by bounded read-only polling of the saved document; failed, missing, mismatched-production or unreceipted analysis never passes. The deployed commit must match before mutations and after the scenario. Run `python -m unittest discover -s scripts -p 'test_live_pod_proof.py' -v` for synthetic loopback contract tests; these do not certify real intelligence or PDF layout.
+
+Company execution verification accepts only the nine registered RIGOR runtime roles. A company cycle requires five distinct registered specialists and one Chief of Staff; unknown, empty, or altered names fail verification. This checks role identity in authenticated gateway receipts, not the accuracy of agent conclusions.
+
 This package is the standalone, hands-on RIGOR evaluator experience. Each tester receives an isolated workspace with capacity for three productions. New productions start without canned requirements or conflicts; uploaded source documents drive the operational record.
 
 Every production advances independently through three end-to-end stages:
@@ -136,3 +146,9 @@ Automatic action dispatch rechecks its internal action/scope allowlist and reser
 ## October 22 Founder publication
 
 The canonical Founder workspace is https://founder.akhasha.com/founder. Production commands use the existing production company store. Prior preview commands, drafts, approvals and send receipts stay in their original isolated preview store, linked from Founder settings. No history or send permissions are automatically copied across environments. The RIGOR product link opens the separately deployed https://rigor-beta.netlify.app/ so publishing Founder operations cannot overwrite its newer document-intake fixes. Publication does not establish product readiness or verified unattended execution.
+
+## October 26 certification repair
+
+The shared DeerFlow adapter rejects quotations absent from their cited source page and binds new execution receipts to their deployment. Coherence reviews require current-deployment receipts. This verifies citation location, not extraction completeness or assessment accuracy. Human source review and all existing approval gates remain required.
+
+Verify with `npm ci`, `npm run check`, `npm test`, both full and production `npm audit --audit-level=high`, and `npx --yes netlify-cli@27.12.1 build --context production --offline`. These commands do not deploy. Hosted CI records the actual tested commit/tree; a pull-request merge-tree result is not a post-merge release certification.

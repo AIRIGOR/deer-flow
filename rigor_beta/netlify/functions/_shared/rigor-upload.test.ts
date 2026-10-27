@@ -1,12 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import type { Context } from "@netlify/functions";
 import { activeProduction, createProduction, createWorkspace, progress, readiness } from "./model.js";
-const { records, pdf } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn() }));
+const { records, pdf, failRaw, failJob, beforeWorkspaceWrite } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn(), failRaw: vi.fn(), failJob: vi.fn(), beforeWorkspaceWrite: vi.fn() }));
 vi.mock("@netlify/blobs", () => ({ getStore: () => ({
   get: async (key: string) => records.has(key) ? structuredClone(records.get(key)) : null,
-  set: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
-  setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
+  getWithMetadata: async (key: string) => records.has(key) ? { data: structuredClone(records.get(key)), etag: createHash("sha256").update(JSON.stringify(records.get(key))).digest("hex") } : null,
+  set: async (key: string, value: any) => { if(failRaw()) throw new Error("PRIVATE_STORAGE_DETAIL"); records.set(key, structuredClone(value)); },
+  setJSON: async (key: string, value: any, options?: {onlyIfMatch?: string; onlyIfNew?: boolean}) => {
+    if(key.startsWith("document-job/") && failJob()) throw new Error("PRIVATE_STORAGE_DETAIL");
+    if(key.startsWith("workspace/")) beforeWorkspaceWrite(key);
+    if (options?.onlyIfNew && records.has(key)) return {modified: false};
+    const currentEtag = records.has(key) ? createHash("sha256").update(JSON.stringify(records.get(key))).digest("hex") : null;
+    if (options?.onlyIfMatch && options.onlyIfMatch !== currentEtag) return {modified: false};
+    records.set(key, structuredClone(value));
+    return {modified: true, etag: createHash("sha256").update(JSON.stringify(value)).digest("hex")};
+  },
   delete: async (key: string) => { records.delete(key); },
 }) }));
 vi.mock("pdf-parse", () => ({ default: pdf }));
@@ -26,6 +35,7 @@ async function worker() {
 }
 const saved = () => records.get(`workspace/${workspace.tester.tester_id}`);
 beforeEach(() => {
+  failRaw.mockReset(); failJob.mockReset(); beforeWorkspaceWrite.mockReset();
   records.clear(); waits = []; pdf.mockReset();
   workspace = createWorkspace("Upload Tester", "PM");
   records.set(`workspace/${workspace.tester.tester_id}`, structuredClone(workspace));
@@ -34,7 +44,149 @@ beforeEach(() => {
   vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } });
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
+afterEach(() => vi.useRealTimers());
 describe("durable document upload", () => {
+  it("does not accept an upload or expose storage details when raw persistence fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    failRaw.mockReturnValue(true);
+    const response = await upload();
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("PRIVATE_STORAGE_DETAIL");
+    expect(activeProduction(saved()).documents).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("preserves a winning edit when upload metadata cannot commit and never dispatches the rejected upload", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    beforeWorkspaceWrite.mockImplementationOnce((key: string) => {const latest=records.get(key);latest.workspace.concurrent_note="winning-edit";records.set(key,latest);});
+    expect((await upload()).status).toBe(409);
+    expect(saved().workspace.concurrent_note).toBe("winning-edit");
+    expect(activeProduction(saved()).documents).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect([...records.keys()].some(key=>key.startsWith("document-job/"))).toBe(false);
+    expect([...records.keys()].some(key=>key.startsWith("upload/"))).toBe(true); // Retained orphan evidence, not an accepted document.
+  });
+  it("retains saved source intent across job-persistence failure and permits only an explicit aged retry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    failJob.mockReturnValue(true);
+    const response=await upload(); expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("PRIVATE_STORAGE_DETAIL");
+    const document=activeProduction(saved()).documents[0]; expect(document.status).toBe("PROCESSING");
+    expect(readiness(activeProduction(saved())).status).not.toBe("SHOW_READY");
+    expect(fetchMock).not.toHaveBeenCalled();
+    failJob.mockReturnValue(false);
+    vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(Date.now()+17*60*1000);
+    expect((await handler(request(`/api/documents/${document.document_id}/retry`,"{}"),ctx)).status).toBe(202);
+    await Promise.all(waits);await worker();
+    expect(activeProduction(saved()).documents[0].status).toBe("PROCESSED");
+    expect(activeProduction(saved()).requirements).toHaveLength(1);
+  });
+  it("does not mark a newer attempt failed when an older background dispatch fails late", async () => {
+    let releaseDispatch: (value: Response) => void;
+    fetchMock.mockImplementation(async () => new Promise<Response>(resolve => {releaseDispatch = resolve;}));
+    expect((await upload()).status).toBe(202);
+    await vi.waitFor(() => expect(releaseDispatch).toBeTypeOf("function"));
+    const latest = saved(); activeProduction(latest).documents[0].analysis_attempt_id = "b".repeat(64);
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    releaseDispatch!(new Response(null, {status: 503})); await Promise.all(waits);
+    expect(activeProduction(saved()).documents[0]).toMatchObject({status: "PROCESSING", analysis_attempt_id: "b".repeat(64)});
+  });
+  it.each(["success", "failure"])("does not let a stale analysis %s overwrite a newer attempt", async outcome => {
+    await upload(); await Promise.all(waits);
+    const oldJob = JSON.parse(fetchMock.mock.calls[0][1].body);
+    let resolveResponse: (value: Response) => void;
+    let rejectResponse: (reason: Error) => void;
+    fetchMock.mockImplementation(async () => new Promise<Response>((resolve, reject) => { resolveResponse = resolve; rejectResponse = reject; }));
+    const pending = processUpload(new Request("https://rigor.test/worker", {method: "POST", body: JSON.stringify(oldJob)}), ctx);
+    await vi.waitFor(() => expect(resolveResponse).toBeTypeOf("function"));
+    const latest = saved(); const doc = activeProduction(latest).documents[0];
+    doc.analysis_attempt_id = "b".repeat(64); doc.processing_started_at = new Date(Date.now() + 1000).toISOString();
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    if (outcome === "success") resolveResponse!(Response.json({requirements: [{department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95}]}));
+    else rejectResponse!(new Error("Synthetic interrupted old attempt"));
+    await pending;
+    const production = activeProduction(saved());
+    expect(production.documents[0]).toMatchObject({status: "PROCESSING", analysis_attempt_id: "b".repeat(64)});
+    expect(production.requirements).toHaveLength(0);
+    expect(production.events.some(event => ["DOCUMENT_PROCESSED", "DOCUMENT_PROCESSING_FAILED"].includes(event.type))).toBe(false);
+  });
+  it("reserves one intelligence execution for overlapping deliveries of the same upload job", async () => {
+    await upload(); await Promise.all(waits);
+    await Promise.all([worker(), worker()]);
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).includes("gateway.test"))).toHaveLength(1);
+    const production = activeProduction(saved());
+    expect(production.events.filter(event => event.type === "DOCUMENT_PROCESSED")).toHaveLength(1);
+    expect(production.documents[0].status).toBe("PROCESSED");
+  });
+  it("does not replay an uncertain reserved upload execution or fabricate completion", async () => {
+    await upload(); await Promise.all(waits);
+    const job = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const attemptId = createHash("sha256").update(job.jobId).digest("hex");
+    records.set(`document-execution/${attemptId}`, {status: "RESERVED"});
+    fetchMock.mockClear();
+    await processUpload(new Request("https://rigor.test/worker", {method: "POST", body: JSON.stringify(job)}), ctx);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(activeProduction(saved()).documents[0].status).toBe("PROCESSING");
+    expect(readiness(activeProduction(saved())).status).not.toBe("SHOW_READY");
+    expect(records.get(`document-execution/${attemptId}`).status).toBe("RESERVED");
+  });
+  it("rejects a racing workspace write instead of losing a production and its audit event", async () => {
+    const details = JSON.stringify({show_name: "Concurrent Show", artist: "Test Artist", venue: "Test Venue", city: "Test City", show_date: "2026-12-01"});
+    const responses = await Promise.all([handler(request("/api/productions", details), ctx), handler(request("/api/productions", details), ctx)]);
+    expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+    const latest = saved();
+    expect(latest.productions).toHaveLength(2);
+    expect(activeProduction(latest).events.filter(item => item.type === "PRODUCTION_CREATED")).toHaveLength(1);
+  });
+  it("binds saved bytes and extracted requirements to an immutable source identity", async () => {
+    await upload(); await Promise.all(waits);
+    const document = activeProduction(saved()).documents[0];
+    expect(document.source_provenance).toMatchObject({ schema_version: "rigor.source.v1", document_id: document.document_id,
+      production_id: document.production_id, workspace_id: document.workspace_id,
+      sha256: createHash("sha256").update("Lighting requires 400 amps of power.").digest("hex"), byte_length: 36 });
+    await worker();
+    for (const requirement of activeProduction(saved()).requirements) expect(requirement.source_provenance).toEqual(document.source_provenance);
+  });
+  it("fails changed raw bytes before calling the intelligence gateway", async () => {
+    await upload(); await Promise.all(waits);
+    const key = [...records.keys()].find(key => key.startsWith("upload/"))!;
+    records.set(key, new TextEncoder().encode("Changed source content").buffer);
+    fetchMock.mockClear();
+    await processUpload(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify({ jobId: [...records.keys()].find(key => key.startsWith("document-job/"))!.split("/")[1] }) }), ctx);
+    expect(activeProduction(saved()).documents[0].status).toBe("FAILED");
+    expect(activeProduction(saved()).requirements).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(records.has(key)).toBe(true);
+  });
+  it("keeps equal filenames as separate sources rather than silently deduplicating their facts", async () => {
+    await upload("tour.txt"); await Promise.all(waits); await worker();
+    const original = activeProduction(saved()).requirements[0];
+    fetchMock.mockClear();
+    await upload("tour.txt"); await Promise.all(waits); await worker();
+    const production = activeProduction(saved());
+    const sourced = production.requirements.filter(item => item.excerpt === original.excerpt);
+    expect(sourced).toHaveLength(2);
+    expect(new Set(sourced.map(item => item.source_provenance.document_id)).size).toBe(2);
+    expect(sourced[0].requirement_id).toBe(original.requirement_id);
+  });
+  it.each(["workspace_id", "production_id", "document_id"])("rejects a source binding from another %s before analysis", async field => {
+    await upload(); await Promise.all(waits);
+    const latest = saved();
+    activeProduction(latest).documents[0].source_provenance[field] = "other-identity";
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    const jobId = [...records.keys()].find(key => key.startsWith("document-job/"))!.split("/")[1];
+    fetchMock.mockClear();
+    await processUpload(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify({jobId}) }), ctx);
+    expect(activeProduction(saved()).documents[0].status).toBe("FAILED");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("labels legacy pending sources as bindings of currently saved bytes", async () => {
+    await upload(); await Promise.all(waits);
+    const latest = saved(); delete activeProduction(latest).documents[0].source_provenance;
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    await worker();
+    expect(activeProduction(saved()).documents[0].source_provenance.capture).toBe("LEGACY_PROCESSING");
+    expect(activeProduction(saved()).documents[0].status).toBe("PROCESSED");
+  });
   it("persists raw bytes and processing state before parsing or analysis", async () => {
     const response = await upload("tour.pdf");
     expect(response.status).toBe(202);
@@ -54,6 +206,21 @@ describe("durable document upload", () => {
     expect(activeProduction(saved()).requirements.length).toBeGreaterThan(0);
     const count = activeProduction(saved()).requirements.length;
     await worker(); expect(activeProduction(saved()).requirements).toHaveLength(count);
+  });
+  it("fails fabricated analysis without ingesting requirements or releasing readiness", async () => {
+    await upload(); await Promise.all(waits);
+    fetchMock.mockResolvedValue(Response.json({requirements: [{department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Provide 800 amps.", source_excerpt: "Provide 800 amps.", source_page: 1, confidence: .99}]}));
+    await worker();
+    const production = activeProduction(saved());
+    expect(production.documents[0]).toMatchObject({status: "FAILED", review_status: "PENDING"});
+    expect(production.requirements).toHaveLength(0);
+    expect(readiness(production).status).not.toBe("SHOW_READY");
+    expect([...records.keys()].some(key => key.startsWith("upload/"))).toBe(true);
+    for (const suffix of ["", "?department=Lighting"]) {
+      const response = await handler(request(`/api/reports/advance.pdf${suffix}`), ctx);
+      expect(response.status).toBe(200);
+      expect(new TextDecoder().decode((await response.arrayBuffer()).slice(0, 5))).toBe("%PDF-");
+    }
   });
   it("preserves page boundaries, latest human decisions and production selection", async () => {
     await upload("tour.pdf"); await Promise.all(waits);

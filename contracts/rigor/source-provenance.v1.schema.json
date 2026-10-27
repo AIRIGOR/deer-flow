@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rigor:source:v1",
+  "title": "RIGOR saved source identity v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "document_id", "workspace_id", "production_id", "sha256", "byte_length", "capture"],
+  "properties": {
+    "schema_version": {"const": "rigor.source.v1"},
+    "document_id": {"type": "string", "minLength": 1},
+    "workspace_id": {"type": "string", "minLength": 1},
+    "production_id": {"type": "string", "minLength": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "byte_length": {"type": "integer", "minimum": 0},
+    "capture": {"enum": ["UPLOAD", "LEGACY_PROCESSING"]}
+  }
+}

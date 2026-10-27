@@ -1,5 +1,17 @@
 # RIGOR beta checks
 
+Analysis receipts carry private `rigor.analysis-context.v1` source/attempt correlation and a private per-attempt index. Public integration health must project only safe receipt fields; do not expose workspace/document IDs or source hashes. Bind each new upload/retry to `analysis_attempt_id` before its workspace commit. Older worker success/failure and dispatch callbacks must not change a newer attempt. Legacy workers use captured processing_started_at as a compatibility fence. Run deerflow.test.ts, rigor-upload.test.ts and `node scripts/recovery-proof/run.mjs IMAGE OUTPUT` for changes to this path. Docker tests use network-disabled containers, synthetic gateway responses and a durable local Blob adapter, not live model or cloud recovery certification.
+
+Product workspace mutations and worker results must commit against the ETag read by `loadWorkspace`. Return 409 on stale interactive writes; never overwrite a newer workspace. Upload jobs reserve `document-execution/<hash-of-job-capability>` with onlyIfNew before parsing/model execution. Claims are retained on uncertainty; they are not completion receipts. Explicit document retry uses a new job capability. Keep concurrent-write, overlapping-worker and uncertain-reservation tests in rigor-upload.test.ts. Raw upload/job/workspace objects are still separate keys; do not claim multi-key atomicity.
+
+Source identity is `rigor.source.v1` in `_shared/source-provenance.ts`: preserve workspace/production/document IDs, saved-byte SHA-256, length and capture basis. Verify before parsing/model calls. New requirements and source-reconciliation candidates carry the same binding; deduplicate by document identity, page and excerpt, not filename. Legacy pending jobs are explicitly `LEGACY_PROCESSING`, never proof of original upload integrity. Run rigor-upload.test.ts after changes. This does not make whole-workspace writes transactional.
+
+Keep `scripts/live-pod-proof.py` aligned with asynchronous HTTP 202 uploads. Poll the exact saved document and production with a finite deadline, require its DeerFlow receipt, and verify `--expected-commit` before any mutation and at completion. Never print upstream failure bodies. Run its loopback unittest harness; synthetic HTTP/PDF fixtures are contract evidence only.
+
+`delegationVerified` must reject roles outside the backend `execution_receipts.py` AGENTS registry. Keep that allowlist synchronized; run founder.test.ts and deerflow.test.ts after changes. Pulse verification still requires five distinct specialists and exactly one Chief of Staff. Role checks alone do not prove assessment accuracy.
+
+Citation acceptance requires a whitespace-normalized literal excerpt on its cited page. Do not use fuzzy matching to turn an unsupported quotation into evidence. Shared integration receipts bind to context.deploy.id; a coherence review requires both receipts from that same deployment. Legacy unbound receipts remain historical evidence only. These checks verify citation location and execution scope, not semantic accuracy or product readiness.
+
 This module publishes `app/static` and bundles `netlify/functions/rigor-api.mts`.
 `netlify.toml` explicitly runs `npm run check` before function bundling.
 

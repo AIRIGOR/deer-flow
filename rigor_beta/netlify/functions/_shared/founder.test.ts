@@ -40,6 +40,16 @@ it('stamps server-owned assessment provenance while preserving raw output', () =
   expect(withAssessmentProvenance(raw)).toMatchObject({current_state:raw.current_state,reporting_provenance:{assessment_status:'UNVERIFIED',execution_verification_scope:'EXECUTION_ONLY'}});
   expect(raw.reporting_provenance.assessment_status).toBe('VERIFIED');
 });
+it.each(['invented-agent', '', 'rigor-product-ops '])('rejects unregistered execution roles: %s', agent => {
+  expect(delegationVerified({execution_receipts: [{status: 'COMPLETE', task_id: 'task', agent}]})).toBe(false);
+});
+it('accepts each registered specialist in a complete company cycle', () => {
+  const specialists = ['rigor-product-ops', 'rigor-engineering', 'rigor-qa-security', 'rigor-market-intel', 'rigor-partnerships-capital', 'rigor-growth-revenue', 'rigor-customer-success', 'rigor-finance-runway'];
+  for (let start = 0; start < specialists.length; start++) {
+    const agents = Array.from({length: 5}, (_, index) => specialists[(start + index) % specialists.length]).concat('rigor-chief-of-staff');
+    expect(delegationVerified({execution_receipts: agents.map((agent, index) => ({status: 'COMPLETE', task_id: `task-${index}`, agent}))}, undefined, true)).toBe(true);
+  }
+});
 describe('Founder authority and durable command execution', () => {
   it('imports exact unsent drafts idempotently without approval or provider calls', async () => {
     const packet = {drafts: [{target: 'Example VC', to: 'pitch@example.com', subject: 'RIGOR', body: 'Exact approved message.', recipient_source: 'https://example.com/contact'}]};
