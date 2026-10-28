@@ -61,7 +61,7 @@ function badge(status) {
 }
 
 function displaySampleName(value) {
-  return String(value || "").replace(/\s*â€”\s*SAMPLE$/i, "").trim();
+  return String(value || "").replace(/\s*—\s*SAMPLE$/i, "").trim();
 }
 
 function sessionCard(number, info) {
@@ -70,7 +70,7 @@ function sessionCard(number, info) {
   const classes = ["flow-step", active ? "active" : "", info.complete ? "complete" : "", unlocked ? "" : "locked"].join(" ");
   const stateCopy = info.complete ? "Complete" : active ? "Now" : unlocked ? "Next" : "Locked";
   return `<button class="${classes}" ${unlocked ? "" : "disabled"} onclick="selectSession(${number})">
-    <span class="flow-dot">${info.complete ? "âœ“" : number}</span>
+    <span class="flow-dot">${info.complete ? "✓" : number}</span>
     <span class="flow-copy"><strong>${escapeHtml(info.label)}</strong><small>${stateCopy}</small></span>
   </button>`;
 }
@@ -103,7 +103,7 @@ function renderStart() {
         <div style="height:42px"></div>
         <div class="eyebrow">Readiness Intelligence for Global Operations &amp; Requirements</div>
         <h1>Know the show before show day.</h1>
-        <p class="lead">Turn fragmented riders, venue packs, confirmations, and schedules into one source of operational truthâ€”from intake to show day.</p>
+        <p class="lead">Turn fragmented riders, venue packs, confirmations, and schedules into one source of operational truth—from intake to show day.</p>
         <div class="journey">
           <div class="journey-item"><span>1</span><div><strong>Preproduction intake</strong><div class="muted small">Review extracted requirements with page-level source evidence.</div></div></div>
           <div class="journey-item"><span>2</span><div><strong>Technical advance</strong><div class="muted small">Resolve contradictions, assign ownership, and drive department readiness.</div></div></div>
@@ -125,9 +125,9 @@ function renderStart() {
               <div><span>2</span><div><strong>Resolve</strong><small>Clear a contradiction and watch readiness recalculate.</small></div></div>
               <div><span>3</span><div><strong>Export</strong><small>Generate the Advance Report from the same production truth.</small></div></div>
             </div>
-            <div class="partner-direction"><strong>Where this is going:</strong> the operational system of record for touring and venue productionâ€”from advance through show day.</div>
+            <div class="partner-direction"><strong>Where this is going:</strong> the operational system of record for touring and venue production—from advance through show day.</div>
           </div>
-          <div class="start-actions"><button class="btn primary" type="submit" data-start-mode="sample">Explore sample production â†’</button><button class="btn ghost" type="submit" data-start-mode="blank">Start with my documents</button></div>
+          <div class="start-actions"><button class="btn primary" type="submit" data-start-mode="sample">Explore sample production →</button><button class="btn ghost" type="submit" data-start-mode="blank">Start with my documents</button></div>
           <div class="privacy-note">The guided production is clearly labeled SAMPLE. Your own workspace remains isolated and private to this browser session.</div>
         </form>
       </section>
@@ -145,10 +145,10 @@ async function startDemo(event) {
   event.preventDefault();
   const button = event.submitter || event.currentTarget.querySelector("button[type=\"submit\"]");
   const mode = button?.dataset.startMode || "sample";
-  const originalText = button?.textContent || "Enter RIGOR â†’";
+  const originalText = button?.textContent || "Enter RIGOR →";
   if (button) {
     button.disabled = true;
-    button.textContent = mode === "sample" ? "Loading sample productionâ€¦" : "Building your workspaceâ€¦";
+    button.textContent = mode === "sample" ? "Loading sample production…" : "Building your workspace…";
   }
   try {
     state = await api("/api/start", {
@@ -175,24 +175,24 @@ function renderWorkspace() {
   app.innerHTML = `<div class="shell">
     <header class="topbar"><div class="wrap topbar-inner">
       <div class="brand"><div class="brand-mark">R</div><div>RIGOR</div></div>
-      <div class="user-chip"><span><strong>${escapeHtml(state.tester.display_name)}</strong> <span class="user-role">Â· ${escapeHtml(state.tester.role)}</span></span><button class="link-button" onclick="logout()">Exit</button></div>
+      <div class="user-chip"><span><strong>${escapeHtml(state.tester.display_name)}</strong> <span class="user-role">· ${escapeHtml(state.tester.role)}</span></span><button class="link-button" onclick="logout()">Exit</button></div>
     </div></header>
     <main>
       ${renderProductionSwitcher()}
       <section class="hero"><div class="wrap hero-grid">
-        <div class="show-identity"><div class="eyebrow">${escapeHtml(s.artist)} Â· ${escapeHtml(s.show_date)}${state.production.sample_demo ? ' <span class="badge blue sample-badge">SAMPLE PRODUCTION</span>' : ""}</div><h1>${escapeHtml(state.production.sample_demo ? displaySampleName(s.venue) : s.venue)}</h1><p class="lead">${escapeHtml(s.city)} Â· ${escapeHtml(state.production.sample_demo ? displaySampleName(s.show_name) : s.show_name)}</p></div>
+        <div class="show-identity"><div class="eyebrow">${escapeHtml(s.artist)} · ${escapeHtml(s.show_date)}${state.production.sample_demo ? ' <span class="badge blue sample-badge">SAMPLE PRODUCTION</span>' : ""}</div><h1>${escapeHtml(state.production.sample_demo ? displaySampleName(s.venue) : s.venue)}</h1><p class="lead">${escapeHtml(s.city)} · ${escapeHtml(state.production.sample_demo ? displaySampleName(s.show_name) : s.show_name)}</p></div>
         <div class="readiness-card">
           <div><div class="readiness-label">Show readiness</div><div class="readiness-number">${r.score}%</div></div>
-          <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} Â· ${r.open_incidents || 0} open incident${(r.open_incidents || 0) === 1 ? "" : "s"} Â· ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
+          <div class="readiness-copy"><strong>${escapeHtml(r.status.replaceAll("_", " "))}</strong><span>${r.open_conflicts} open conflict${r.open_conflicts === 1 ? "" : "s"} · ${r.open_incidents || 0} open incident${(r.open_incidents || 0) === 1 ? "" : "s"} · ${r.confirmed_requirements}/${r.total_requirements} requirements ready</span></div>
         </div>
       </div></section>
       ${!state.production.sample_demo && !state.documents.length && !state.requirements.length ?
-        '<section class="wrap" style="margin-top:16px"><div class="callout"><strong>John AI PM rehearsal</strong> Â· Load a 14-source fictional arena tour into this empty workspace (staging only). <button class="btn small-button" onclick="loadJohnTour()">Load fictional tour</button></div></section>' : ""}
+        '<section class="wrap" style="margin-top:16px"><div class="callout"><strong>John AI PM rehearsal</strong> · Load a 14-source fictional arena tour into this empty workspace (staging only). <button class="btn small-button" onclick="loadJohnTour()">Load fictional tour</button></div></section>' : ""}
       ${state.production.sample_demo ? renderJohnPanel() : ""}
       <nav class="wrap flow-path" aria-label="RIGOR production path">${Object.entries(state.progress.sessions).map(([number, info]) => sessionCard(Number(number), info)).join("")}</nav>
       <section class="wrap stage">${renderSession()}</section>
     </main>
-    <footer class="footer"><div class="wrap">RIGOR Â· Operational intelligence for live production.</div></footer>
+    <footer class="footer"><div class="wrap">RIGOR · Operational intelligence for live production.</div></footer>
   </div>`;
   bindSessionEvents();
   scheduleDocumentPoll();
@@ -202,17 +202,17 @@ function renderJohnPanel() {
   const actions = johnReport?.actions || johnReport?.deterministic_actions || [];
   return `<section class="wrap" aria-label="John AI Production Manager" style="margin-top:18px">
     <div class="card">
-      <div class="card-header"><div><div class="eyebrow">Synthetic touring PM Â· John</div>
-      <h3>John AI PM Â· Tour stress test</h3><p class="muted small">Read-only evidence review. John cannot approve a show or change production records.</p></div>
+      <div class="card-header"><div><div class="eyebrow">Synthetic touring PM · John</div>
+      <h3>John AI PM · Tour stress test</h3><p class="muted small">Read-only evidence review. John cannot approve a show or change production records.</p></div>
       <div class="actions"><button class="btn small-button" onclick="runJohnBrief()" ${johnBusy ? "disabled" : ""}>Review with John</button>
-      <button class="btn primary small-button" onclick="runJohnModel()" ${johnBusy ? "disabled" : ""}>Run model Â· staging only</button></div></div>
+      <button class="btn primary small-button" onclick="runJohnModel()" ${johnBusy ? "disabled" : ""}>Run model · staging only</button></div></div>
       <div id="john-results" role="status" aria-live="polite">
-      ${johnBusy ? '<p>John is examining the synthetic productionâ€¦</p>' : johnReport
-        ? `<div class="callout warning"><strong>${escapeHtml(johnReport.release_decision)}</strong> Â· ${escapeHtml(johnReport.mode)} Â· ${actions.length} recommendations. No autonomous show approval.</div>
+      ${johnBusy ? '<p>John is examining the synthetic production…</p>' : johnReport
+        ? `<div class="callout warning"><strong>${escapeHtml(johnReport.release_decision)}</strong> · ${escapeHtml(johnReport.mode)} · ${actions.length} recommendations. No autonomous show approval.</div>
            <div class="stack">${actions.slice(0, 20).map(a => `<article class="requirement-row">
-           <div><strong>${escapeHtml(a.priority)} Â· ${escapeHtml(a.department)}</strong><p class="muted small">${escapeHtml(a.question || a.message)}</p>
+           <div><strong>${escapeHtml(a.priority)} · ${escapeHtml(a.department)}</strong><p class="muted small">${escapeHtml(a.question || a.message)}</p>
            <div class="muted small">Evidence: ${escapeHtml((a.evidence_ids || a.evidence || []).join(", ") || "Not supplied")}</div></div></article>`).join("")}</div>`
-        : '<p class="muted small">Run Johnâ€™s evidence review to see his prioritized questions and production blockers.</p>'}
+        : '<p class="muted small">Run John’s evidence review to see his prioritized questions and production blockers.</p>'}
       </div>
     </div>
   </section>`;
@@ -294,19 +294,19 @@ function renderSessionOne() {
   const openRequirements = state.requirements.filter(item => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status));
   const nextRequirement = openRequirements[0];
   const reviewItems = showAllRequirements ? state.requirements : (nextRequirement ? [nextRequirement] : []);
-  return `<div class="stage-head focused-head"><div><div class="eyebrow">Session 1 Â· Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Verify what matters, resolve one decision, then move to the next.</p></div></div>
+  return `<div class="stage-head focused-head"><div><div class="eyebrow">Session 1 · Preproduction intake</div><h2>Turn the production packet into operational truth.</h2><p>Verify what matters, resolve one decision, then move to the next.</p></div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 1 complete.</strong> Technical Advance is now unlocked.</div>` : `<div class="callout" style="margin-bottom:16px">${state.requirements.length ? "Work one requirement at a time. Check the complete source documents for missed or uncertain requirements before completing source review." : "Upload a production document to begin extraction and source-backed review."}</div>`}
     <div class="card requirement-focus">
       <div class="card-header requirement-focus-head">
-        <div><div class="eyebrow">Now</div><h3>Requirement review</h3><div class="muted small">${info.done} of ${state.requirements.length} requirement candidates verified${openRequirements.length ? ` Â· ${openRequirements.length} remaining` : ""}</div></div>
+        <div><div class="eyebrow">Now</div><h3>Requirement review</h3><div class="muted small">${info.done} of ${state.requirements.length} requirement candidates verified${openRequirements.length ? ` · ${openRequirements.length} remaining` : ""}</div></div>
         ${state.requirements.length > 1 ? `<button class="btn ghost small-button" onclick="toggleRequirementsView()">${showAllRequirements ? "Focus next" : "View all"}</button>` : ""}
       </div>
       ${showAllRequirements ? `<div class="requirement-tools"><select id="requirement-filter" aria-label="Filter department"><option value="ALL">All departments</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select></div>` : ""}
       <div id="requirements-list" class="stack requirement-stack">${state.requirements.length ? (reviewItems.length ? renderRequirements(reviewItems) : `<div class="callout success"><strong>All requirements reviewed.</strong> Technical Advance is ready when the remaining session conditions are complete.</div>`) : `<div class="callout">No extracted requirements yet. Upload the venue pack, rider, schedule, labor call, or other production source documents.</div>`}</div>
     </div>
     <div class="grid two source-grid" style="margin-top:16px">
-      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents Â· ${state.documents.reduce((sum, doc) => sum + (doc.page_count || 0), 0)} pages</div></div>${badge(state.documents.some(doc => doc.status === "PROCESSING") ? "PROCESSING" : state.documents.some(doc => doc.status === "FAILED") ? "FAILED" : state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))}${doc.suggested_type ? ` Â· Suggested: ${escapeHtml(doc.suggested_type.replaceAll("_", " "))} (review required)` : ""} Â· ${doc.page_count} pages${doc.analysis_engine ? ` Â· ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${doc.status === "PROCESSING" ? `<div class="muted small">Saved Â· analysis in progress${Date.now() - Date.parse(doc.processing_started_at) >= 16 * 60 * 1000 ? `<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button>` : ""}</div>` : doc.status === "FAILED" ? `<div role="alert">${escapeHtml(doc.processing_error)}<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button></div>` : doc.doc_type === "UPLOADED" && doc.analysis_engine !== "DEERFLOW" ? `<div role="alert">DeerFlow verification required.<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry with DeerFlow</button></div>` : doc.source_kind === "SAMPLE" || doc.review_status === "REVIEWED" ? badge("REVIEWED") : `<button class="btn small-button" onclick="reviewSource('${doc.document_id}')">Complete source review</button>`}</div>`).join("")}</div></div>
-      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" multiple accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose production documents</strong><div class="muted small">Up to 20 PDF/TXT files Â· 5 MB each Â· private to this workspace</div></label><div id="upload-status" role="status" aria-live="polite">${escapeHtml(uploadMessage)}</div></div>
+      <div class="card source-card"><div class="card-header"><div><h3>Production packet</h3><div class="muted small">${state.documents.length} documents · ${state.documents.reduce((sum, doc) => sum + (doc.page_count || 0), 0)} pages</div></div>${badge(state.documents.some(doc => doc.status === "PROCESSING") ? "PROCESSING" : state.documents.some(doc => doc.status === "FAILED") ? "FAILED" : state.documents.length ? "PROCESSED" : "DOCUMENTS_PENDING")}</div><div class="stack" style="margin-top:14px">${state.documents.map(doc => `<div class="document-row"><div><strong>${escapeHtml(doc.name)}</strong><div class="muted small">${escapeHtml(doc.doc_type.replaceAll("_", " "))}${doc.suggested_type ? ` · Suggested: ${escapeHtml(doc.suggested_type.replaceAll("_", " "))} (review required)` : ""} · ${doc.page_count} pages${doc.analysis_engine ? ` · ${escapeHtml(doc.analysis_engine.replaceAll("_", " "))}` : ""}</div></div>${doc.status === "PROCESSING" ? `<div class="muted small">Saved · analysis in progress${Date.now() - Date.parse(doc.processing_started_at) >= 16 * 60 * 1000 ? `<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button>` : ""}</div>` : doc.status === "FAILED" ? `<div role="alert">${escapeHtml(doc.processing_error)}<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry analysis</button></div>` : doc.doc_type === "UPLOADED" && doc.analysis_engine !== "DEERFLOW" ? `<div role="alert">DeerFlow verification required.<button class="btn small-button" onclick="retryDocument('${doc.document_id}')">Retry with DeerFlow</button></div>` : doc.source_kind === "SAMPLE" || doc.review_status === "REVIEWED" ? badge("REVIEWED") : `<button class="btn small-button" onclick="reviewSource('${doc.document_id}')">Complete source review</button>`}</div>`).join("")}</div></div>
+      <div class="card source-card"><h3>Additional source</h3><p class="muted small">Add another PDF or TXT when the advance changes. RIGOR will compare it against the current production truth.</p><label id="upload-zone" class="upload-zone"><input id="document-upload" type="file" multiple accept=".pdf,.txt,application/pdf,text/plain" /><strong>Drop or choose production documents</strong><div class="muted small">Up to 20 PDF/TXT files · 5 MB each · private to this workspace</div></label><div id="upload-status" role="status" aria-live="polite">${escapeHtml(uploadMessage)}</div></div>
     </div>
     ${renderFeedback(1)}`;
 }
@@ -319,7 +319,7 @@ function toggleRequirementsView() {
 
 function renderRequirements(items) {
   return items.map(item => `<article class="requirement-row" data-department="${escapeHtml(item.department)}">
-    <div><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.status)}</div><h3>${escapeHtml(item.title)}</h3><p class="muted small">${escapeHtml(item.detail)}</p>${item.coverage_review_required ? '<p class="small">Source review candidate: check this statement against the original document before confirming.</p>' : ''}<button class="btn ghost small-button" onclick='showEvidence(${JSON.stringify(item).replaceAll("'", "&#39;")})'>Source evidence â†—</button></div>
+    <div><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.status)}</div><h3>${escapeHtml(item.title)}</h3><p class="muted small">${escapeHtml(item.detail)}</p>${item.coverage_review_required ? '<p class="small">Source review candidate: check this statement against the original document before confirming.</p>' : ''}<button class="btn ghost small-button" onclick='showEvidence(${JSON.stringify(item).replaceAll("'", "&#39;")})'>Source evidence ↗</button></div>
     <div class="actions">${!["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status) ? `<button class="btn primary small-button" onclick="setRequirement('${item.requirement_id}','CONFIRMED')">Confirm</button><button class="btn danger small-button" onclick="setRequirement('${item.requirement_id}','REJECTED')">Reject</button>` : `<button class="btn small-button" onclick="setRequirement('${item.requirement_id}','NEEDS_CONFIRMATION')">Reopen</button>`}</div>
   </article>`).join("");
 }
@@ -329,12 +329,12 @@ function renderSessionTwo() {
   const unlocked = state.progress.sessions["1"].complete;
   if (!unlocked) return lockedSession(2, "Complete the preproduction review to unlock Technical Advance.");
   const ownerTarget = state.requirements.filter(item => ["CONFIRMED", "RESOLVED"].includes(item.status)).length;
-  return `<div class="stage-head"><div><div class="eyebrow">Session 2 Â· Technical advance</div><h2>Resolve the contradictions before they reach the dock.</h2><p>Make an operational decision for every conflict, assign ownership, and watch the readiness picture recalculate across departments.</p></div><div class="stage-badge">${state.conflicts.length} detected conflict${state.conflicts.length === 1 ? "" : "s"} Â· ${ownerTarget} owner target</div></div>
+  return `<div class="stage-head"><div><div class="eyebrow">Session 2 · Technical advance</div><h2>Resolve the contradictions before they reach the dock.</h2><p>Make an operational decision for every conflict, assign ownership, and watch the readiness picture recalculate across departments.</p></div><div class="stage-badge">${state.conflicts.length} detected conflict${state.conflicts.length === 1 ? "" : "s"} · ${ownerTarget} owner target</div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>Session 2 complete.</strong> Show Day is now unlocked.</div>` : `<div class="callout warning" style="margin-bottom:16px">RIGOR found ${state.readiness.open_conflicts} unresolved conflicts. A report can be generated now, but the show remains blocked.</div>`}
     <div class="metric-row" style="margin-bottom:16px"><div class="metric"><div class="n">${state.conflicts.filter(c => c.status === "RESOLVED").length}/${state.conflicts.length}</div><div class="l">Conflicts resolved</div></div><div class="metric"><div class="n">${state.requirements.filter(r => r.owner).length}</div><div class="l">Owners assigned</div></div><div class="metric"><div class="n">${state.departments.filter(d => d.status === "READY").length}</div><div class="l">Departments ready</div></div><div class="metric"><div class="n">${state.readiness.score}%</div><div class="l">Readiness</div></div></div>
     <div class="card"><div class="card-header"><div><h3>Conflict desk</h3><div class="muted small">Evidence from multiple sources, one recorded decision.</div></div></div><div class="stack" style="margin-top:14px">${state.conflicts.length ? state.conflicts.map(renderConflict).join("") : `<div class="callout success">No incompatible normalized requirements have been detected across the uploaded source documents.</div>`}</div></div>
     <div class="grid two" style="margin-top:16px">
-      <div class="card"><h3>Assign operational owners</h3><p class="muted small">Assign an owner to every confirmed requirement. Rejected candidates are closed and do not require an owner.</p><div>${state.requirements.filter(item => ["CONFIRMED", "RESOLVED"].includes(item.status)).map(item => `<div class="owner-row"><div><strong>${escapeHtml(item.department)} Â· ${escapeHtml(item.title)}</strong><div class="muted small">${escapeHtml(item.status.replaceAll("_", " "))}</div></div><input id="owner-${item.requirement_id}" value="${escapeHtml(item.owner || "")}" placeholder="Owner name / role" /><button class="btn small-button" onclick="saveOwner('${item.requirement_id}')">Save</button></div>`).join("")}</div></div>
+      <div class="card"><h3>Assign operational owners</h3><p class="muted small">Assign an owner to every confirmed requirement. Rejected candidates are closed and do not require an owner.</p><div>${state.requirements.filter(item => ["CONFIRMED", "RESOLVED"].includes(item.status)).map(item => `<div class="owner-row"><div><strong>${escapeHtml(item.department)} · ${escapeHtml(item.title)}</strong><div class="muted small">${escapeHtml(item.status.replaceAll("_", " "))}</div></div><input id="owner-${item.requirement_id}" value="${escapeHtml(item.owner || "")}" placeholder="Owner name / role" /><button class="btn small-button" onclick="saveOwner('${item.requirement_id}')">Save</button></div>`).join("")}</div></div>
       <div class="card"><h3>Department readiness</h3><div class="stack">${state.departments.map(item => `<div class="department-row"><strong>${escapeHtml(item.department)}</strong><div class="department-bar"><span style="width:${Math.round(item.ready / Math.max(item.total, 1) * 100)}%"></span></div>${badge(item.status)}</div>`).join("")}</div></div>
     </div>
     ${renderFeedback(2)}`;
@@ -348,7 +348,7 @@ function renderSessionThree() {
   const unlocked = state.progress.sessions["2"].complete;
   if (!unlocked) return lockedSession(3, "Resolve the advance conflicts and assign owners to unlock Show Day.");
   const info = state.progress.sessions["3"];
-  return `<div class="stage-head"><div><div class="eyebrow">Session 3 Â· Show day</div><h2>Carry the advance into live execution.</h2><p>Run the critical checkpoints in sequence, capture day-of changes, and finish with one source-backed operational record.</p></div><div class="stage-badge">Goal: complete 8 checkpoints</div></div>
+  return `<div class="stage-head"><div><div class="eyebrow">Session 3 · Show day</div><h2>Carry the advance into live execution.</h2><p>Run the critical checkpoints in sequence, capture day-of changes, and finish with one source-backed operational record.</p></div><div class="stage-badge">Goal: complete 8 checkpoints</div></div>
     ${info.complete ? `<div class="callout success" style="margin-bottom:16px"><strong>The production is SHOW READY.</strong> Export the Master or a department-specific Advance Report below.</div>` : `<div class="callout" style="margin-bottom:16px">Advance decisions are complete. Verify each show-day checkpoint to move the show to SHOW READY.</div>`}
     <div class="grid two">
       <div class="card"><div class="card-header"><div><h3>Show-day checkpoints</h3><div class="muted small">${info.done}/${info.total} complete</div></div>${badge(state.readiness.status)}</div><div class="stack" style="margin-top:14px">${state.checkpoints.map(item => `<label class="checkpoint-row ${item.status === "COMPLETE" ? "complete" : ""}"><input type="checkbox" data-checkpoint="${item.checkpoint_id}" ${item.status === "COMPLETE" ? "checked" : ""} /><span class="checkpoint-copy"><strong>${escapeHtml(item.label)}</strong><span class="muted small">${escapeHtml(item.department)}</span></span>${badge(item.status)}</label>`).join("")}</div></div>
@@ -357,7 +357,7 @@ function renderSessionThree() {
         <div class="card"><h3>Advance Reports</h3><p class="muted small">Master and department reports are generated from the same operational truth, including current ownership, status, conflicts, and source provenance.</p><div class="report-actions"><button id="master-report-button" class="btn primary" type="button">Download Master PDF</button><select id="report-department"><option value="">Choose department</option>${departments.map(d => `<option>${escapeHtml(d)}</option>`).join("")}</select><button id="department-report-button" class="btn" type="button" disabled>Download department PDF</button></div></div>
       </div>
     </div>
-    ${state.incidents.length ? `<div class="card" style="margin-top:16px"><h3>Day-of incident log</h3><div class="stack">${state.incidents.map(item => `<div class="incident-row" style="padding:14px"><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.severity)}${badge(item.resolution ? "RESOLVED" : "PENDING")}</div><strong>${escapeHtml(item.summary)}</strong>${item.resolution ? `<div class="muted small">Resolution: ${escapeHtml(item.resolution)}${item.resolved_at ? ` Â· Closed ${escapeHtml(item.resolved_at)}` : ""}</div>` : `<div class="muted small">Open incident â€” resolution required before SHOW READY.</div>`}</div>`).join("")}</div></div>` : ""}
+    ${state.incidents.length ? `<div class="card" style="margin-top:16px"><h3>Day-of incident log</h3><div class="stack">${state.incidents.map(item => `<div class="incident-row" style="padding:14px"><div class="meta"><span>${escapeHtml(item.department)}</span>${badge(item.severity)}${badge(item.resolution ? "RESOLVED" : "PENDING")}</div><strong>${escapeHtml(item.summary)}</strong>${item.resolution ? `<div class="muted small">Resolution: ${escapeHtml(item.resolution)}${item.resolved_at ? ` · Closed ${escapeHtml(item.resolved_at)}` : ""}</div>` : `<div class="muted small">Open incident — resolution required before SHOW READY.</div>`}</div>`).join("")}</div></div>` : ""}
     ${renderIncidentResolutionQueue()}
     ${renderFeedback(3)}`;
 }
@@ -365,16 +365,16 @@ function renderSessionThree() {
 function renderIncidentResolutionQueue() {
   const open = state.incidents.filter(item => !String(item.resolution || "").trim());
   if (!open.length) return "";
-  return `<div class="card incident-resolution-card" style="margin-top:16px"><div class="eyebrow">Action required</div><h3>Close open incidents</h3><p class="muted small">RIGOR will not mark the show ready until every field incident has an operational resolution.</p><div class="stack">${open.map(item => `<form class="incident-resolution-form" data-incident-resolution="${item.incident_id}"><div><strong>${escapeHtml(item.department)} Â· ${escapeHtml(item.summary)}</strong><div class="muted small">${escapeHtml(item.severity)} severity</div></div><input name="resolution" required minlength="5" placeholder="Record resolution / handoff" /><button class="btn primary small-button" type="submit">Close incident</button></form>`).join("")}</div></div>`;
+  return `<div class="card incident-resolution-card" style="margin-top:16px"><div class="eyebrow">Action required</div><h3>Close open incidents</h3><p class="muted small">RIGOR will not mark the show ready until every field incident has an operational resolution.</p><div class="stack">${open.map(item => `<form class="incident-resolution-form" data-incident-resolution="${item.incident_id}"><div><strong>${escapeHtml(item.department)} · ${escapeHtml(item.summary)}</strong><div class="muted small">${escapeHtml(item.severity)} severity</div></div><input name="resolution" required minlength="5" placeholder="Record resolution / handoff" /><button class="btn primary small-button" type="submit">Close incident</button></form>`).join("")}</div></div>`;
 }
 
 function lockedSession(number, message) {
-  return `<div class="stage-head"><div><div class="eyebrow">Session ${number} Â· Locked</div><h2>This stage opens when the prior work is complete.</h2><p>${escapeHtml(message)}</p></div></div><div class="card"><div class="callout warning">RIGOR carries verified decisions forward. Finish the prior session so this stage opens with the correct show state.</div></div>`;
+  return `<div class="stage-head"><div><div class="eyebrow">Session ${number} · Locked</div><h2>This stage opens when the prior work is complete.</h2><p>${escapeHtml(message)}</p></div></div><div class="card"><div class="callout warning">RIGOR carries verified decisions forward. Finish the prior session so this stage opens with the correct show state.</div></div>`;
 }
 
 function renderFeedback(sessionNumber) {
   if (state.tester.role === "Partner / Investor") return "";
-  return `<div class="card feedback"><div class="card-header"><div><h3>Session feedback</h3><div class="muted small">Help RIGOR learn what production professionals actually need.</div></div></div><form class="feedback-form" data-feedback="${sessionNumber}" style="margin-top:12px"><div class="field"><label>Usefulness</label><select name="useful_score"><option value="5">5 Â· High</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1 Â· Low</option></select></div><div class="field"><label>Trust</label><select name="trust_score"><option value="5">5 Â· High</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1 Â· Low</option></select></div><div class="field"><label>What is wrong, missing, or essential?</label><input name="comments" maxlength="2000" placeholder="Your field judgment matters here." /></div><button class="btn" type="submit">Save feedback</button></form></div>`;
+  return `<div class="card feedback"><div class="card-header"><div><h3>Session feedback</h3><div class="muted small">Help RIGOR learn what production professionals actually need.</div></div></div><form class="feedback-form" data-feedback="${sessionNumber}" style="margin-top:12px"><div class="field"><label>Usefulness</label><select name="useful_score"><option value="5">5 · High</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1 · Low</option></select></div><div class="field"><label>Trust</label><select name="trust_score"><option value="5">5 · High</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1 · Low</option></select></div><div class="field"><label>What is wrong, missing, or essential?</label><input name="comments" maxlength="2000" placeholder="Your field judgment matters here." /></div><button class="btn" type="submit">Save feedback</button></form></div>`;
 }
 
 function bindSessionEvents() {
@@ -408,7 +408,7 @@ function bindSessionEvents() {
 async function downloadReport(department, button) {
   const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = "Generating PDFâ€¦";
+  button.textContent = "Generating PDF…";
   try {
     const path = `/api/reports/advance.pdf${department ? `?department=${encodeURIComponent(department)}` : ""}`;
     const response = await api(path);
@@ -455,17 +455,17 @@ async function createProduction(event) {
   const form = event.currentTarget;
   const button = form.querySelector("button[type='submit']");
   button.disabled = true;
-  button.textContent = "Building productionâ€¦";
+  button.textContent = "Building production…";
   try {
     state = await api("/api/productions", { method: "POST", body: JSON.stringify({ show_name: form.show_name.value, artist: form.artist.value, venue: form.venue.value, city: form.city.value, show_date: form.show_date.value }) });
     selectedSession = 1;
     sessionStorage.setItem("rigorSelectedSession", "1");
     document.getElementById("production-dialog").close();
-    showToast("Production created â€” its end-to-end workflow is ready.");
+    showToast("Production created — its end-to-end workflow is ready.");
     renderWorkspace();
   } catch (error) {
     button.disabled = false;
-    button.textContent = "Create production â†’";
+    button.textContent = "Create production →";
     showToast(error.message, true);
   }
 }
@@ -487,7 +487,7 @@ async function setRequirement(requirementId, status) {
   try {
     const beforeComplete = state.progress.sessions["1"].complete;
     state = await api(`/api/requirements/${requirementId}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    if (!beforeComplete && state.progress.sessions["1"].complete) showToast("Session 1 complete â€” Technical Advance unlocked.");
+    if (!beforeComplete && state.progress.sessions["1"].complete) showToast("Session 1 complete — Technical Advance unlocked.");
     renderWorkspace();
   } catch (error) { showToast(error.message, true); }
 }
@@ -498,7 +498,7 @@ async function saveOwner(requirementId) {
   try {
     const beforeComplete = state.progress.sessions["2"].complete;
     state = await api(`/api/requirements/${requirementId}`, { method: "PATCH", body: JSON.stringify({ owner }) });
-    if (!beforeComplete && state.progress.sessions["2"].complete) showToast("Session 2 complete â€” Show Day unlocked.");
+    if (!beforeComplete && state.progress.sessions["2"].complete) showToast("Session 2 complete — Show Day unlocked.");
     renderWorkspace();
   } catch (error) { showToast(error.message, true); }
 }
@@ -511,7 +511,7 @@ async function resolveConflict(event) {
   try {
     const beforeComplete = state.progress.sessions["2"].complete;
     state = await api(`/api/conflicts/${form.dataset.conflict}/resolve`, { method: "POST", body: JSON.stringify({ resolution: form.resolution.value, owner: form.owner.value }) });
-    if (!beforeComplete && state.progress.sessions["2"].complete) showToast("Session 2 complete â€” Show Day unlocked.");
+    if (!beforeComplete && state.progress.sessions["2"].complete) showToast("Session 2 complete — Show Day unlocked.");
     else showToast("Conflict resolved. Readiness recalculated.");
     renderWorkspace();
   } catch (error) { button.disabled = false; showToast(error.message, true); }
@@ -521,7 +521,7 @@ async function toggleCheckpoint(event) {
   try {
     const beforeComplete = state.progress.sessions["3"].complete;
     state = await api(`/api/checkpoints/${event.target.dataset.checkpoint}`, { method: "PATCH", body: JSON.stringify({ complete: event.target.checked }) });
-    if (!beforeComplete && state.progress.sessions["3"].complete) showToast("All checkpoints complete â€” show is SHOW READY.");
+    if (!beforeComplete && state.progress.sessions["3"].complete) showToast("All checkpoints complete — show is SHOW READY.");
     renderWorkspace();
   } catch (error) { showToast(error.message, true); }
 }
@@ -568,7 +568,7 @@ async function uploadDocument(event) {
   let saved = 0;
   try {
     for (const file of files) {
-      message(`Saving ${saved + 1} of ${files.length}: ${file.name}â€¦`);
+      message(`Saving ${saved + 1} of ${files.length}: ${file.name}…`);
       const form = new FormData(); form.append("file", file);
       const result = await api("/api/documents", { method: "POST", body: form });
       state = result.workspace;
@@ -605,7 +605,7 @@ function scheduleDocumentPoll() {
       const before = JSON.stringify(state.documents);
       state = latest;
       if (before !== JSON.stringify(latest.documents)) {
-        uploadMessage = latest.documents.some(doc => doc.status === "FAILED") ? "Document saved, but analysis failed. See the production packet to retry." : latest.documents.some(doc => doc.status === "PROCESSING") ? "Documents saved. Analysis in progressâ€¦" : "Analysis complete. Review the extracted requirements and complete source review.";
+        uploadMessage = latest.documents.some(doc => doc.status === "FAILED") ? "Document saved, but analysis failed. See the production packet to retry." : latest.documents.some(doc => doc.status === "PROCESSING") ? "Documents saved. Analysis in progress…" : "Analysis complete. Review the extracted requirements and complete source review.";
         renderWorkspace();
       } else scheduleDocumentPoll();
     } catch (error) {
@@ -634,12 +634,12 @@ async function saveFeedback(event) {
     await api("/api/feedback", { method: "POST", body: JSON.stringify({ session_number: Number(form.dataset.feedback), useful_score: Number(form.useful_score.value), trust_score: Number(form.trust_score.value), comments: form.comments.value }) });
     form.querySelector("button").textContent = "Feedback saved";
     form.querySelector("button").disabled = true;
-    showToast("Thank you â€” feedback saved.");
+    showToast("Thank you — feedback saved.");
   } catch (error) { showToast(error.message, true); }
 }
 
 function showEvidence(item) {
-  document.getElementById("evidence-content").innerHTML = `<div class="eyebrow">Source provenance</div><h2 style="margin:8px 0">${escapeHtml(item.title)}</h2><p><strong>${escapeHtml(item.document_name)}</strong> Â· Page ${escapeHtml(item.page_number || "â€”")}</p><div class="quote">â€œ${escapeHtml(item.excerpt)}â€</div><p class="muted small" style="margin-top:14px">Department: ${escapeHtml(item.department)} Â· Source: ${escapeHtml(item.source_kind)}</p>`;
+  document.getElementById("evidence-content").innerHTML = `<div class="eyebrow">Source provenance</div><h2 style="margin:8px 0">${escapeHtml(item.title)}</h2><p><strong>${escapeHtml(item.document_name)}</strong> · Page ${escapeHtml(item.page_number || "—")}</p><div class="quote">“${escapeHtml(item.excerpt)}”</div><p class="muted small" style="margin-top:14px">Department: ${escapeHtml(item.department)} · Source: ${escapeHtml(item.source_kind)}</p>`;
   document.getElementById("evidence-dialog").showModal();
 }
 
