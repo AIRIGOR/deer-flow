@@ -35,3 +35,5 @@ Founder commands: `rigor-founder.mts` requires the separate `RIGOR_FOUNDER_TOKEN
 RIGOR CI runs both full and production-only dependency audits. A clean runtime audit must not mask vulnerable development tooling. Full audit is expected to block until upstream braces/node-forge remediation is verified.
 
 John authorization: use johnStagingAuthorized(context), never context.deploy.context as an environment boundary. Allow only the exact isolated staging site ID plus an exact true flag. Test production-context staging, Founder/unknown preview sites and missing/malformed flags. Preserve session and synthetic-evidence checks. Current repair must not overwrite the separately staged recovery implementation or live Founder/backend history.
+
+Keep X-RIGOR-Service-Token-SHA256 generation aligned with backend _authorize: lowercase SHA-256 of trimmed UTF-8 bytes. Do not log this credential-equivalent digest. Retain synthetic Unicode transport and wrong-digest rejection regressions.

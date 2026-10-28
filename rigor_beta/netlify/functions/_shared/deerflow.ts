@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
 
@@ -43,7 +43,7 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
     if (!baseUrl || !token) throw new DeerFlowIntegrationError("NOT_CONFIGURED");
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}${routes[operation].path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-RIGOR-Service-Token": token, "X-RIGOR-Execution-Id": executionId },
+      headers: { "Content-Type": "application/json", "X-RIGOR-Service-Token-SHA256": createHash("sha256").update(token, "utf8").digest("hex"), "X-RIGOR-Execution-Id": executionId },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(routes[operation].timeout),
     });

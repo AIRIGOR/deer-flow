@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import os
 
@@ -52,15 +53,22 @@ class CompanyActionExecuteRequest(BaseModel):
     context: str | None = Field(default=None, max_length=20000)
 
 
-def _authorize(token: str | None) -> None:
+def _authorize(token: str | None, *, token_sha256: str | None = None) -> None:
     configured = os.getenv("RIGOR_SERVICE_TOKEN", "").strip()
     if not configured:
         raise HTTPException(
             status_code=503,
             detail="RIGOR service authentication is not configured",
         )
+    # Digest transport avoids ambiguous non-ASCII HTTP header encoding.
+    # The digest is itself a bearer credential: never log or persist it.
+    if token_sha256 is not None:
+        expected = hashlib.sha256(configured.encode("utf-8")).hexdigest()
+        if len(token_sha256) != 64 or any(c not in "0123456789abcdef" for c in token_sha256) or not hmac.compare_digest(token_sha256, expected):
+            raise HTTPException(status_code=401, detail="Invalid RIGOR service token")
+        return
     provided = (token or "").strip()
-    if not provided or not hmac.compare_digest(provided, configured):
+    if not provided or not hmac.compare_digest(provided.encode("utf-8"), configured.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid RIGOR service token")
 
 
@@ -78,8 +86,9 @@ async def health() -> dict[str, str]:
 async def analyze_document(
     body: AnalyzeDocumentRequest,
     x_rigor_service_token: str | None = Header(default=None),
+    x_rigor_service_token_sha256: str | None = Header(default=None),
 ):
-    _authorize(x_rigor_service_token)
+    _authorize(x_rigor_service_token, token_sha256=x_rigor_service_token_sha256)
 
     total_chars = sum(len(page) for page in body.pages)
     if total_chars > 600_000:
@@ -102,8 +111,9 @@ async def analyze_document(
 async def analyze_john(
     body: JohnAnalyzeRequest,
     x_rigor_service_token: str | None = Header(default=None),
+    x_rigor_service_token_sha256: str | None = Header(default=None),
 ):
-    _authorize(x_rigor_service_token)
+    _authorize(x_rigor_service_token, token_sha256=x_rigor_service_token_sha256)
     if os.getenv("RIGOR_JOHN_STAGING_ENABLED") != "true":
         raise HTTPException(status_code=403, detail="John requires isolated staging")
     if body.synthetic is not True:
@@ -121,8 +131,9 @@ async def analyze_john(
 async def run_company_pulse(
     body: CompanyPulseRequest,
     x_rigor_service_token: str | None = Header(default=None),
+    x_rigor_service_token_sha256: str | None = Header(default=None),
 ):
-    _authorize(x_rigor_service_token)
+    _authorize(x_rigor_service_token, token_sha256=x_rigor_service_token_sha256)
     try:
         result = await RigorCompanyOperator().run(
             objective=body.objective,
@@ -137,8 +148,9 @@ async def run_company_pulse(
 async def execute_company_action(
     body: CompanyActionExecuteRequest,
     x_rigor_service_token: str | None = Header(default=None),
+    x_rigor_service_token_sha256: str | None = Header(default=None),
 ):
-    _authorize(x_rigor_service_token)
+    _authorize(x_rigor_service_token, token_sha256=x_rigor_service_token_sha256)
     try:
         result = await RigorCompanyActionExecutor().execute(
             body.proposal,

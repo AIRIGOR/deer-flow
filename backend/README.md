@@ -505,3 +505,7 @@ See the [LICENSE](../LICENSE) file in the project root.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 John rehearsal: POST /api/rigor/agents/john/analyze requires the existing shared service token, RIGOR_JOHN_STAGING_ENABLED=true and explicit synthetic=true evidence. John has no tools or mutation authority; validated output always holds the show. Missing staging authorization fails closed. RIGOR_MODEL_API_KEY is the model credential variable; enter it privately in the staging runtime.
+
+Service authentication compares UTF-8 bytes in constant time, so a non-ASCII configured credential does not crash authorization. Wrong values still return 401. Prefer generated ASCII secrets for portable HTTP header transport; no Unicode normalization or credential fallback is performed.
+
+The Netlify gateway sends X-RIGOR-Service-Token-SHA256 as the lowercase SHA-256 of the trimmed UTF-8 staging secret, avoiding HTTP header encoding ambiguity. Runtime computes the same digest and compares in constant time. This digest is a bearer credential and must be protected like the original secret. A supplied invalid digest never falls back to raw-token auth. Legacy raw-token callers remain supported; do not enable a model call before the gate passes.
