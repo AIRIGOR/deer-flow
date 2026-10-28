@@ -60,6 +60,22 @@ New source contradictions reopen affected department checkpoints. Record the ope
 
 ## Durable document intake
 
+Document classification uses source text, normalizes wrapped whitespace, and suggests
+technical rider, stage plot, venue technical, technical/production advance and related
+department types. Filenames may influence a content-supported suggestion; they cannot
+establish one alone. Ambiguous sources remain UNKNOWN and every suggestion requires review.
+PDF extraction retains line boundaries and blank physical pages for page-level citations.
+The shared analysis receipt becomes VERIFIED only after returned excerpts match their
+cited source pages. This verifies citation presence, not the interpretation or completeness
+of model output. All candidates still require human confirmation and full-source review.
+
+Current limits: PDF/TXT only, 5 MB per upload; PDF parsing allows 200 pages while the
+DeerFlow request accepts 120 pages and 600,000 characters. The backend currently submits
+only the first 12,000 normalized characters per page to its model. There is no OCR or
+diagram interpretation for image-only riders or plots; mixed text/image sources can have
+unextracted information. Rule-assisted reconciliation examines at most 60 candidates.
+These limits prevent any claim of exhaustive extraction; inspect the complete original.
+
 PDF/TXT uploads persist the file and a PROCESSING document before returning HTTP 202. A capability-protected background job parses page text and performs analysis. The production packet shows processing, failure, and retry states; file picker and drag/drop use the same upload path. Status polling is read-only. Failed and processing sources block readiness and cannot be source-reviewed. A worker reloads current workspace state after analysis to retain decisions and production selection. Retry is available after failure or a 16-minute processing timeout. Structured fallback is labeled separately from DeerFlow and still requires full-source review.
 
 After document analysis and company pulse both have verified receipts, the next pulse proposes one bounded INTERNAL_TEST / OBSERVE evidence review per deployment to `rigor-qa-security`. The existing action-policy gate and action runner execute it; terminal action keys prevent repeated execution for the same deployment. The check cannot authorize external actions or replace human source review.

@@ -8,7 +8,10 @@ export async function readPdfPages(raw: ArrayBuffer): Promise<string[]> {
     for (let index = 1; index <= pdf.numPages; index++) {
       const page = await pdf.getPage(index);
       const content = await page.getTextContent();
-      pages.push(content.items.map(item => "str" in item ? item.str : "").join(" ").trim());
+      // Preserve PDF.js line boundaries for rule-assisted requirement review.
+      // Keep blank pages in the array so citations retain physical page numbers.
+      pages.push(content.items.map(item => "str" in item
+        ? item.str + (item.hasEOL ? "\n" : " ") : "").join("").trim());
       page.cleanup();
     }
     return pages;

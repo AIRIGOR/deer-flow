@@ -26,6 +26,21 @@ async function makePdf(content: string) {
 }
 
 describe("RIGOR actual PDF packet regression", () => {
+  it("preserves separate requirement lines and physical page numbers after a blank page", async () => {
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    document.addPage();
+    document.addPage().drawText("Show power must provide 400A service\nLabor call requires 12 stagehands", { x: 40, y: 700, size: 12, font, lineHeight: 20 });
+    const pages = await readPdfPages((await document.save()).buffer as ArrayBuffer);
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toBe("");
+    expect(pages[1]).toContain("service\nLabor");
+    const state = activeProduction(createWorkspace("Synthetic multiline QA", "PM"));
+    const requirements = extractRequirements(state, "advance.pdf", pages);
+    expect(requirements).toHaveLength(2);
+    expect(requirements.every(item => item.page_number === 2 && item.status === "NEEDS_CONFIRMATION")).toBe(true);
+    expect(requirements.map(item => item.category)).toEqual(["POWER_CAPACITY", "LABOR_CALL"]);
+  });
   it("parses ten real PDFs, detects power contradictions and stays blocked", async () => {
     const state = activeProduction(createWorkspace("PDF Packet QA", "PM"));
     const seen = new Set<string>();

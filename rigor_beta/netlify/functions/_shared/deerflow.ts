@@ -52,10 +52,12 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new DeerFlowIntegrationError("INVALID_RESPONSE");
     if (operation === "document_analysis") {
       const pages = payload.pages as string[];
+      const normalized = (value: string) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
       if (!Array.isArray(data.requirements) || data.requirements.some((item: any) =>
         !item || typeof item.requirement_text !== "string" || !item.requirement_text.trim() ||
         typeof item.source_excerpt !== "string" || !item.source_excerpt.trim() ||
         !Number.isInteger(item.source_page) || item.source_page < 1 || item.source_page > pages.length ||
+        !normalized(pages[item.source_page - 1]).includes(normalized(item.source_excerpt)) ||
         !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1)) {
         throw new DeerFlowIntegrationError("INVALID_SOURCE_PROVENANCE");
       }
