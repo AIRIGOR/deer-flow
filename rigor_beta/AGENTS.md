@@ -1,5 +1,14 @@
 # RIGOR beta checks
 
+Session 04 document intelligence: document-type suggestions require a content cue;
+filenames alone cannot classify a source. Suggestions remain NEEDS_REVIEW, including
+ADVANCE documents. Preserve PDF.js hasEOL boundaries and empty physical pages.
+The shared DeerFlow boundary must validate each excerpt against its cited page
+before saving a VERIFIED receipt; retain worker-level validation as defense in depth.
+Run document-classification.test.ts, real-pdf-packet.test.ts, deerflow.test.ts and
+rigor-upload.test.ts when changing this path. A verified excerpt proves source
+presence, not semantic correctness, completeness, engineering approval or readiness.
+
 Source provenance comparisons must collapse actual whitespace (`/\s+/g`), not literal backslash-s sequences. Keep the wrapped-source citation regression alongside fabricated-citation rejection in rigor-upload.test.ts.
 
 PDF.js and its direct native canvas dependency must remain external in the Netlify bundle. Import PDF.js inside readPdfPages so parser startup cannot crash all API routes. Verify the packaged function on staging; local PDF tests alone do not prove native modules ship correctly.

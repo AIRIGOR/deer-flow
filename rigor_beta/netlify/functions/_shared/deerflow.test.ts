@@ -8,6 +8,17 @@ const context = { deploy: { context: "production" } } as Context;
 const candidate = { department: "Video", category: "VIDEO_POWER", requirement_text: "Provide 400 amps.", source_excerpt: "Provide 400 amps.", source_page: 90, confidence: .95 };
 beforeEach(() => { records.clear(); vi.restoreAllMocks(); vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : "test-token" } }); });
 describe("shared DeerFlow execution contract", () => {
+  it.each(["Invented power capacity.", "Provide 400 amps."])("records failed provenance for an absent or wrong-page excerpt: %s", async excerpt => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ requirements: [{ ...candidate, source_page: 1, source_excerpt: excerpt }] })));
+    await expect(deerFlowRequest(context, "document_analysis", { pages: ["Cover sheet", "Provide 400 amps."] })).rejects.toThrow("INVALID_SOURCE_PROVENANCE");
+    expect(records.get("latest/document_analysis")).toMatchObject({ status: "FAILED", error_code: "INVALID_SOURCE_PROVENANCE" });
+    expect([...records.values()].some(record => record.status === "VERIFIED")).toBe(false);
+  });
+  it("verifies faithful excerpts across whitespace and case differences", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ requirements: [{ ...candidate, source_page: 1 }] })));
+    await deerFlowRequest(context, "document_analysis", { pages: ["PROVIDE\n400 amps."] });
+    expect(records.get("latest/document_analysis").status).toBe("VERIFIED");
+  });
   it("transports exact non-ASCII credentials as an ASCII digest without exposing the raw secret", async () => {
     const secret = "synthetic-€-credential";
     vi.stubGlobal("Netlify", { env: { get: (name: string) => name === "RIGOR_DEERFLOW_URL" ? "https://gateway.test" : secret } });
