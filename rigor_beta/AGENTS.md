@@ -1,5 +1,15 @@
 # RIGOR beta checks
 
+Session 05 handshake: use hasOperationalOwner and missingSourceRequirements for
+readiness, department summaries, briefs and report open items. Compare comparable
+normalized facts within a document as well as across sources. A resolution applies
+only while its normalized values and displayed source locations remain unchanged;
+reordering must not invalidate it. Changed facts reopen affected checkpoints and
+retain the previous decision snapshot for review. Keep the session05-handshake-v1
+workspace migration idempotent. Run handshake.test.ts, model.test.ts and
+rigor-upload.test.ts. These checks do not establish an operational dependency graph
+or engineering compatibility; never infer readiness or approve a conflict from them.
+
 Session 04 document intelligence: document-type suggestions require a content cue;
 filenames alone cannot classify a source. Suggestions remain NEEDS_REVIEW, including
 ADVANCE documents. Preserve PDF.js hasEOL boundaries and empty physical pages.

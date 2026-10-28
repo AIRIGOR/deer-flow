@@ -99,6 +99,17 @@ export function affectsDepartment(item: RecordMap, department: string) {
   return item.department === department || item.affected_departments?.includes(department) === true;
 }
 
+export function hasOperationalOwner(item: RecordMap) {
+  return typeof item.owner === "string" && item.owner.trim().length > 0;
+}
+
+export function missingSourceRequirements(state: ProductionState, requirements = state.requirements) {
+  const sources = new Set(state.documents.filter(doc => !doc.production_id ||
+    doc.production_id === state.production.production_id).map(doc => doc.name));
+  return requirements.filter(item => typeof item.document_name !== "string" ||
+    !item.document_name.trim() || !sources.has(item.document_name));
+}
+
 function sourceStale(document: RecordMap) {
   const expiresAt = typeof document.expires_at === "string" ? Date.parse(document.expires_at) : NaN;
   return document.stale === true || document.superseded === true ||
@@ -380,10 +391,10 @@ export function normalizeWorkspace(raw: any): WorkspaceState {
     const state = raw as WorkspaceState;
     state.productions.forEach((production) => {
       migrateDemoRecords(production);
-      if (production.production.conflict_rules_version !== "pod2-source-v2") {
+      if (production.production.conflict_rules_version !== "session05-handshake-v1") {
         rebuildConflicts(production);
         invalidateChangedCheckpoints(production, production.requirements);
-        production.production.conflict_rules_version = "pod2-source-v2";
+        production.production.conflict_rules_version = "session05-handshake-v1";
       }
     });
     return state;
@@ -408,7 +419,7 @@ export function normalizeWorkspace(raw: any): WorkspaceState {
   delete raw.workspace.completed_sessions;
   rebuildConflicts(production);
   invalidateChangedCheckpoints(production, production.requirements);
-  production.production.conflict_rules_version = "pod2-source-v2";
+  production.production.conflict_rules_version = "session05-handshake-v1";
   return { tester: raw.tester, workspace: raw.workspace, productions: [production] };
 }
 
@@ -427,13 +438,13 @@ export function progress(input: WorkspaceState | ProductionState) {
   const state = resolveProduction(input);
   const reviewed = state.requirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
   const actionable = state.requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
-  const owned = actionable.filter((item) => Boolean(item.owner)).length;
+  const owned = actionable.filter(hasOperationalOwner).length;
   const resolved = state.conflicts.filter((item) => item.status === "RESOLVED").length;
   const checks = state.checkpoints.filter((item) => item.status === "COMPLETE").length;
   const openIncidents = state.incidents.filter((item) => !String(item.resolution || "").trim()).length;
   const reviewTarget = state.requirements.length;
   const sourcesReviewed = state.documents.every((doc) => sourceReviewed(doc) && !sourceStale(doc));
-  const evidenceReviewed = state.requirements.every((req) => req.status !== "REJECTED" && !evidenceUnverified(req));
+  const evidenceReviewed = !missingSourceRequirements(state).length && state.requirements.every((req) => req.status !== "REJECTED" && !evidenceUnverified(req));
   const ownerTarget = actionable.length;
   const sessionOneComplete = reviewTarget > 0 && reviewed === reviewTarget && sourcesReviewed && evidenceReviewed;
   const sessionTwoComplete = sessionOneComplete && resolved === state.conflicts.length && owned === ownerTarget;
@@ -464,7 +475,9 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const unverifiedRequirements = scopedRequirements.filter(evidenceUnverified).length;
   const reviewed = scopedRequirements.filter((item) => ["CONFIRMED", "REJECTED", "RESOLVED"].includes(item.status)).length;
   const actionable = scopedRequirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status));
-  const owned = actionable.filter((item) => Boolean(item.owner)).length;
+  const owned = actionable.filter(hasOperationalOwner).length;
+  const ownershipGaps = actionable.length - owned;
+  const missingSources = missingSourceRequirements(state, scopedRequirements).length;
   const rejectedRequirements = scopedRequirements.filter((item) => item.status === "REJECTED").length;
   const openConflicts = scopedConflicts.filter((item) => item.status !== "RESOLVED").length;
   const checks = scopedCheckpoints.filter((item) => item.status === "COMPLETE").length;
@@ -484,6 +497,8 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
       unreviewed_documents: unreviewedDocuments,
       stale_documents: staleDocuments,
       unverified_requirements: unverifiedRequirements,
+      ownership_gaps: ownershipGaps,
+      missing_source_dependencies: missingSources,
     };
   }
   const requirementScore = reviewed / scopedRequirements.length;
@@ -492,8 +507,8 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
   const checkpointScore = checks / Math.max(scopedCheckpoints.length, 1);
   const incidentScore = scopedIncidents.length ? 1 - openIncidents.length / scopedIncidents.length : 1;
   const computedScore = Math.round((requirementScore * 0.35 + ownershipScore * 0.2 + conflictScore * 0.2 + checkpointScore * 0.15 + incidentScore * 0.1) * 100);
-  const score = unreviewedDocuments ? Math.min(computedScore, 95) : computedScore;
-  const status = openConflicts || blockingIncidents.length || rejectedRequirements || staleDocuments || unverifiedRequirements
+  const score = unreviewedDocuments || missingSources ? Math.min(computedScore, 95) : computedScore;
+  const status = openConflicts || blockingIncidents.length || rejectedRequirements || staleDocuments || unverifiedRequirements || missingSources
     ? "BLOCKED"
     : reviewed < scopedRequirements.length || owned < actionable.length || openIncidents.length || unreviewedDocuments
       ? "NEEDS_REVIEW"
@@ -514,6 +529,8 @@ export function readiness(input: WorkspaceState | ProductionState, requirements?
     unreviewed_documents: unreviewedDocuments,
     stale_documents: staleDocuments,
     unverified_requirements: unverifiedRequirements,
+    ownership_gaps: ownershipGaps,
+    missing_source_dependencies: missingSources,
   };
 }
 
@@ -530,8 +547,10 @@ export function departmentSummary(input: WorkspaceState | ProductionState) {
     const rejected = scoped.filter((item) => item.status === "REJECTED").length;
     const stale = state.documents.some((doc) => (sourceNames.has(doc.name) || doc.status === "PROCESSING" || doc.status === "FAILED") && sourceStale(doc));
     const unverified = scoped.some(evidenceUnverified);
-    const status = open || blockingIncidents.length || rejected || stale || unverified ? "BLOCKED" : ready === scoped.length && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
-    return { department, total: scoped.length, ready, open_conflicts: open, open_incidents: openIncidents.length, status };
+    const ownershipGaps = scoped.filter(item => ["CONFIRMED", "RESOLVED"].includes(item.status) && !hasOperationalOwner(item)).length;
+    const missingSources = missingSourceRequirements(state, scoped).length;
+    const status = open || blockingIncidents.length || rejected || stale || unverified || missingSources ? "BLOCKED" : ready === scoped.length && !ownershipGaps && !openIncidents.length && sourcesReviewed ? "READY" : "NEEDS_REVIEW";
+    return { department, total: scoped.length, ready, open_conflicts: open, open_incidents: openIncidents.length, ownership_gaps: ownershipGaps, missing_source_dependencies: missingSources, status };
   });
 }
 
@@ -587,17 +606,32 @@ export function rebuildConflicts(input: WorkspaceState | ProductionState) {
       for (let rightIndex = leftIndex + 1; rightIndex < items.length; rightIndex += 1) {
         const left = items[leftIndex];
         const right = items[rightIndex];
-        if (left.document_name === right.document_name || left.normalized_value === right.normalized_value) continue;
+        if (left.normalized_value === right.normalized_value) continue;
         const ids = [left.requirement_id, right.requirement_id].sort();
         const signature = `${left.department}|${left.category}|${ids.join("|")}`;
         const prior = existing.get(signature);
+        const source = (item: RecordMap) => `${item.document_name} · p${item.page_number || "—"}`;
+        const sameOrder = prior?.left_requirement_id === left.requirement_id;
+        const factsUnchanged = prior &&
+          (sameOrder ? prior.left_value : prior.right_value) === left.normalized_value &&
+          (sameOrder ? prior.right_value : prior.left_value) === right.normalized_value &&
+          (sameOrder ? prior.left_source : prior.right_source) === source(left) &&
+          (sameOrder ? prior.right_source : prior.left_source) === source(right);
+        const reopen = prior?.status === "RESOLVED" && !factsUnchanged;
+        const affected = [...new Set([...(left.affected_departments || [left.department]), ...(right.affected_departments || [right.department])])];
+        if (reopen) {
+          for (const checkpoint of state.checkpoints.filter(item => affected.includes(item.department))) {
+            checkpoint.status = "PENDING";
+            checkpoint.completed_at = null;
+          }
+        }
         conflicts.push({
           conflict_id: prior?.conflict_id || newId("conflict"),
           production_id: state.production.production_id,
           workspace_id: state.production.workspace_id,
           signature,
           department: left.department,
-          affected_departments: [...new Set([...(left.affected_departments || [left.department]), ...(right.affected_departments || [right.department])])],
+          affected_departments: affected,
           category: left.category,
           title: `${left.department}: conflicting ${String(left.category).toLowerCase().replaceAll("_", " ")}`,
           severity: conflictSeverity(left.category),
@@ -607,10 +641,11 @@ export function rebuildConflicts(input: WorkspaceState | ProductionState) {
           right_source: `${right.document_name} · p${right.page_number || "—"}`,
           left_requirement_id: left.requirement_id,
           right_requirement_id: right.requirement_id,
-          status: prior?.status || "OPEN",
-          resolution: prior?.resolution || null,
-          owner: prior?.owner || null,
-          resolved_at: prior?.resolved_at || null,
+          status: factsUnchanged ? prior.status : "OPEN",
+          resolution: factsUnchanged ? prior.resolution : null,
+          owner: factsUnchanged ? prior.owner : null,
+          resolved_at: factsUnchanged ? prior.resolved_at : null,
+          previous_decision: reopen ? { resolution: prior.resolution, owner: prior.owner, resolved_at: prior.resolved_at, left_value: prior.left_value, right_value: prior.right_value } : prior?.previous_decision || null,
         });
       }
     }

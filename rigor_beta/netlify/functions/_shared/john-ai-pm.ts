@@ -1,4 +1,4 @@
-import { activeProduction, extractRequirements, newId, now, readiness, type ProductionState, type WorkspaceState } from "./model.js";
+import { activeProduction, extractRequirements, hasOperationalOwner, missingSourceRequirements, newId, now, readiness, type ProductionState, type WorkspaceState } from "./model.js";
 import type { Context } from "@netlify/functions";
 
 // Deploy context is a build category, not an environment authorization boundary.
@@ -66,7 +66,12 @@ export function johnPmBrief(input: WorkspaceState | ProductionState) {
       `Verify full source and analysis status for ${document.name || "unnamed document"}.`,
       [document.name || "Source identity missing"]);
   }
-  for (const requirement of state.requirements.filter(item => !["CONFIRMED", "RESOLVED"].includes(item.status) || !item.owner)) {
+  for (const requirement of missingSourceRequirements(state)) {
+    add("P0", "MISSING_SOURCE_DEPENDENCY", requirement.department || "Production",
+      `Restore and review the source for ${requirement.title || requirement.detail || "requirement"}.`,
+      [requirement.document_name || "Source identity missing"]);
+  }
+  for (const requirement of state.requirements.filter(item => !["CONFIRMED", "RESOLVED"].includes(item.status) || !hasOperationalOwner(item))) {
     add(requirement.status === "REJECTED" ? "P0" : "P1", "REQUIREMENT", requirement.department || "Production",
       `Human review required: ${requirement.detail || requirement.title || "unverified requirement"}.`,
       requirement.document_name ? [`${requirement.document_name}, page ${requirement.page_number || "unknown"}`] : ["Source not supplied"]);
