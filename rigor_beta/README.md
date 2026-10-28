@@ -52,6 +52,21 @@ Department Advance Report readiness counts only that department's requirements, 
 Pod 1 security checks require Node.js 24. The optional Netlify CLI is not installed as an application dependency because its transitive toolchain included unpatched high-severity advisories (braces and node-forge). For local development, use a separately managed, security-reviewed Netlify CLI installation; production builds use the Netlify platform and do not need a project-local CLI. CI enforces both full and production-only dependency audits. Run `npm audit --audit-level=high` and `npm audit --omit=dev --audit-level=high` before sharing a build.
 ## Pod 2 source review and change impact
 
+The Session 05 handshake checks comparable values inside a single advance as well
+as across documents. Conflicts are candidates for human review: differing values
+can describe separate equipment or compatible capacities. Recorded resolutions stay
+current only while normalized values and source locations match; changes reopen
+the conflict and affected checkpoints, retaining the last decision for review.
+
+Missing or blank owners keep department readiness and Technical Advance incomplete.
+A requirement without its source record in the same production blocks readiness;
+the API exposes `ownership_gaps` and `missing_source_dependencies`, and the read-only
+John brief and PDF reports identify missing source evidence. Restore and review the
+source rather than treating a requirement checkbox as proof. Existing workspaces
+rebuild conflict rules once and conservatively reopen checkpoints on first use.
+This detects missing source dependencies, not arbitrary equipment, labor or schedule
+prerequisites; it does not calculate load/capacity compatibility or engineer a show.
+
 Source-backed dock capacity, B-stage footprint, suspended load, point load, trim, power, curfew and labor constraints use stable identities across model labels. Model-provided categories and departments remain available for audit. Suspended load, point load and B-stage footprint conflicts receive critical severity. Automated LED load affects Rigging and Video; B-stage footprint affects Rigging, Stage Management and Video. Those related requirements and conflicts appear in each affected department PDF and readiness summary.
 
 After ingestion, review each requirement candidate and the full original document. A rule-assisted source pass adds obvious statements omitted by the model as explicitly marked source review candidates. It does not guarantee complete semantic extraction. Use **Complete source review** only after accounting for every relevant requirement in the original document. Full source review records the session reviewer and time and is required before intake completion or show readiness. Guided sample documents remain explicitly exempt from this production-document gate.

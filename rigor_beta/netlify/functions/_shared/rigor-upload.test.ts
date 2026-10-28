@@ -39,6 +39,25 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it("shows a missing source dependency as a blocker in master and department PDF reports", async () => {
+    await upload(); await Promise.all(waits); await worker();
+    const latest = saved();
+    const production = activeProduction(latest);
+    production.documents = [];
+    production.requirements.forEach(item => { item.status = "CONFIRMED"; item.owner = "Lighting Lead"; });
+    production.checkpoints.forEach(item => { item.status = "COMPLETE"; });
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    const actualParser = await vi.importActual<typeof import("./pdf-text.js")>("./pdf-text.js");
+    for (const path of ["/api/reports/advance.pdf", "/api/reports/advance.pdf?department=Lighting"]) {
+      const response = await handler(request(path), ctx);
+      expect(response.status).toBe(200);
+      const text = (await actualParser.readPdfPages(await response.arrayBuffer())).join(" ").replace(/\s+/g, " ");
+      expect(text).toContain("BLOCKED");
+      expect(text).toContain("MISSING SOURCE DEPENDENCY");
+      expect(text).toContain("source.txt");
+      expect(text).not.toContain("No open items in this report scope.");
+    }
+  });
   it.each([undefined, "false", "TRUE"])("keeps the isolated John fixture disabled with flag %s", async (flag) => {
     ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" } } as Context;
     vi.stubGlobal("Netlify", { env: { get: () => flag } });

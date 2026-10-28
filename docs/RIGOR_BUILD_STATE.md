@@ -1,4 +1,81 @@
-# RIGOR build state — Session 04 development, October 28, 2026
+# RIGOR build state — Session 05 development, October 28, 2026
+
+## Session 05 | Production Handshake & Conflict Engine
+
+Development only; NOT CERTIFIED and NOT DEPLOYED. Production, Founder state,
+credentials and synthetic staging configuration are unchanged. Human source review,
+requirement confirmation and conflict resolution remain mandatory. Earlier Session
+03/04 release blockers remain open; this session does not clear them.
+
+Starting point: tested Session 04 commit 299ab45d4c17d583448fe42a34973374cd56df7b
+on feat/rigor-session04-document-intelligence (draft PR #24). Isolated branch:
+feat/rigor-session05-handshake-conflicts. Baseline: 94 passing product tests.
+
+### Inspection and measurable acceptance criteria
+
+Inspected active Netlify conflict grouping/canonicalization/signatures, resolution
+reuse, workspace migration, requirement ownership, master/department readiness,
+progress unlocks, PDF open-items reporting and John's read-only briefing. Inspected
+the backend manager's same-show source integrity checks; no backend source changed.
+
+1. Unequal comparable capacities on pages 1 and 2 of a single advance create an
+   OPEN critical conflict with both page references and block readiness.
+2. Reordering unchanged requirements preserves the human resolution. Changed
+   values or source locations for the same IDs reopen that conflict, clear current
+   approval fields, retain the previous decision snapshot and reopen affected
+   checkpoints. No automatic re-resolution is permitted.
+3. Empty, whitespace-only, null and numeric owners cannot satisfy ownership across
+   readiness, department summary and Technical Advance unlocks.
+4. Requirements without a source record in the same production block readiness
+   and source-review completion; missing_source_dependencies and ownership_gaps
+   expose counts. Restoring a reviewed source clears only that dependency gate.
+   An unrelated, correctly sourced department remains scoped independently.
+5. Read-only John briefing recommends human restoration of missing source evidence.
+   Both master and affected department PDFs show BLOCKED and the missing-source
+   open item, rather than claiming no open items.
+6. Old workspace rules rebuild once under session05-handshake-v1, discovering
+   same-source conflicts and reopening checkpoints. Repeated normalization is
+   idempotent. Existing staging/auth/retry/source-review safeguards still pass.
+
+### Changes and verification evidence
+
+Minimal changes: model.ts owns consistent owner/source checks, same-source conflict
+comparison, fact-bound resolution reuse and rule migration. john-ai-pm.ts reports
+missing source dependencies without mutation; rigor-api.mts uses the same helpers
+for PDF open items. Regression coverage is in handshake.test.ts, model.test.ts
+(four fixtures repaired to include reviewed source records), and rigor-upload.test.ts.
+
+Before implementation, eight new regression cases failed while the existing 94
+passed. Final product suite: 103 tests passed across 11 files. TypeScript passes.
+Full and production-only audits each report zero vulnerabilities. Detailed console
+evidence is included in the Session 05 deliverable. No full backend-suite or live
+readiness claim is made.
+Focused backend CI RIGOR files plus test_john_pm.py: 65 passed in 6.35s, one
+Starlette/httpx deprecation warning. Offline Netlify production-context build passed
+in 11.3s and bundled all ten functions; this verifies local packaging only. Its
+placeholder deploy URL is not a live deployment. git diff --check passed.
+
+### Remaining blockers and limits
+
+- This is conservative conflict-candidate detection, not engineering validation.
+  Unequal values in one category can describe compatible minima/capacities,
+  separate assets, locations or alternatives; humans must review applicability.
+- Missing dependencies here means missing source-record backing. There is no
+  general operational prerequisite graph, cycle detection, aggregated load or
+  capacity calculation, schedule feasibility model or equipment compatibility matrix.
+- Source linkage remains filename-based; duplicate filenames, source versions and
+  byte-integrity linkage need a separate document-ID migration. Restored evidence
+  must still be analyzed/reviewed; no bytes or facts are invented by this change.
+- Resolution reuse checks normalized values and displayed source locations. It is
+  not full semantic change detection. previous_decision retains the last invalidated
+  decision snapshot, not a complete immutable approval history.
+- Existing-workspace normalization conservatively reopens checkpoints once on a
+  rules upgrade, including previously completed ones. This behavior is tested
+  locally; no live workspace was migrated.
+- Hosted runtime/staging proof, Session 03 certification, OCR/diagram handling and
+  the extraction/page limits documented in Session 04 remain outstanding.
+
+## Preserved Session 04 checkpoint
 
 ## Session 04 | Production Document Intelligence
 

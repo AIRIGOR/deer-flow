@@ -7,6 +7,7 @@ import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./
 import { suggestDocumentType } from "./_shared/document-classification.js";
 import { johnPmBrief, loadJohnFixture, johnStagingAuthorized } from "./_shared/john-ai-pm.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
+import { hasOperationalOwner, missingSourceRequirements } from "./_shared/model.js";
 import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
 const COOKIE = "rigor_beta_session";
@@ -217,14 +218,16 @@ async function reportPdf(state: ProductionState, department: string | null) {
 
   section("Open items / assumptions");
   const openRequirements = requirements.filter((item) => !["CONFIRMED", "RESOLVED"].includes(item.status));
-  const ownerGaps = requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status) && !item.owner);
+  const ownerGaps = requirements.filter((item) => ["CONFIRMED", "RESOLVED"].includes(item.status) && !hasOperationalOwner(item));
+  const missingSources = missingSourceRequirements(state, requirements);
   const openConflicts = conflicts.filter((item) => item.status !== "RESOLVED");
   const openIncidents = incidents.filter((item) => !String(item.resolution || "").trim());
-  if (!openRequirements.length && !ownerGaps.length && !openConflicts.length && !openIncidents.length && !score.unreviewed_documents) {
+  if (!openRequirements.length && !ownerGaps.length && !missingSources.length && !openConflicts.length && !openIncidents.length && !score.unreviewed_documents) {
     draw("No open items in this report scope.", 9);
   } else {
     for (const item of openRequirements) draw(`${item.status === "REJECTED" ? "BLOCKED / REJECTED" : "REVIEW"} Â· ${item.department} Â· ${item.detail || item.title}`, 8);
     for (const item of ownerGaps) draw(`OWNER Â· ${item.department} Â· ${item.title}`, 8);
+    for (const item of missingSources) draw(`MISSING SOURCE DEPENDENCY: ${item.department} - ${item.document_name || "Source identity missing"} - ${item.title || item.detail}`, 8);
     for (const item of openConflicts) draw(`CONFLICT Â· ${item.severity} Â· ${item.department} Â· ${item.title}`, 8);
     for (const item of openIncidents) draw(`INCIDENT Â· ${item.severity} Â· ${item.department} Â· ${item.summary}`, 8);
     for (const doc of documents.filter((doc) => doc.source_kind !== "SAMPLE" && doc.review_status !== "REVIEWED")) draw(`SOURCE REVIEW Â· ${doc.name} Â· Check the complete document for missed or uncertain requirements.`, 8);

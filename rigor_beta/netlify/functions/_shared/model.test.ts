@@ -183,6 +183,7 @@ describe("RIGOR beta model", () => {
 
   it("recovers an omitted trim sentence as an unreviewed source candidate", () => {
     const state = activeProduction(createWorkspace("Source Reviewer", "PM"));
+    state.documents.push({ name: "tour.txt", status: "PROCESSED", source_kind: "TESTER", review_status: "REVIEWED" });
     state.requirements.push({requirement_id:"power", document_name:"tour.txt", department:"Power",category:"POWER_CAPACITY",detail:"Show power must provide 400A service.",excerpt:"Show power must provide 400A service.",status:"CONFIRMED",owner:"Power Lead"});
     state.checkpoints.forEach((c) => {c.status="COMPLETE";});
     const recovered = reconcileSourceRequirements(state,"tour.txt",["Show power must provide 400A service.\nTour rigging requires minimum downstage trim of 42 ft."]);
@@ -272,6 +273,7 @@ describe("RIGOR beta model", () => {
   it("keeps show readiness blocked until field incidents are resolved", () => {
     const state = createWorkspace("Show PM", "PM");
     const production = activeProduction(state);
+    production.documents.push({ name: "show.txt", status: "PROCESSED", source_kind: "TESTER", review_status: "REVIEWED" });
 
     extractRequirements(state, "show.txt", ["Venue must provide 200A show power service."]);
     production.requirements[0].status = "CONFIRMED";
@@ -348,6 +350,7 @@ describe("RIGOR beta model", () => {
   it("requires every extracted requirement and owner before unlocking show day", () => {
     const state = createWorkspace("Test TM", "TM");
     const production = activeProduction(state);
+    production.documents.push({ name: "production-notes.txt", status: "PROCESSED", source_kind: "TESTER", review_status: "REVIEWED" });
 
     extractRequirements(state, "production-notes.txt", [
       "Venue must provide 200A show power service.",
@@ -373,6 +376,7 @@ describe("RIGOR beta model", () => {
   it("never reports show ready while requirements or owners remain open", () => {
     const state = createWorkspace("Safety PM", "PM");
     const production = activeProduction(state);
+    production.documents.push({ name: "large-tour.txt", status: "PROCESSED", source_kind: "TESTER", review_status: "REVIEWED" });
 
     extractRequirements(state, "large-tour.txt", [
       "Venue must provide 400A show power service.",
