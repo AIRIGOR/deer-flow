@@ -14,7 +14,7 @@ vi.mock("@netlify/blobs", () => ({ getStore: () => ({
   setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
 }) }));
 vi.mock("./pdf-text.js", () => ({ readPdfPages: pdf }));
-import handler, { processUpload } from "../rigor-api.mjs";
+import handler, { processUpload, processJohnJob } from "../rigor-api.mjs";
 let waits: Promise<unknown>[];
 let ctx: Context;
 let workspace: ReturnType<typeof createWorkspace>;
@@ -65,29 +65,59 @@ describe("durable document upload", () => {
     expect(production.requirements.some(item => item.analysis_engine === "DEERFLOW")).toBe(true);
   });
 
-  it("John model challenges the loaded fictional tour without changing its blockers", async () => {
-    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
+  it("runs the fictional tour through the durable John lifecycle", async () => {
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" },
+      deploy: { context: "deploy-preview" } } as Context;
     expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(200);
     const before = structuredClone(saved());
     const sourceId = activeProduction(before).requirements[0].requirement_id;
-    fetchMock.mockResolvedValue(Response.json({
-      agent: "John", mode: "MODEL_ADVISORY_ONLY",
-      release_decision: "HOLD_SHOW", autonomous_show_approval: false,
-      actions: [{ priority: "P0", department: "Power",
-        question: "Resolve the conflicting show-power capacities with the venue electrician.",
-        evidence_ids: [sourceId] }],
-    }));
-    const response = await handler(request("/api/agents/john/analyze", "{}"), ctx);
-    expect(response.status).toBe(200);
-    const result = await response.json();
+
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("gateway.test")
+        ? Response.json({
+            agent: "John", mode: "MODEL_ADVISORY_ONLY",
+            release_decision: "HOLD_SHOW", autonomous_show_approval: false,
+            actions: [{ priority: "P0", department: "Power",
+              question: "Resolve the conflicting venue power capacities.",
+              evidence_ids: [sourceId] }]
+          })
+        : new Response(null, { status: 202 }));
+
+    const started = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    expect(started.status).toBe(202);
+    const { jobId } = await started.json();
+    expect(jobId).toMatch(/^[a-f0-9]{64}$/);
+
+    const pending = await handler(request(`/api/agents/john/jobs/${jobId}`), ctx);
+    expect(pending.status).toBe(202);
+
+    await processJohnJob(
+      new Request("https://rigor.test/worker", {
+        method: "POST", body: JSON.stringify({ jobId })
+      }), ctx
+    );
+
+    const completed = await handler(request(`/api/agents/john/jobs/${jobId}`), ctx);
+    expect(completed.status).toBe(200);
+    const { result } = await completed.json();
     expect(result.readiness.status).toBe("BLOCKED");
     expect(result.release_decision).toBe("HOLD_SHOW");
+    expect(result.autonomous_show_approval).toBe(false);
     expect(result.actions[0].evidence_ids).toContain(sourceId);
-    expect(result.deterministic_actions.some((item: any) => item.type === "CONFLICT")).toBe(true);
+    expect(result.deterministic_actions.some((x: any) => x.type === "CONFLICT")).toBe(true);
     expect(saved()).toEqual(before);
+
+    const callsBeforeRetry = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes("gateway.test")).length;
+    await processJohnJob(
+      new Request("https://rigor.test/worker", {
+        method: "POST", body: JSON.stringify({ jobId })
+      }), ctx
+    );
+    const callsAfterRetry = fetchMock.mock.calls.filter(
+      ([url]) => String(url).includes("gateway.test")).length;
+    expect(callsAfterRetry).toBe(callsBeforeRetry);
   });
-
-
   it("loads John's 14-source rehearsal only into an empty staging production", async () => {
     ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
     const response = await handler(request("/api/agents/john/fixture", "{}"), ctx);
@@ -112,30 +142,49 @@ describe("durable document upload", () => {
   });
 
 
-  it("runs John model in staging with sample evidence without changing readiness", async () => {
+  it("runs a synthetic John job without changing production readiness", async () => {
     const sample = saved();
     const { loadSampleProduction } = await import("./model.js");
     loadSampleProduction(activeProduction(sample));
     records.set(`workspace/${workspace.tester.tester_id}`, sample);
     const before = structuredClone(saved());
-    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
-    fetchMock.mockImplementation(async (url: string) => String(url).includes("/agents/john/analyze")
-      ? Response.json({ agent: "John", mode: "MODEL_ADVISORY_ONLY",
-          release_decision: "HOLD_SHOW", autonomous_show_approval: false,
-          actions: [{ priority: "P0", department: "Power",
-            question: "Verify venue show power before load in.",
-            evidence_ids: [activeProduction(sample).requirements[0].requirement_id] }] })
-      : new Response(null, { status: 202 }));
-    const response = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" },
+      deploy: { context: "deploy-preview" } } as Context;
+
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("gateway.test")
+        ? Response.json({
+            agent: "John", mode: "MODEL_ADVISORY_ONLY",
+            release_decision: "HOLD_SHOW", autonomous_show_approval: false,
+            actions: [{ priority: "P0", department: "Power",
+              question: "Verify venue show power before load in.",
+              evidence_ids: [activeProduction(sample).requirements[0].requirement_id] }]
+          })
+        : new Response(null, { status: 202 }));
+
+    const started = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    expect(started.status).toBe(202);
+    const { jobId } = await started.json();
+
+    await processJohnJob(
+      new Request("https://rigor.test/worker", {
+        method: "POST", body: JSON.stringify({ jobId })
+      }), ctx
+    );
+
+    const response = await handler(request(`/api/agents/john/jobs/${jobId}`), ctx);
     expect(response.status).toBe(200);
-    const result = await response.json();
-    expect(result).toMatchObject({ agent: "John", mode: "MODEL_ADVISORY_ONLY",
-      release_decision: "HOLD_SHOW", autonomous_show_approval: false, synthetic: true });
+    const { result } = await response.json();
+    expect(result).toMatchObject({
+      agent: "John", synthetic: true, mode: "MODEL_ADVISORY_ONLY",
+      release_decision: "HOLD_SHOW", autonomous_show_approval: false
+    });
     expect(result.actions[0].priority).toBe("P0");
     expect(saved()).toEqual(before);
-    expect(fetchMock.mock.calls[0][0]).toContain("/api/rigor/agents/john/analyze");
+    expect(fetchMock.mock.calls.some(
+      ([url]) => String(url).includes("/api/rigor/agents/john/analyze")
+    )).toBe(true);
   });
-
   it("refuses John model on production deploy or real customer evidence", async () => {
     const production = await handler(request("/api/agents/john/analyze", "{}"), ctx);
     expect(production.status).toBe(403);

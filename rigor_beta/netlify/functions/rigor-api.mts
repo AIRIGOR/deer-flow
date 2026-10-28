@@ -204,15 +204,15 @@ async function reportPdf(state: ProductionState, department: string | null) {
 
   draw("RIGOR", 22, true, rgb(0.05, 0.45, 0.32));
   draw(department ? `${department} Department Advance Report` : "Master Advance Report", 15, true);
-  draw(`${state.show.show_name} · ${state.show.venue} · ${state.show.show_date}`, 10);
-  if (state.production.sample_demo) draw("SAMPLE PRODUCTION — demonstration data, not a real show", 8, true, rgb(0.55, 0.36, 0.08));
+  draw(`${state.show.show_name} Â· ${state.show.venue} Â· ${state.show.show_date}`, 10);
+  if (state.production.sample_demo) draw("SAMPLE PRODUCTION â€” demonstration data, not a real show", 8, true, rgb(0.55, 0.36, 0.08));
 
   const score = department
     ? readiness(state, requirements, conflicts, checkpoints, incidents)
     : readiness(state);
   section("Executive readiness");
-  draw(`Status: ${score.status.replaceAll("_", " ")} · Readiness: ${score.score}%`, 13, true);
-  draw(`${score.confirmed_requirements}/${score.total_requirements} requirements reviewed · ${score.open_conflicts} open conflicts · ${score.open_incidents || 0} open incidents · ${score.completed_checkpoints}/${score.total_checkpoints} checkpoints complete`, 8);
+  draw(`Status: ${score.status.replaceAll("_", " ")} Â· Readiness: ${score.score}%`, 13, true);
+  draw(`${score.confirmed_requirements}/${score.total_requirements} requirements reviewed Â· ${score.open_conflicts} open conflicts Â· ${score.open_incidents || 0} open incidents Â· ${score.completed_checkpoints}/${score.total_checkpoints} checkpoints complete`, 8);
   draw(`${score.unreviewed_documents} source documents awaiting full review`, 8);
 
   section("Open items / assumptions");
@@ -223,19 +223,19 @@ async function reportPdf(state: ProductionState, department: string | null) {
   if (!openRequirements.length && !ownerGaps.length && !openConflicts.length && !openIncidents.length && !score.unreviewed_documents) {
     draw("No open items in this report scope.", 9);
   } else {
-    for (const item of openRequirements) draw(`${item.status === "REJECTED" ? "BLOCKED / REJECTED" : "REVIEW"} · ${item.department} · ${item.detail || item.title}`, 8);
-    for (const item of ownerGaps) draw(`OWNER · ${item.department} · ${item.title}`, 8);
-    for (const item of openConflicts) draw(`CONFLICT · ${item.severity} · ${item.department} · ${item.title}`, 8);
-    for (const item of openIncidents) draw(`INCIDENT · ${item.severity} · ${item.department} · ${item.summary}`, 8);
-    for (const doc of documents.filter((doc) => doc.source_kind !== "SAMPLE" && doc.review_status !== "REVIEWED")) draw(`SOURCE REVIEW · ${doc.name} · Check the complete document for missed or uncertain requirements.`, 8);
+    for (const item of openRequirements) draw(`${item.status === "REJECTED" ? "BLOCKED / REJECTED" : "REVIEW"} Â· ${item.department} Â· ${item.detail || item.title}`, 8);
+    for (const item of ownerGaps) draw(`OWNER Â· ${item.department} Â· ${item.title}`, 8);
+    for (const item of openConflicts) draw(`CONFLICT Â· ${item.severity} Â· ${item.department} Â· ${item.title}`, 8);
+    for (const item of openIncidents) draw(`INCIDENT Â· ${item.severity} Â· ${item.department} Â· ${item.summary}`, 8);
+    for (const doc of documents.filter((doc) => doc.source_kind !== "SAMPLE" && doc.review_status !== "REVIEWED")) draw(`SOURCE REVIEW Â· ${doc.name} Â· Check the complete document for missed or uncertain requirements.`, 8);
   }
 
   section("Requirements");
   if (!requirements.length) draw("No requirements in this report scope.", 9);
   for (const item of requirements) {
     const rows: Array<[string, number, boolean?]> = [
-      [`${item.department} · ${item.detail || item.title}`, 9, true],
-      [`${item.status.replaceAll("_", " ")} · Owner: ${item.owner || "—"} · Source: ${item.document_name}, p${item.page_number || "—"} · Confidence: ${Math.round(Number(item.confidence || 0) * 100)}%`, 8],
+      [`${item.department} Â· ${item.detail || item.title}`, 9, true],
+      [`${item.status.replaceAll("_", " ")} Â· Owner: ${item.owner || "â€”"} Â· Source: ${item.document_name}, p${item.page_number || "â€”"} Â· Confidence: ${Math.round(Number(item.confidence || 0) * 100)}%`, 8],
       [`Evidence: ${item.excerpt || item.detail}`, 8],
     ];
     if (item.coverage_review_required) rows.push(["Source review candidate: reconcile this statement with the original document before confirming.", 8]);
@@ -246,42 +246,42 @@ async function reportPdf(state: ProductionState, department: string | null) {
   if (!conflicts.length) draw("No conflicts in this report scope.", 9);
   for (const item of conflicts) {
     block([
-      [`${item.department} · ${item.title} · ${item.severity} · ${item.status}`, 9, true],
+      [`${item.department} Â· ${item.title} Â· ${item.severity} Â· ${item.status}`, 9, true],
       [item.status === "RESOLVED"
-        ? `Decision: ${item.resolution} · Owner: ${item.owner}`
-        : `Open: ${item.left_value} vs ${item.right_value} · Sources: ${item.left_source} / ${item.right_source}`, 8],
+        ? `Decision: ${item.resolution} Â· Owner: ${item.owner}`
+        : `Open: ${item.left_value} vs ${item.right_value} Â· Sources: ${item.left_source} / ${item.right_source}`, 8],
     ]);
   }
 
   section("Show-day checkpoints");
   if (!checkpoints.length) draw("No checkpoints in this report scope.", 9);
   for (const item of checkpoints) {
-    draw(`${item.status} · ${item.department} · ${item.label}${item.completed_at ? ` · ${item.completed_at}` : ""}`, 8);
+    draw(`${item.status} Â· ${item.department} Â· ${item.label}${item.completed_at ? ` Â· ${item.completed_at}` : ""}`, 8);
   }
 
   section("Incident log");
   if (!incidents.length) draw("No incidents recorded in this report scope.", 9);
   for (const item of incidents) {
-    draw(`${item.severity} · ${item.department} · ${item.summary}`, 9, true);
-    draw(item.resolution ? `Resolution: ${item.resolution}${item.resolved_at ? ` · Closed ${item.resolved_at}` : ""}` : "Status: OPEN — resolution required", 8);
+    draw(`${item.severity} Â· ${item.department} Â· ${item.summary}`, 9, true);
+    draw(item.resolution ? `Resolution: ${item.resolution}${item.resolved_at ? ` Â· Closed ${item.resolved_at}` : ""}` : "Status: OPEN â€” resolution required", 8);
     y -= 3;
   }
 
   section("Analysis & AI provenance");
   if (!documents.length) draw("No source documents in this report scope.", 9);
   for (const item of documents) {
-    draw(`${item.name} · ${item.page_count || "—"} pages · Analysis: ${String(item.analysis_engine || "STRUCTURED_EXTRACTION_V1").replaceAll("_", " ")} · Source: ${item.source_kind || "UNKNOWN"}`, 8);
+    draw(`${item.name} Â· ${item.page_count || "â€”"} pages Â· Analysis: ${String(item.analysis_engine || "STRUCTURED_EXTRACTION_V1").replaceAll("_", " ")} Â· Source: ${item.source_kind || "UNKNOWN"}`, 8);
   }
 
   section("Decision chronology");
   if (!relevantEvents.length) draw("No decision events recorded in this report scope.", 9);
   for (const item of relevantEvents.slice(-80)) {
-    const payload = JSON.stringify(item.payload || {}).replace(/[{}"]/g, "").replace(/,/g, " · ").slice(0, 220);
-    draw(`${item.created_at} · ${String(item.type).replaceAll("_", " ")}${payload ? ` · ${payload}` : ""}`, 7);
+    const payload = JSON.stringify(item.payload || {}).replace(/[{}"]/g, "").replace(/,/g, " Â· ").slice(0, 220);
+    draw(`${item.created_at} Â· ${String(item.type).replaceAll("_", " ")}${payload ? ` Â· ${payload}` : ""}`, 7);
   }
 
   y -= 8;
-  draw(`Generated ${now()} · RIGOR operational source of truth · Source evidence and decision chronology preserved`, 8, false, rgb(0.35, 0.42, 0.46));
+  draw(`Generated ${now()} Â· RIGOR operational source of truth Â· Source evidence and decision chronology preserved`, 8, false, rgb(0.35, 0.42, 0.46));
   return pdf.save();
 }
 async function queueUpload(request: Request, context: Context, state: WorkspaceState, production: ProductionState, documentId: string) {
@@ -393,30 +393,96 @@ export default async (request: Request, context: Context) => {
       await save(store, state);
       return json(snapshot(state));
     }
+    const johnJobMatch = path.match(/^\/api\/agents\/john\/jobs\/([a-f0-9]{64})$/);
+    if (johnJobMatch && request.method === "GET") {
+      if (!johnStagingAuthorized(context)) return fail("John jobs require staging", 403);
+
+      const job = await store.get(
+        `john-job/${johnJobMatch[1]}`,
+        { type: "json" },
+      ) as JohnJob | null;
+
+      if (!job || job.testerId !== state.tester.tester_id) {
+        return fail("John job not found", 404);
+      }
+
+      const current = activeProduction(state);
+      if (job.productionId !== current.production.production_id ||
+          !current.production.sample_demo ||
+          current.documents.some(d => d.source_kind !== "SAMPLE")) {
+        return fail("John job is not available for this production", 403);
+      }
+
+      if (job.status === "COMPLETED") {
+        return json({ status: job.status, result: job.result });
+      }
+
+      if (job.status === "FAILED") {
+        return json({ status: job.status, detail: job.error || "John analysis failed" });
+      }
+
+      return json({ status: job.status }, 202);
+    }
+
     if (path === "/api/agents/john/analyze" && request.method === "POST") {
       if (!johnStagingAuthorized(context)) return fail("John model requires staging", 403);
+
       const current = activeProduction(state);
       if (!current.production.sample_demo ||
-          current.documents.some(doc => doc.source_kind !== "SAMPLE")) {
+          current.documents.some(d => d.source_kind !== "SAMPLE")) {
         return fail("John model requires an isolated synthetic production", 403);
       }
-      const brief = johnPmBrief(current);
-      const evidence = current.requirements.slice(0, 45).map(req => ({
-        source_id: String(req.requirement_id),
-        text: `[${String(req.department)}] ${String(req.detail || req.title || "")} | ${String(req.document_name || "unknown source")} page ${String(req.page_number || "?")}`.slice(0, 1000),
-      }));
-      if (!evidence.length) return fail("No synthetic evidence available", 422);
-      try {
-        const response = await deerFlowRequest(context, "john_pm", { synthetic: true, evidence });
-        const analysis = await response.json();
-        return json({ agent: "John", synthetic: true, mode: "MODEL_ADVISORY_ONLY",
-          release_decision: "HOLD_SHOW", autonomous_show_approval: false,
-          readiness: brief.readiness, actions: analysis.actions,
-          deterministic_actions: brief.actions });
-      } catch (error) {
-        if (error instanceof DeerFlowIntegrationError) return fail(error.message, 503);
-        return fail("John model unavailable", 503);
+
+      if (!current.requirements.length) {
+        return fail("No synthetic evidence available", 422);
       }
+
+      const jobId = randomBytes(32).toString("hex");
+      const job: JohnJob = {
+        testerId: state.tester.tester_id,
+        productionId: current.production.production_id,
+        status: "PENDING",
+        createdAt: now(),
+      };
+
+      await store.setJSON(`john-job/${jobId}`, job);
+
+      context.waitUntil((async () => {
+        try {
+          const response = await fetch(
+            new URL("/.netlify/functions/rigor-john-background-background", request.url),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jobId }),
+              signal: AbortSignal.timeout(10000),
+            },
+          );
+
+          if (response.status !== 202) {
+            throw new Error("John background dispatch failed");
+          }
+        } catch {
+          const latest = await store.get(
+            `john-job/${jobId}`,
+            { type: "json" },
+          ) as JohnJob | null;
+
+          if (latest && latest.status === "PENDING") {
+            latest.status = "FAILED";
+            latest.error = "John background job could not start";
+            latest.completedAt = now();
+            await store.setJSON(`john-job/${jobId}`, latest);
+          }
+        }
+      })());
+
+      return json({
+        status: "PENDING",
+        jobId,
+        release_decision: "HOLD_SHOW",
+        autonomous_show_approval: false,
+      }, 202);
     }
     const documentReviewMatch = path.match(/^\/api\/documents\/([^/]+)\/review$/);
     if (documentReviewMatch && request.method === "POST") {
@@ -560,5 +626,86 @@ export default async (request: Request, context: Context) => {
 };
 
 export const config: Config = {
-  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/agents/john/analyze", "/api/agents/john/fixture", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
+  path: ["/api/health", "/api/start", "/api/logout", "/api/workspace", "/api/agents/john/brief", "/api/agents/john/analyze", "/api/agents/john/jobs/:id", "/api/agents/john/fixture", "/api/productions", "/api/productions/:id/select", "/api/requirements/:id", "/api/conflicts/:id/resolve", "/api/checkpoints/:id", "/api/incidents", "/api/incidents/:id", "/api/feedback", "/api/documents", "/api/documents/:id/review", "/api/documents/:id/retry", "/api/reports/advance.pdf"],
 };
+type JohnJob = {
+  testerId: string;
+  productionId: string;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  createdAt: string;
+  completedAt?: string;
+  result?: unknown;
+  error?: string;
+};
+
+export async function processJohnJob(
+  request: Request,
+  context: Context,
+): Promise<void> {
+  if (!johnStagingAuthorized(context)) return;
+
+  const { jobId } = await request.json() as { jobId?: string };
+  if (!jobId || !/^[a-f0-9]{64}$/.test(jobId)) return;
+
+  const store = storeFor(context);
+  const key = `john-job/${jobId}`;
+  const job = await store.get(key, { type: "json" }) as JohnJob | null;
+
+  if (!job || job.status !== "PENDING") return;
+
+  job.status = "RUNNING";
+  await store.setJSON(key, job);
+
+  try {
+    const stored = await store.get(
+      `workspace/${job.testerId}`,
+      { type: "json" },
+    ) as WorkspaceState | null;
+
+    if (!stored) throw new Error("Workspace unavailable");
+
+    const state = normalizeWorkspace(stored);
+    const production = state.productions.find(
+      p => p.production.production_id === job.productionId,
+    );
+
+    if (!production?.production.sample_demo ||
+        production.documents.some(d => d.source_kind !== "SAMPLE")) {
+      throw new Error("Synthetic production required");
+    }
+
+    const brief = johnPmBrief(production);
+    const evidence = production.requirements.slice(0, 45).map(req => ({
+      source_id: String(req.requirement_id),
+      text: `[${String(req.department)}] ${String(req.detail || req.title || "")} | ${String(req.document_name || "unknown source")} page ${String(req.page_number || "?")}`.slice(0, 1000),
+    }));
+
+    if (!evidence.length) throw new Error("No synthetic evidence");
+
+    const response = await deerFlowRequest(context, "john_pm", {
+      synthetic: true,
+      evidence,
+    });
+    const analysis = await response.json();
+
+    job.result = {
+      agent: "John",
+      synthetic: true,
+      mode: "MODEL_ADVISORY_ONLY",
+      release_decision: "HOLD_SHOW",
+      autonomous_show_approval: false,
+      readiness: brief.readiness,
+      actions: analysis.actions,
+      deterministic_actions: brief.actions,
+    };
+    job.status = "COMPLETED";
+  } catch (error) {
+    job.status = "FAILED";
+    job.error = error instanceof DeerFlowIntegrationError
+      ? error.message
+      : "John model unavailable";
+  }
+
+  job.completedAt = now();
+  await store.setJSON(key, job);
+}
