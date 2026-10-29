@@ -4,7 +4,7 @@ RIGOR uses DeerFlow's existing lead-agent, subagent, memory, delegation-ledger, 
 
 ## Operating model
 
-The DeerFlow lead agent acts as the orchestration layer. It can delegate focused work to six RIGOR company specialists:
+The DeerFlow lead agent acts as the orchestration layer. Eight RIGOR specialists and one Chief of Staff are registered:
 
 | Agent | Responsibility |
 | --- | --- |
@@ -14,9 +14,16 @@ The DeerFlow lead agent acts as the orchestration layer. It can delegate focused
 | `rigor-qa-security` | Release gates, regressions, security/reliability analysis, smoke tests |
 | `rigor-market-intel` | Competitors, adjacent products, customers, market movement, white space |
 | `rigor-partnerships-capital` | Partner/investor research, opportunity briefs, outreach drafting |
+| `rigor-growth-revenue` | Segments, offer hypotheses, pilot conversion and measurable experiments |
+| `rigor-customer-success` | Support triage, operator evidence, adoption and retention risks |
+| `rigor-finance-runway` | Supplied-number scenarios, runway, sensitivities and capital evidence gaps |
 
-All six are registered as built-in DeerFlow subagents in
+All nine are registered as built-in DeerFlow subagents in
 `backend/packages/harness/deerflow/subagents/builtins/rigor_company.py`.
+
+[Agent contracts](rigor-agent-registry.md) cover these workers, the coordinators,
+document analyst, both John paths and the two available framework workers. The
+registry explicitly distinguishes a listed role from an eligible company action owner.
 
 ## Control boundary
 
@@ -65,7 +72,7 @@ Once the operating loop has real data, add persistent company-state objects for:
 - experiments and outcomes;
 - company financial runway.
 
-Do not add more agent roles until one of these six roles becomes overloaded by a distinct recurring job.
+Review mission overlap and register an explicit I/O contract before adding another RIGOR role.
 
 
 ## Durable company state
@@ -89,7 +96,17 @@ The migration is `c8e7d9a1f203_add_rigor_company_operating_state.py`.
 
 `skills/public/rigor-company-operator/SKILL.md` defines the standard company cycle.
 
-The lead agent delegates one focused report to Product/Ops, Engineering, QA/Security, Market Intelligence, and Partnerships/Capital, then sends those five reports to the Chief of Staff for synthesis. That consumes exactly six delegated subagents, matching DeerFlow's default per-run ceiling.
+The company operator selects five of the eight specialists for focused reports,
+then requests one Chief of Staff synthesis. Its client invocation supplies a total
+cap of six delegations and concurrency cap of three; the prompt requires collecting
+all five specialist reports before synthesis. A failed/missing specialist is an
+incomplete-cycle blocker; the synthesis slot must not be consumed by an unplanned
+retry. Actual handoff order/completeness still requires runtime execution evidence.
+
+The internal action executor passes a one-delegation cap and rejects a named owner
+unless it is one of the nine registered company subagents. No owner means select one
+company worker under the existing prompt policy. It does not authorize framework,
+coordinator or John roles as action owners, and it does not bypass Founder policy.
 
 The final founder brief must distinguish:
 - current state;

@@ -1,4 +1,86 @@
-# RIGOR build state — Session 06 development, October 28, 2026
+# RIGOR build state — Session 07 development, October 28, 2026
+
+## Session 07 | Multi-Agent Coordination
+
+Development only; NOT CERTIFIED and NOT DEPLOYED. Production, Founder state,
+credentials and synthetic staging configuration are unchanged. No live agent,
+model, external communication or real-data ingestion was invoked. Earlier release
+blockers remain open; registering a role does not authorize or prove its execution.
+
+Base: tested Session 06 commit 684e1df3c0479794f8b95179ba1c34918aa28315,
+feat/rigor-session06-change-impact (draft PR #26). Isolated branch:
+feat/rigor-session07-agent-contracts. Baseline: 116 product tests and 65 focused
+backend RIGOR/John tests passed. Broad baseline attempt stopped at the existing
+Windows POSIX-mode assertion: 11 passed, 4 skipped, 1 failed.
+
+### Inspection and measurable acceptance criteria
+
+Inspected all builtin configs, tool/skill inheritance and runtime override resolution,
+company coordinator/action executor, action policy, document analyst, both John paths,
+embedded-client delegation limits, worker tests and the team documentation. Found
+nine company workers despite documentation listing six; no complete role contract
+inventory; explicit action owners could be unknown; invocation caps were implicit.
+
+1. Register all 16 repository-declared roles: nine company workers, two framework
+   workers, two coordinators, document analyst, John model and deterministic John brief.
+   Every record includes mission, declared tools/skills, authority, inputs, outputs,
+   handoffs, failure behavior, entrypoint and enforcement/verification limitations.
+2. Derive builtin tools, deny lists, skills and default turn/time budgets from actual
+   configs. Return fresh frozen records. New RIGOR builtins without reviewed profiles
+   fail registration; removal from company registration removes owner eligibility.
+3. Reject unknown, empty, whitespace, framework, coordinator and direct-model named
+   action owners before constructing a model client. Keep the existing Founder/action
+   policy gate first. No owner retains the existing single-worker selection policy.
+4. Supply explicit client caps: company cycle 6 total / 3 concurrent; internal action
+   1 / 1. Send reviewed company contracts in the prompt. Preserve unique thread IDs,
+   existing result schemas and no recursive delegation by workers. Require five
+   reports before synthesis in prompt policy; failures are incomplete-cycle blockers.
+5. Export all 16 records outside the pytest mocks without starting agents or models.
+   Add registry regressions to the focused RIGOR CI command. Preserve all product,
+   RIGOR/John, embedded-client and delegation-limit checks without claiming live proof.
+
+### Changes and verified evidence
+
+New deerflow.rigor.agent_contracts provides frozen snapshots and company handoff
+contracts. Small operator/executor changes inject those contracts, reject invalid
+named owners and pass explicit delegation caps. No tool permissions, public route,
+model response schema or deployment settings were broadened. Team/README/AGENTS
+documentation now reflects nine company workers and links the 16-role inventory.
+
+Before implementation: 12 coordination regressions failed and 16 passed; the new
+registry tests also failed collection because the module did not exist. Final
+focused RIGOR/John suite: 83 passed with one Starlette/httpx deprecation warning.
+Existing client/delegation-limit suite: 187 passed, 1 skipped. Product suite:
+116 passed; TypeScript passes. Full and production-only npm audits each report
+zero vulnerabilities. Changed Python files pass ruff check and format --check.
+The CI definition was parsed and verified to include test_rigor_agent_contracts.py.
+The JSON inventory export succeeds outside pytest. Raw outputs accompany delivery.
+Final bounded broad attempt reproduces the baseline at the same file-mode test:
+11 passed, 4 skipped, 1 failed. Both attempts used --maxfail=1; neither is a
+complete full-suite pass. git diff --check passes.
+
+### Remaining blockers and limits
+
+- The registry inventories repository declarations, not deployment-specific custom
+  agents or effective live permissions. Builtin skill/turn/time defaults may be
+  overridden; coordinator/framework inherited toolsets require runtime inspection.
+- Authority/failure text is policy guidance, not a shell security boundary. The
+  named-owner gate is deterministic, but actual model-chosen task names, five-report
+  ordering, synthesis slot use and specialist completeness need execution evidence.
+  The runtime can still expose framework/custom agents; this is not a complete
+  per-tool-call routing firewall.
+- Existing structured COMPLETE output is not per-agent completion attestation.
+  Failed-provider behavior remains subject to existing exception/gateway handling;
+  no automatic retry or success conversion was added. Declared worker timeout/turn
+  budgets are not proof of effective deployed limits.
+- Broad backend verification remains blocked by Windows file-mode semantics at
+  tests/blocking_io/test_channel_runtime_config_store.py::test_runtime_config_store_file_is_owner_only.
+  Do not call the full suite green or claim unrelated failures were repaired.
+- Authenticated synthetic staging, actual delegation receipts, live tool/authority
+  resolution and all earlier extraction/approval/readiness release blockers remain.
+  No hosted workflow, staging activation or production promotion was performed.
+
+## Preserved Session 06 checkpoint
 
 ## Session 06 | Change-Impact Intelligence
 

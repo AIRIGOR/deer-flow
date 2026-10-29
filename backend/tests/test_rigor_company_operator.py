@@ -69,6 +69,9 @@ async def test_company_operator_returns_structured_pulse():
     assert len(client.calls) == 1
     _, kwargs = client.calls[0]
     assert kwargs["subagent_enabled"] is True
+    assert kwargs["max_total_subagents"] == 6
+    assert kwargs["max_concurrent_subagents"] == 3
+    assert "COORDINATION CONTRACTS" in client.calls[0][0]
     assert kwargs["thread_id"].startswith("rigor-company-pulse-")
 
 

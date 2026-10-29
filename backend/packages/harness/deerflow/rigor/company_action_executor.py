@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, ValidationError
 from deerflow.client import DeerFlowClient
 from deerflow.utils.llm_text import strip_markdown_code_fence, strip_think_blocks
 
+from .agent_contracts import company_subagent_names, render_company_handoffs
 from .company_actions import (
     AUTO_ALLOWED_ACTIONS,
     CompanyActionProposal,
@@ -98,15 +99,19 @@ class RigorCompanyActionExecutor:
             raise RigorCompanyActionExecutionBlocked(decision.policy_reason)
         if proposal.action_type not in AUTO_ALLOWED_ACTIONS:
             raise RigorCompanyActionExecutionBlocked("action is not executable in the automatic internal lane")
+        if proposal.owner_agent is not None and proposal.owner_agent not in company_subagent_names():
+            raise RigorCompanyActionExecutionBlocked("Owner must be a registered RIGOR company subagent")
 
         context = (context or "").strip()[:20000]
-        prompt = f"{_ACTION_PROMPT}\n\nACTION PROPOSAL:\n{proposal.model_dump_json()}\n\nCOMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
+        prompt = f"{_ACTION_PROMPT}\n\n{render_company_handoffs(proposal.owner_agent)}\n\nACTION PROPOSAL:\n{proposal.model_dump_json()}\n\nCOMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
         text = await asyncio.to_thread(
             client.chat,
             prompt,
             thread_id=f"rigor-company-action-{uuid4().hex}",
             subagent_enabled=True,
+            max_total_subagents=1,
+            max_concurrent_subagents=1,
             recursion_limit=100,
         )
         return _parse_execution(text)

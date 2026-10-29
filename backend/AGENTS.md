@@ -1144,7 +1144,7 @@ See `docs/` directory for detailed documentation:
 
 ## RIGOR Company Subagents
 
-RIGOR adds six bounded built-in subagents in
+RIGOR adds nine bounded built-in subagents in
 `packages/harness/deerflow/subagents/builtins/rigor_company.py`:
 
 - `rigor-chief-of-staff`
@@ -1153,6 +1153,9 @@ RIGOR adds six bounded built-in subagents in
 - `rigor-qa-security`
 - `rigor-market-intel`
 - `rigor-partnerships-capital`
+- `rigor-growth-revenue`
+- `rigor-customer-success`
+- `rigor-finance-runway`
 
 They are merged into `BUILTIN_SUBAGENTS`, so the existing registry and `task`
 delegation path expose them without a parallel orchestration stack. Each agent
@@ -1164,6 +1167,19 @@ production promotion, and destructive/irreversible actions.
 
 Tests: `backend/tests/test_rigor_company_subagents.py`.
 Architecture/operating policy: `docs/rigor-ai-company-team.md`.
+
+Session 07: `deerflow.rigor.agent_contracts.get_agent_contracts()` returns fresh frozen
+contracts for every repository builtin and the RIGOR entrypoint roles. Builtin tools,
+deny lists, skills and declared budgets derive from the actual configs. Register a
+reviewed I/O profile for each new RIGOR builtin; never silently allow unknown named
+owners. `company_subagent_names()` is the company action handoff allowlist; framework
+and direct-model roles are inventoried but cannot be named action owners. Operator
+and executor prompts receive the contracts and pass explicit client delegation caps
+(6 total / 3 concurrent and 1 / 1 respectively). Keep budget propagation, no-client
+on blocked handoffs, snapshot immutability and registry drift tests in
+`test_rigor_agent_contracts.py` and the operator/executor tests. This metadata is not
+live permission resolution or proof of actual specialist delegation; runtime config
+can override declared skill/turn/timeout defaults.
 
 
 ### RIGOR durable company state

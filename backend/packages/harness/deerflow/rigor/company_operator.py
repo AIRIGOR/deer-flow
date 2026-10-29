@@ -16,6 +16,7 @@ from deerflow.utils.llm_text import (
     strip_think_blocks,
 )
 
+from .agent_contracts import render_company_handoffs
 from .company_actions import CompanyActionProposal
 
 
@@ -86,11 +87,15 @@ Operating sequence:
    the Founder objective, current company context, unresolved durable state,
    revenue path, capital readiness, and highest-leverage risks.
 2. Delegate one focused report to each selected specialist. The five reports may
-   run in parallel.
+   run in parallel, with at most three delegations in one response. Collect the
+   remaining specialist reports in a later response before synthesis.
 3. After all five return, delegate exactly one synthesis task to
    rigor-chief-of-staff. Include compact evidence from all five reports plus any
    relevant durable state.
 4. Do not create a seventh delegation.
+5. If a specialist fails, times out, or lacks evidence, report an incomplete cycle
+   and its blocker. Never invent its findings or silently substitute a different
+   owner. Do not spend the synthesis slot on an unplanned retry.
 
 Standing checks, when materially relevant:
 - product proof and real operator value;
@@ -223,13 +228,15 @@ class RigorCompanyOperator:
         if not objective:
             raise ValueError("objective must not be empty")
         context = (context or "").strip()[:30000]
-        prompt = f"{_COMPANY_PROMPT}\n\nFOUNDER OBJECTIVE:\n{objective}\n\nCURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
+        prompt = f"{_COMPANY_PROMPT}\n\n{render_company_handoffs()}\n\nFOUNDER OBJECTIVE:\n{objective}\n\nCURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
         text = await asyncio.to_thread(
             client.chat,
             prompt,
             thread_id=f"rigor-company-pulse-{uuid4().hex}",
             subagent_enabled=True,
+            max_total_subagents=6,
+            max_concurrent_subagents=3,
             recursion_limit=180,
         )
         return _parse_pulse(text)
