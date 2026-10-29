@@ -1,4 +1,84 @@
-# RIGOR build state — Session 05 development, October 28, 2026
+# RIGOR build state — Session 06 development, October 28, 2026
+
+## Session 06 | Change-Impact Intelligence
+
+Development only; NOT CERTIFIED and NOT DEPLOYED. Production, Founder state,
+credentials and synthetic staging configuration are unchanged. No live model or
+real-data ingestion was invoked. Session 03/04/05 release blockers remain open.
+
+Base: tested Session 05 commit 4d9520c4b7d902a4c9375f657fd84c4ac2e5ec98,
+feat/rigor-session05-handshake-conflicts (draft PR #25). Isolated working branch:
+feat/rigor-session06-change-impact. Baseline: 103 passing product tests.
+
+### Inspected behavior and measurable acceptance criteria
+
+Inspected requirement/department/owner/due-date mutations, conflict resolution,
+incidents, checkpoint approvals, source review, document worker rebase/invalidation,
+master and department readiness, PDF event filtering and chronology. The active
+Netlify path is the implementation target; backend source is unchanged.
+
+1. Changes to requirement owner, due date, status or department reopen checkpoints
+   in the union of prior/current affected departments. Unrelated departments and
+   other productions retain approvals. Department reassignment rebuilds conflict
+   comparisons before recording resulting readiness.
+2. Changed conflict decisions and field incidents, including already-resolved
+   incidents, require fresh affected-department signoff. Closing a blocking incident
+   does not reuse interim approvals. Explicit human checkpoint completion can clear
+   that gate after review; non-boolean approval input is rejected without saving.
+3. Each actual tracked change records entity ID/type, changed fields, before/after
+   values, actor label, affected departments, linked requirement IDs, reopened
+   checkpoint IDs and readiness status before/after in CHANGE_IMPACT_RECORDED.
+4. Identical requirement, conflict-decision and checkpoint updates preserve
+   approvals; conflict/checkpoint timestamps and change-impact counts remain stable.
+5. Source analysis records linked requirements and remains idempotent on worker
+   replay. Explicit human source review records its status transition without
+   reopening unchanged checkpoints. The worker retains current-state rebase.
+6. Master and all affected department PDFs include the change trace and current
+   readiness; unrelated department reports exclude it. Shared-department approval
+   records link back to the relevant requirements.
+
+### Minimal implementation and evidence
+
+model.ts extends the existing checkpoint invalidator to return affected departments
+and actually reopened approval IDs; recordChangeImpact captures curated changes.
+rigor-api.mts wires existing mutation paths to this helper, rebuilds comparisons on
+department reassignment, requires boolean checkpoint input and scopes PDF traces by
+affected_departments. No new endpoint, automatic approval or model capability.
+rigor-upload.test.ts adds 13 regression cases and extends worker replay assertions.
+
+Pre-fix mutation regressions: 8 failed, 104 passed (including a passing no-op guard).
+A later focused reassignment regression separately reproduced a missing conflict
+before its repair (1 failed, 39 passed). Final suite: 116 product tests across 11
+files passed; TypeScript passes. Full and production-only audits each report zero
+vulnerabilities. Focused backend CI RIGOR files plus test_john_pm.py: 65 passed in
+5.65s with one Starlette/httpx deprecation warning. No full backend-suite claim.
+Raw console evidence is included in the Session 06 deliverable.
+Final offline Netlify production-context build passed in 5.2s, including type check,
+116 product tests and all ten function bundles. Its placeholder URL is offline
+metadata, not a deployed site. git diff --check passed. Hosted runtime/CI readiness
+remains a separate verification checkpoint.
+
+### Remaining blockers and limits
+
+- Impact propagation follows recorded affected departments and current conflict
+  associations, plus requirements linked to an incident department. There is no
+  complete recursive operational dependency or engineering compatibility model.
+- Reopened approvals are department checkpoints. Requirement, source-review and
+  conflict decisions retain their existing human review workflows; historical
+  changes are not backfilled into the new trace.
+- Trace records are persisted with the workspace and use the tester's display-name
+  actor label. They are not a tamper-proof approval ledger or an atomic multiwriter
+  event store; concurrency certification remains open.
+- Reports are generated from current state. The dedicated PDF section shows the
+  latest 40 relevant impact records; chronology shows the latest 80 relevant events.
+  Previously downloaded PDFs remain snapshots; there is no export recall/version
+  registry or automatic notification to previous recipients.
+- Source references remain filename-based. Duplicate names/versioning, OCR/diagram
+  interpretation, existing page/text/candidate extraction limits and Session 03
+  certification remain unresolved. Hosted runtime and authenticated synthetic
+  staging proof are still required before release.
+
+## Preserved Session 05 checkpoint
 
 ## Session 05 | Production Handshake & Conflict Engine
 

@@ -29,6 +29,23 @@ async function worker() {
   return processUpload(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify(payload) }), ctx);
 }
 const saved = () => records.get(`workspace/${workspace.tester.tester_id}`);
+const patchRequest = (path: string, data: Record<string, unknown>) => new Request(`https://rigor.test${path}`, {
+  method: "PATCH", headers: { cookie: "rigor_beta_session=test-session", "content-type": "application/json" }, body: JSON.stringify(data),
+});
+function impactFixture() {
+  const latest = saved();
+  const production = activeProduction(latest);
+  production.production.conflict_rules_version = "session05-handshake-v1";
+  production.documents.push({ document_id: "impact-doc", name: "impact.txt", status: "PROCESSED", doc_type: "UPLOADED", analysis_engine: "DEERFLOW", review_status: "REVIEWED", source_kind: "TESTER" });
+  production.requirements.push({ requirement_id: "impact-req", document_name: "impact.txt", title: "Synthetic impact requirement", detail: "Synthetic operational requirement.", department: "Rigging", affected_departments: ["Rigging", "Video"], category: "PRODUCTION_GENERAL", status: "CONFIRMED", owner: "Original Lead", due_at: "2026-11-01" });
+  production.checkpoints.forEach(item => { item.status = "COMPLETE"; item.completed_at = "2026-10-28"; });
+  const other = createProduction(latest.workspace.workspace_id);
+  other.production.conflict_rules_version = "session05-handshake-v1";
+  other.checkpoints.forEach(item => { item.status = "COMPLETE"; });
+  latest.productions.push(other);
+  records.set(`workspace/${workspace.tester.tester_id}`, latest);
+  return { production, other };
+}
 beforeEach(() => {
   records.clear(); waits = []; pdf.mockReset();
   workspace = createWorkspace("Upload Tester", "PM");
@@ -39,6 +56,148 @@ beforeEach(() => {
   fetchMock = vi.fn().mockImplementation(async (url: string) => String(url).includes("gateway.test") ? Response.json({ requirements: [{ department: "Lighting", category: "POWER_CAPACITY", requirement_text: "Lighting requires 400 amps of power.", source_excerpt: "Lighting requires 400 amps of power.", source_page: 1, confidence: .95 }] }) : new Response(null, { status: 202 })); vi.stubGlobal("fetch", fetchMock);
 });
 describe("durable document upload", () => {
+  it.each([
+    { owner: "Replacement Lead" }, { due_at: "2026-11-02" },
+    { status: "NEEDS_CONFIRMATION" }, { department: "Lighting" },
+  ])("traces requirement changes and revokes only affected department approvals: %j", async change => {
+    const { other } = impactFixture();
+    const response = await handler(patchRequest("/api/requirements/impact-req", change), ctx);
+    expect(response.status).toBe(200);
+    const production = activeProduction(saved());
+    for (const department of ["Rigging", "Video", ...(change.department ? ["Lighting"] : [])]) {
+      expect(production.checkpoints.find(item => item.department === department)).toMatchObject({ status: "PENDING", completed_at: null });
+    }
+    expect(production.checkpoints.find(item => item.department === "Audio")?.status).toBe("COMPLETE");
+    expect(saved().productions.find((item: any) => item.production.production_id === other.production.production_id).checkpoints).toEqual(other.checkpoints);
+    const trace = production.events.find(item => item.type === "CHANGE_IMPACT_RECORDED")?.payload;
+    expect(trace).toMatchObject({ entity_type: "REQUIREMENT", entity_id: "impact-req", requirement_ids: ["impact-req"], readiness_before: "SHOW_READY", actor: "Upload Tester" });
+    expect(trace?.changed_fields).toEqual(Object.keys(change));
+    expect(trace?.affected_departments).toEqual(expect.arrayContaining(["Rigging", "Video"]));
+    expect(trace?.invalidated_checkpoint_ids.length).toBe(change.department ? 3 : 2);
+    expect(trace?.readiness_after).toBe(change.status ? "NEEDS_REVIEW" : "ADVANCE_READY");
+    expect(production.documents[0].review_status).toBe("REVIEWED");
+  });
+
+  it("preserves approvals and omits impact records for a no-op requirement update", async () => {
+    impactFixture();
+    await handler(patchRequest("/api/requirements/impact-req", { owner: "Original Lead" }), ctx);
+    const production = activeProduction(saved());
+    expect(production.checkpoints.every(item => item.status === "COMPLETE")).toBe(true);
+    expect(production.events.filter(item => item.type === "CHANGE_IMPACT_RECORDED")).toHaveLength(0);
+    expect(readiness(production).status).toBe("SHOW_READY");
+  });
+
+  it("rebuilds conflict comparisons after a department reassignment", async () => {
+    impactFixture();
+    const latest = saved();
+    const production = activeProduction(latest);
+    Object.assign(production.requirements[0], { category: "RESOURCE_CAPACITY", normalized_value: "400A" });
+    production.requirements.push({ ...structuredClone(production.requirements[0]), requirement_id: "lighting-resource", department: "Lighting", affected_departments: ["Lighting"], normalized_value: "200A" });
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    await handler(patchRequest("/api/requirements/impact-req", { department: "Lighting" }), ctx);
+    const after = activeProduction(saved());
+    expect(after.conflicts).toHaveLength(1);
+    expect(readiness(after).status).toBe("BLOCKED");
+    expect(after.events.find(item => item.type === "CHANGE_IMPACT_RECORDED")!.payload.readiness_after).toBe("BLOCKED");
+  });
+
+  it("traces amended conflict resolutions without reusing affected checkpoint approvals", async () => {
+    impactFixture();
+    const latest = saved();
+    activeProduction(latest).conflicts.push({ conflict_id: "impact-conflict", department: "Rigging", affected_departments: ["Rigging", "Video"], status: "RESOLVED", resolution: "Original human resolution.", owner: "Original Lead", left_requirement_id: "impact-req", right_requirement_id: "other-req" });
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    expect((await handler(request("/api/conflicts/impact-conflict/resolve", JSON.stringify({ resolution: "Revised human operational resolution.", owner: "Replacement Lead" })), ctx)).status).toBe(200);
+    const production = activeProduction(saved());
+    expect(production.checkpoints.find(item => item.department === "Video")?.status).toBe("PENDING");
+    expect(production.events.some(item => item.type === "CHANGE_IMPACT_RECORDED" && item.payload.entity_type === "CONFLICT")).toBe(true);
+    expect(readiness(production).status).toBe("ADVANCE_READY");
+  });
+
+  it("requires fresh checkpoint signoff after a resolved field change and traces human reapproval", async () => {
+    impactFixture();
+    expect((await handler(request("/api/incidents", JSON.stringify({ department: "Video", severity: "LOW", summary: "Synthetic replacement screen installed", resolution: "Replacement tested by human lead" })), ctx)).status).toBe(200);
+    const production = activeProduction(saved());
+    const checkpoint = production.checkpoints.find(item => item.department === "Video")!;
+    expect(checkpoint.status).toBe("PENDING");
+    expect(readiness(production).status).toBe("ADVANCE_READY");
+    const invalidated = production.events.find(item => item.type === "CHANGE_IMPACT_RECORDED")!.payload.invalidated_checkpoint_ids;
+    for (const checkpointId of invalidated) await handler(patchRequest(`/api/checkpoints/${checkpointId}`, { complete: true }), ctx);
+    const after = activeProduction(saved());
+    expect(readiness(after).status).toBe("SHOW_READY");
+    expect(after.events.filter(item => item.type === "CHANGE_IMPACT_RECORDED").map(item => item.payload.entity_type)).toEqual(["INCIDENT", ...invalidated.map(() => "CHECKPOINT")]);
+    expect(after.events.filter(item => item.type === "CHANGE_IMPACT_RECORDED" && item.payload.entity_type === "CHECKPOINT").every(item => item.payload.requirement_ids.includes("impact-req"))).toBe(true);
+    const completedAt = after.checkpoints.find(item => item.checkpoint_id === checkpoint.checkpoint_id)!.completed_at;
+    const changeCount = after.events.filter(item => item.type === "CHANGE_IMPACT_RECORDED").length;
+    await handler(patchRequest(`/api/checkpoints/${checkpoint.checkpoint_id}`, { complete: true }), ctx);
+    expect(activeProduction(saved()).checkpoints.find(item => item.checkpoint_id === checkpoint.checkpoint_id)!.completed_at).toBe(completedAt);
+    expect(activeProduction(saved()).events.filter(item => item.type === "CHANGE_IMPACT_RECORDED")).toHaveLength(changeCount);
+  });
+
+  it("rejects non-boolean checkpoint approval without changing persisted state", async () => {
+    impactFixture();
+    const before = structuredClone(saved());
+    const checkpoint = activeProduction(before).checkpoints[0];
+    expect((await handler(patchRequest(`/api/checkpoints/${checkpoint.checkpoint_id}`, { complete: "false" }), ctx)).status).toBe(422);
+    expect(saved()).toEqual(before);
+  });
+
+  it("revokes interim signoffs again when a blocking incident is closed", async () => {
+    impactFixture();
+    await handler(request("/api/incidents", JSON.stringify({ department: "Video", severity: "HIGH", summary: "Synthetic screen failure" })), ctx);
+    const latest = saved();
+    const production = activeProduction(latest);
+    production.checkpoints.forEach(item => { item.status = "COMPLETE"; });
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    expect(readiness(production).status).toBe("BLOCKED");
+    const id = production.incidents[0].incident_id;
+    await handler(patchRequest(`/api/incidents/${id}`, { resolution: "Replacement screen tested by human lead" }), ctx);
+    const after = activeProduction(saved());
+    expect(after.checkpoints.find(item => item.department === "Video")?.status).toBe("PENDING");
+    expect(after.checkpoints.find(item => item.department === "Rigging")?.status).toBe("PENDING");
+    const trace = after.events.filter(item => item.type === "CHANGE_IMPACT_RECORDED").at(-1)!.payload;
+    expect(trace).toMatchObject({ entity_id: id, readiness_before: "BLOCKED", readiness_after: "ADVANCE_READY", requirement_ids: ["impact-req"] });
+  });
+
+  it("traces explicit human source review without revoking unchanged checkpoint approvals", async () => {
+    impactFixture();
+    const latest = saved();
+    activeProduction(latest).documents[0].review_status = "PENDING";
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    expect((await handler(request("/api/documents/impact-doc/review", JSON.stringify({ complete_source_review: true })), ctx)).status).toBe(200);
+    const production = activeProduction(saved());
+    const trace = production.events.find(item => item.type === "CHANGE_IMPACT_RECORDED")!.payload;
+    expect(trace).toMatchObject({ entity_type: "SOURCE_REVIEW", readiness_before: "NEEDS_REVIEW", readiness_after: "SHOW_READY", invalidated_checkpoint_ids: [], actor: "Upload Tester" });
+    expect(production.checkpoints.every(item => item.status === "COMPLETE")).toBe(true);
+  });
+
+  it("does not revoke approvals or replace the timestamp when a conflict decision is unchanged", async () => {
+    impactFixture();
+    const latest = saved();
+    activeProduction(latest).conflicts.push({ conflict_id: "same-conflict", department: "Rigging", status: "RESOLVED", resolution: "Original human resolution.", owner: "Original Lead", resolved_at: "2026-10-28T10:00:00Z" });
+    records.set(`workspace/${workspace.tester.tester_id}`, latest);
+    await handler(request("/api/conflicts/same-conflict/resolve", JSON.stringify({ resolution: "Original human resolution.", owner: "Original Lead" })), ctx);
+    const production = activeProduction(saved());
+    expect(production.checkpoints.every(item => item.status === "COMPLETE")).toBe(true);
+    expect(production.conflicts[0].resolved_at).toBe("2026-10-28T10:00:00Z");
+    expect(production.events.filter(item => item.type === "CHANGE_IMPACT_RECORDED")).toHaveLength(0);
+  });
+
+  it("includes a cross-department change trace in affected reports and excludes unrelated scope", async () => {
+    impactFixture();
+    await handler(patchRequest("/api/requirements/impact-req", { owner: "Replacement Lead" }), ctx);
+    const actualParser = await vi.importActual<typeof import("./pdf-text.js")>("./pdf-text.js");
+    for (const department of ["", "Rigging", "Video", "Audio"]) {
+      const response = await handler(request(`/api/reports/advance.pdf${department ? `?department=${department}` : ""}`), ctx);
+      expect(response.status).toBe(200);
+      const text = (await actualParser.readPdfPages(await response.arrayBuffer())).join(" ").replace(/\s+/g, " ");
+      if (department === "Audio") expect(text).not.toContain("impact-req");
+      else {
+        expect(text).toContain("impact-req");
+        expect(text).toContain("SHOW_READY -> ADVANCE_READY");
+        expect(text).toContain("Replacement Lead");
+      }
+    }
+  });
   it("shows a missing source dependency as a blocker in master and department PDF reports", async () => {
     await upload(); await Promise.all(waits); await worker();
     const latest = saved();
@@ -245,8 +404,13 @@ describe("durable document upload", () => {
     const doc = activeProduction(saved()).documents[0];
     expect(doc).toMatchObject({ status: "PROCESSED", page_count: 1, review_status: "PENDING", analysis_engine: "DEERFLOW" });
     expect(activeProduction(saved()).requirements.length).toBeGreaterThan(0);
+    const trace = activeProduction(saved()).events.find(item => item.type === "CHANGE_IMPACT_RECORDED")!.payload;
+    expect(trace).toMatchObject({ entity_type: "DOCUMENT_ANALYSIS", entity_id: doc.document_id, actor: "DOCUMENT_ANALYSIS", before: { status: "PROCESSING" }, after: { status: "PROCESSED" } });
+    expect(trace.requirement_ids).toEqual(activeProduction(saved()).requirements.map(item => item.requirement_id));
+    const eventCount = activeProduction(saved()).events.length;
     const count = activeProduction(saved()).requirements.length;
     await worker(); expect(activeProduction(saved()).requirements).toHaveLength(count);
+    expect(activeProduction(saved()).events).toHaveLength(eventCount);
   });
   it("preserves page boundaries, latest human decisions and production selection", async () => {
     await upload("tour.pdf"); await Promise.all(waits);

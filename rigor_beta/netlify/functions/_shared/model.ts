@@ -152,7 +152,7 @@ export function reconcileSourceRequirements(state: ProductionState, documentName
 
 export function invalidateChangedCheckpoints(state: ProductionState, added: RecordMap[]) {
   const affected = new Set(state.conflicts.filter((item) => item.status !== "RESOLVED"
-    && added.some((req) => [item.left_requirement_id, item.right_requirement_id].includes(req.requirement_id)))
+    && added.some((req) => req.requirement_id && [item.left_requirement_id, item.right_requirement_id].includes(req.requirement_id)))
     .flatMap((item) => item.affected_departments || [item.department]));
   for (const requirement of added) {
     for (const department of new Set([
@@ -162,12 +162,35 @@ export function invalidateChangedCheckpoints(state: ProductionState, added: Reco
       if (department) affected.add(department);
     }
   }
+  const invalidated: string[] = [];
   for (const checkpoint of state.checkpoints) {
     if (affected.has(checkpoint.department)) {
+      if (checkpoint.status === "COMPLETE") invalidated.push(checkpoint.checkpoint_id);
       checkpoint.status = "PENDING";
       checkpoint.completed_at = null;
     }
   }
+  return { affected_departments: [...affected].sort(), invalidated_checkpoint_ids: invalidated };
+}
+
+export function recordChangeImpact(state: ProductionState, change: {
+  entity_type: string; entity_id: string; before: RecordMap; after: RecordMap;
+  affected: RecordMap[]; actor: string; readiness_before: string; invalidate_checkpoints?: boolean;
+}) {
+  const changedFields = [...new Set([...Object.keys(change.before), ...Object.keys(change.after)])]
+    .filter(key => JSON.stringify(change.before[key] ?? null) !== JSON.stringify(change.after[key] ?? null));
+  if (!changedFields.length) return null;
+  const impact = change.invalidate_checkpoints === false
+    ? { affected_departments: [...new Set(change.affected.flatMap(item => [item.department, ...(item.affected_departments || [])]).filter(Boolean))].sort(), invalidated_checkpoint_ids: [] }
+    : invalidateChangedCheckpoints(state, change.affected);
+  const payload = {
+    entity_type: change.entity_type, entity_id: change.entity_id, actor: change.actor,
+    changed_fields: changedFields, before: structuredClone(change.before), after: structuredClone(change.after),
+    requirement_ids: [...new Set(change.affected.map(item => item.requirement_id).filter(Boolean))],
+    ...impact, readiness_before: change.readiness_before, readiness_after: readiness(state).status,
+  };
+  state.events.push({ event_id: newId("event"), type: "CHANGE_IMPACT_RECORDED", created_at: now(), payload });
+  return payload;
 }
 
 type ProductionDetails = {
