@@ -1,5 +1,16 @@
 # RIGOR beta checks
 
+Session 06 change impact: recordChangeImpact owns curated before/after fields,
+actor labels, affected department/requirement IDs, reopened checkpoint IDs and
+readiness transitions. Use it on operational mutations; source review and explicit
+checkpoint signoff use invalidate_checkpoints=false. No-op updates must preserve
+approvals and avoid duplicate impact records. Department reassignment must rebuild
+conflict comparisons before tracing readiness. Require boolean checkpoint approval.
+PDF impact events are scoped by affected_departments as well as direct entity links.
+Keep worker replay idempotent and test cross-department and production isolation in
+rigor-upload.test.ts. The trace is a workspace record, not an immutable approval
+ledger, exhaustive dependency graph or proof that older downloaded reports are current.
+
 Session 05 handshake: use hasOperationalOwner and missingSourceRequirements for
 readiness, department summaries, briefs and report open items. Compare comparable
 normalized facts within a document as well as across sources. A resolution applies

@@ -52,6 +52,22 @@ Department Advance Report readiness counts only that department's requirements, 
 Pod 1 security checks require Node.js 24. The optional Netlify CLI is not installed as an application dependency because its transitive toolchain included unpatched high-severity advisories (braces and node-forge). For local development, use a separately managed, security-reviewed Netlify CLI installation; production builds use the Netlify platform and do not need a project-local CLI. CI enforces both full and production-only dependency audits. Run `npm audit --audit-level=high` and `npm audit --omit=dev --audit-level=high` before sharing a build.
 ## Pod 2 source review and change impact
 
+Session 06 traces changes to requirement decisions, owners, due dates and department
+assignment, conflict resolutions, field incidents, source analysis/review and checkpoint
+signoff. Operational changes reopen the affected department checkpoints, including
+recorded shared-department impacts. Closing an incident still requires fresh signoff.
+Department reassignment recomputes conflict candidates. Identical requirement,
+conflict and checkpoint submissions preserve existing approvals; checkpoint input
+must be a boolean.
+
+The production's `CHANGE_IMPACT_RECORDED` events identify changed fields, before/after
+values, actor label, affected departments, linked requirements, reopened checkpoints
+and readiness transitions. Master and affected department PDFs include a Change
+impact section (latest 40 relevant records); unrelated department reports remain
+scoped. PDFs already downloaded are snapshots and must be regenerated after changes.
+The trace follows known record relationships and does not provide an exhaustive
+dependency graph, immutable approval ledger or automatic report-recall service.
+
 The Session 05 handshake checks comparable values inside a single advance as well
 as across documents. Conflicts are candidates for human review: differing values
 can describe separate equipment or compatible capacities. Recorded resolutions stay

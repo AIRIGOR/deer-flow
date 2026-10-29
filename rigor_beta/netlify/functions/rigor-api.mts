@@ -7,8 +7,8 @@ import { deerFlowRequest, DeerFlowIntegrationError, integrationHealth } from "./
 import { suggestDocumentType } from "./_shared/document-classification.js";
 import { johnPmBrief, loadJohnFixture, johnStagingAuthorized } from "./_shared/john-ai-pm.js";
 import { DEPARTMENTS } from "./_shared/seed.js";
-import { hasOperationalOwner, missingSourceRequirements } from "./_shared/model.js";
-import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, invalidateChangedCheckpoints, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
+import { hasOperationalOwner, missingSourceRequirements, recordChangeImpact } from "./_shared/model.js";
+import { PRODUCTION_LIMIT, activeProduction, affectsDepartment, canonicalizeRequirement, createProduction, createWorkspace, extractRequirements, loadSampleProduction, newId, normalizeWorkspace, now, readiness, rebuildConflicts, reconcileSourceRequirements, snapshot, validateDepartment, type ProductionState, type WorkspaceState } from "./_shared/model.js";
 
 const COOKIE = "rigor_beta_session";
 const MAX_UPLOAD = 5 * 1024 * 1024;
@@ -123,6 +123,10 @@ function event(state: ProductionState, type: string, payload: Record<string, unk
   state.events.push({ event_id: newId("event"), type, created_at: now(), payload });
 }
 
+function requirementDecision(item: Record<string, any>) {
+  return { status: item.status, department: item.department, owner: item.owner ?? null, due_at: item.due_at ?? null };
+}
+
 function wrap(text: string, limit = 92) {
   const words = text.replace(/\s+/g, " ").split(" "); const lines: string[] = []; let line = "";
   for (const word of words) { const next = line ? `${line} ${word}` : word; if (next.length > limit && line) { lines.push(line); line = word; } else line = next; }
@@ -141,6 +145,7 @@ async function reportPdf(state: ProductionState, department: string | null) {
     if (!department) return true;
     const payload = item.payload || {};
     return payload.department === department
+      || payload.affected_departments?.includes(department)
       || relevantRequirementIds.has(payload.requirement_id)
       || relevantConflictIds.has(payload.conflict_id)
       || relevantCheckpointIds.has(payload.checkpoint_id);
@@ -276,6 +281,16 @@ async function reportPdf(state: ProductionState, department: string | null) {
     draw(`${item.name} Â· ${item.page_count || "â€”"} pages Â· Analysis: ${String(item.analysis_engine || "STRUCTURED_EXTRACTION_V1").replaceAll("_", " ")} Â· Source: ${item.source_kind || "UNKNOWN"}`, 8);
   }
 
+  section("Change impact");
+  const changes = relevantEvents.filter(item => item.type === "CHANGE_IMPACT_RECORDED");
+  if (!changes.length) draw("No change-impact records in this report scope.", 9);
+  for (const item of changes.slice(-40)) {
+    const p = item.payload;
+    draw(`${item.created_at} - ${p.entity_type} ${p.entity_id} - ${p.actor}`, 8, true);
+    draw(`${p.readiness_before} -> ${p.readiness_after}; departments: ${p.affected_departments.join(", ")}`, 8);
+    draw(`Requirements: ${p.requirement_ids.join(", ") || "None linked"}; approvals reopened: ${p.invalidated_checkpoint_ids.join(", ") || "None"}`, 7);
+    for (const field of p.changed_fields) draw(`${field}: ${JSON.stringify(p.before[field] ?? null)} -> ${JSON.stringify(p.after[field] ?? null)}`, 7);
+  }
   section("Decision chronology");
   if (!relevantEvents.length) draw("No decision events recorded in this report scope.", 9);
   for (const item of relevantEvents.slice(-80)) {
@@ -338,11 +353,14 @@ export async function processUpload(request: Request, context: Context) {
     // Rebase on current state after slow analysis, preserving production selection and human decisions.
     const { state, production, document } = await load();
     if (document.status !== "PROCESSING") return;
+    const readinessBefore = readiness(production).status;
+    const before = { status: document.status };
     const extracted = ingestDeerFlowRequirements(production, document.name, pages, deerFlowRequirements);
     const recovered = reconcileSourceRequirements(production, document.name, pages);
-    extracted.push(...recovered); invalidateChangedCheckpoints(production, extracted);
+    extracted.push(...recovered);
     Object.assign(document, { status: "PROCESSED", page_count: pages.length, analysis_engine: "DEERFLOW", analysis_receipt_id: analysis.receiptId, source_review_candidates: recovered.length, processed_at: now(), ...suggestDocumentType(document.name, pages) });
     delete document.processing_error;
+    recordChangeImpact(production, { entity_type: "DOCUMENT_ANALYSIS", entity_id: job.documentId, before, after: { status: document.status }, affected: production.requirements.filter(item => item.document_name === document.name), actor: "DOCUMENT_ANALYSIS", readiness_before: readinessBefore });
     event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, requirements: extracted.length, analysis_engine: document.analysis_engine });
     await save(store, state);
   } catch (error) {
@@ -498,9 +516,12 @@ export default async (request: Request, context: Context) => {
       if (data.complete_source_review !== true) return fail("Confirm the complete source document has been reviewed");
       const candidates = production.requirements.filter((req) => req.document_name === document.name);
       if (candidates.some((req) => !["CONFIRMED", "REJECTED", "RESOLVED"].includes(req.status))) return fail("Review the document's requirement candidates first");
+      const readinessBefore = readiness(production).status;
+      const before = { review_status: document.review_status };
       document.review_status = "REVIEWED";
       document.reviewed_by = state.tester.display_name;
       document.reviewed_at = now();
+      recordChangeImpact(production, { entity_type: "SOURCE_REVIEW", entity_id: document.document_id, before, after: { review_status: document.review_status }, affected: candidates, actor: state.tester.display_name, readiness_before: readinessBefore, invalidate_checkpoints: false });
       event(production, "SOURCE_REVIEW_COMPLETED", {document_id: document.document_id, reviewer: document.reviewed_by});
       await save(store, state);
       return json(snapshot(state));
@@ -536,21 +557,37 @@ export default async (request: Request, context: Context) => {
     match = path.match(/^\/api\/requirements\/([^/]+)$/);
     if (match && request.method === "PATCH") {
       const item = production.requirements.find((entry) => entry.requirement_id === match![1]); if (!item) return fail("Requirement not found", 404); const data = await body(request);
+      const previous = structuredClone(item);
+      const readinessBefore = readiness(production).status;
       if (data.status !== undefined) { if (!["EXTRACTED", "NEEDS_CONFIRMATION", "CONFIRMED", "REJECTED", "RESOLVED"].includes(data.status)) return fail("Invalid requirement status"); item.status = data.status; }
       if (data.department !== undefined) { if (!validateDepartment(data.department)) return fail("Invalid department"); item.department = data.department; }
       if (data.owner !== undefined) item.owner = String(data.owner).trim().slice(0, 80) || null;
       if (data.due_at !== undefined) item.due_at = String(data.due_at).slice(0, 40) || null;
+      if (previous.department !== item.department) rebuildConflicts(production);
+      recordChangeImpact(production, { entity_type: "REQUIREMENT", entity_id: item.requirement_id, before: requirementDecision(previous), after: requirementDecision(item), affected: [previous, item], actor: state.tester.display_name, readiness_before: readinessBefore });
       event(production, "REQUIREMENT_UPDATED", { requirement_id: item.requirement_id, status: item.status }); await save(store, state); return json(snapshot(state));
     }
     match = path.match(/^\/api\/conflicts\/([^/]+)\/resolve$/);
     if (match && request.method === "POST") {
       const item = production.conflicts.find((entry) => entry.conflict_id === match![1]); if (!item) return fail("Conflict not found", 404); const data = await body(request); const resolution = String(data.resolution ?? "").trim(); const owner = String(data.owner ?? "").trim();
       if (resolution.length < 8) return fail("Resolution must explain the operational decision"); if (owner.length < 2) return fail("Enter a decision owner");
-      Object.assign(item, { status: "RESOLVED", resolution: resolution.slice(0, 600), owner: owner.slice(0, 80), resolved_at: now() }); event(production, "CONFLICT_RESOLVED", { conflict_id: item.conflict_id }); await save(store, state); return json(snapshot(state));
+      const before = { status: item.status, resolution: item.resolution ?? null, owner: item.owner ?? null };
+      const readinessBefore = readiness(production).status;
+      const after = { status: "RESOLVED", resolution: resolution.slice(0, 600), owner: owner.slice(0, 80) };
+      Object.assign(item, after);
+      const affected = [item, ...production.requirements.filter(req => [item.left_requirement_id, item.right_requirement_id].includes(req.requirement_id))];
+      if (recordChangeImpact(production, { entity_type: "CONFLICT", entity_id: item.conflict_id, before, after, affected, actor: state.tester.display_name, readiness_before: readinessBefore })) item.resolved_at = now();
+      event(production, "CONFLICT_RESOLVED", { conflict_id: item.conflict_id }); await save(store, state); return json(snapshot(state));
     }
     match = path.match(/^\/api\/checkpoints\/([^/]+)$/);
     if (match && request.method === "PATCH") {
-      const item = production.checkpoints.find((entry) => entry.checkpoint_id === match![1]); if (!item) return fail("Checkpoint not found", 404); const data = await body(request); item.status = data.complete ? "COMPLETE" : "PENDING"; item.completed_at = data.complete ? now() : null; event(production, "CHECKPOINT_UPDATED", { checkpoint_id: item.checkpoint_id, complete: Boolean(data.complete) }); await save(store, state); return json(snapshot(state));
+      const item = production.checkpoints.find((entry) => entry.checkpoint_id === match![1]); if (!item) return fail("Checkpoint not found", 404); const data = await body(request);
+      if (typeof data.complete !== "boolean") return fail("Checkpoint approval must be true or false");
+      const before = { status: item.status };
+      const readinessBefore = readiness(production).status;
+      item.status = data.complete ? "COMPLETE" : "PENDING";
+      if (recordChangeImpact(production, { entity_type: "CHECKPOINT", entity_id: item.checkpoint_id, before, after: { status: item.status }, affected: [item, ...production.requirements.filter(req => affectsDepartment(req, item.department))], actor: state.tester.display_name, readiness_before: readinessBefore, invalidate_checkpoints: false })) item.completed_at = data.complete ? now() : null;
+      event(production, "CHECKPOINT_UPDATED", { checkpoint_id: item.checkpoint_id, complete: data.complete }); await save(store, state); return json(snapshot(state));
     }
     if (path === "/api/incidents" && request.method === "POST") {
       const data = await body(request);
@@ -560,6 +597,7 @@ export default async (request: Request, context: Context) => {
       if (summary.length < 5) return fail("Describe what changed");
       const resolution = String(data.resolution ?? "").trim().slice(0, 800) || null;
       const createdAt = now();
+      const readinessBefore = readiness(production).status;
       production.incidents.unshift({
         incident_id: newId("incident"),
         production_id: production.production.production_id,
@@ -571,6 +609,8 @@ export default async (request: Request, context: Context) => {
         created_at: createdAt,
         resolved_at: resolution ? createdAt : null,
       });
+      const incident = production.incidents[0];
+      recordChangeImpact(production, { entity_type: "INCIDENT", entity_id: incident.incident_id, before: {}, after: { department: incident.department, severity: incident.severity, summary: incident.summary, resolution: incident.resolution }, affected: [incident, ...production.requirements.filter(req => affectsDepartment(req, incident.department))], actor: state.tester.display_name, readiness_before: readinessBefore });
       event(production, "INCIDENT_LOGGED", { department: data.department, severity: data.severity, resolved: Boolean(resolution) });
       await save(store, state);
       return json(snapshot(state));
@@ -582,8 +622,10 @@ export default async (request: Request, context: Context) => {
       const data = await body(request);
       const resolution = String(data.resolution ?? "").trim();
       if (resolution.length < 5) return fail("Resolution must explain how the incident was closed");
+      const before = { resolution: item.resolution ?? null };
+      const readinessBefore = readiness(production).status;
       item.resolution = resolution.slice(0, 800);
-      item.resolved_at = now();
+      if (recordChangeImpact(production, { entity_type: "INCIDENT", entity_id: item.incident_id, before, after: { resolution: item.resolution }, affected: [item, ...production.requirements.filter(req => affectsDepartment(req, item.department))], actor: state.tester.display_name, readiness_before: readinessBefore })) item.resolved_at = now();
       event(production, "INCIDENT_RESOLVED", { incident_id: item.incident_id, department: item.department, severity: item.severity });
       await save(store, state);
       return json(snapshot(state));
