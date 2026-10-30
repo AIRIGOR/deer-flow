@@ -8,7 +8,7 @@ Every production advances independently through three end-to-end stages:
 2. Technical advance, conflict resolution, ownership, and department readiness.
 3. Show-day checkpoints, incident logging, and Master/department Advance Reports.
 
-Production gates are fail-closed: every extracted requirement must be confirmed or rejected, every confirmed requirement must have an owner, every detected conflict must be resolved, and every show-day checkpoint must be complete before RIGOR can declare `SHOW_READY`. Reports download through the authenticated session without navigating away from the workspace.
+Production gates are fail-closed: every extracted requirement must be confirmed or resolved (rejected requirements block readiness), every confirmed requirement must have an owner, every detected conflict must be resolved, and every show-day checkpoint must be complete before RIGOR can declare `SHOW_READY`. Reports download through the authenticated session without navigating away from the workspace.
 
 ## Architecture
 
@@ -27,7 +27,7 @@ Production gates are fail-closed: every extracted requirement must be confirmed 
 Set these Netlify environment variables when the DeerFlow RIGOR gateway is reachable:
 
 - `RIGOR_DEERFLOW_URL` — base URL of the deployed DeerFlow gateway.
-- `RIGOR_DEERFLOW_TOKEN` — optional bearer token used by the beta service to call the protected RIGOR analysis endpoint.
+- `RIGOR_DEERFLOW_TOKEN` — required secret token used by the beta service to call the protected RIGOR analysis endpoint.
 
 RIGOR, DeerFlow, and the 3NETRA company operator share one authenticated gateway contract. Uploaded documents require verified DeerFlow analysis; missing configuration, timeout, HTTP failure, or invalid provenance leaves the saved document FAILED and retryable, with readiness blocked. Background analysis has a bounded ten-minute budget. Previously fallback-processed documents offer Retry with DeerFlow and cannot complete source review until verified. Analysis does not replace full-source human review.
 
@@ -41,7 +41,7 @@ The DeerFlow endpoint treats uploaded document text as untrusted source material
 npm ci
 npm run check
 npm test
-npm run dev
+npm run dev # requires a separately installed, trusted Netlify CLI
 ```
 
 The Netlify project publishes `app/static` and bundles the functions configured in `netlify.toml`. The feature branch also includes `.github/workflows/rigor-beta-ci.yml`, which runs focused TypeScript and Python RIGOR checks for relevant changes.
@@ -49,7 +49,7 @@ The Netlify project publishes `app/static` and bundles the functions configured 
 
 The repository pins the Netlify build command to `npm run check`, overriding stale dashboard build commands before function bundling.
 Department Advance Report readiness counts only that department's requirements, conflicts, checkpoints, and incidents.
-Pod 1 security checks require Node.js 24. Netlify Functions 6 and CLI 27 remove the previous vulnerable build dependencies; Vitest 5 and a Netlify CLI-scoped sharp 0.35.5 override clear the development audit. Run `npm audit --audit-level=high` and `npm audit --omit=dev --audit-level=high` before sharing a build.
+Pod 1 security checks require Node.js 24. The optional Netlify CLI is not installed as an application dependency because its transitive toolchain included unpatched high-severity advisories (braces and node-forge). For local development, use a separately managed, security-reviewed Netlify CLI installation; production builds use the Netlify platform and do not need a project-local CLI. CI enforces both full and production-only dependency audits. Run `npm audit --audit-level=high` and `npm audit --omit=dev --audit-level=high` before sharing a build.
 ## Pod 2 source review and change impact
 
 Source-backed dock capacity, B-stage footprint, suspended load, point load, trim, power, curfew and labor constraints use stable identities across model labels. Model-provided categories and departments remain available for audit. Suspended load, point load and B-stage footprint conflicts receive critical severity. Automated LED load affects Rigging and Video; B-stage footprint affects Rigging, Stage Management and Video. Those related requirements and conflicts appear in each affected department PDF and readiness summary.
@@ -75,3 +75,15 @@ An operator must separately configure `RIGOR_FOUNDER_TOKEN` before activation. K
 Each command is saved before background dispatch, then moves QUEUED → RUNNING → COMPLETE/FAILED with its result and gateway execution receipt. An atomic, conditional state transition prevents duplicate invocation from executing the same command twice. Failed dispatch is recorded rather than reported as completion. Preview command records use a deployment store; production uses the company store. Commands do not advance production readiness, approve proposals, or establish that specialist delegation occurred; live delegation and release proof remain separate checks. A crashed worker can require operator investigation; overdue commands show completion unverified after 16 minutes and stop polling. No automatic replay is attempted.
 
 Security status: the October 8 dependency refresh removes the reported proxy-addr and source-map-js findings. The remaining braces and node-forge advisories have no published patched versions at review time. Full-audit failure remains a release blocker even when the production-only audit and build pass.
+
+## Revenue-readiness repair branch (October 2026)
+
+Source citation comparison normalizes PDF line breaks and repeated whitespace before matching an excerpt to its cited page. This accepts faithful wrapped excerpts while preserving rejection of fabricated text and out-of-range pages.
+
+The deployed PDF parser retains its native canvas dependency and loads only when parsing a PDF. A parser dependency failure must not prevent session creation, health checks or TXT uploads from starting.
+
+The UI accepts up to 20 PDF/TXT files per selection (5 MB each), saves them sequentially, and reports partial failures without automatic duplicate retries. Document-type suggestions are based on extracted text, are explicitly advisory, and always require human review. Model-extracted page citations and excerpts are validated against supplied source text. Rejected requirements block both show and department readiness and appear in Master and Department PDFs. These changes require end-to-end production validation before deployment.
+
+John staging authorization uses the platform-supplied context.site.id for isolated site 96331e39-86a9-45a3-910c-edd321d60bb7 and RIGOR_JOHN_STAGING_ENABLED=true. Netlify production deploy context is allowed only on that exact staging site. Tester authentication, empty fixture state and synthetic-only analysis remain enforced. Unknown sites and Founder production are denied even with the flag. Live verification remains separate from unit tests.
+
+Gateway authentication uses an ASCII digest of the exact trimmed UTF-8 secret so credentials are not re-encoded by HTTP headers. The derived value is credential-equivalent and is never exposed to the browser, persisted in receipts or logged. The backend supports legacy raw-token callers but new gateway traffic uses the digest header.

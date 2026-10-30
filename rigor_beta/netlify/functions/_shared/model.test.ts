@@ -37,6 +37,56 @@ describe("RIGOR beta model", () => {
     expect(readiness(state).status).toBe("BLOCKED");
   });
 
+  it("blocks stale source packs even after every requirement and checkpoint is approved", () => {
+    const state = activeProduction(createWorkspace("Stale Source PM", "PM"));
+    state.documents.push({
+      name: "venue-power.txt", status: "PROCESSED", source_kind: "TESTER",
+      review_status: "REVIEWED", expires_at: "2020-01-01T00:00:00.000Z",
+    });
+    state.requirements.push({
+      requirement_id: "power-1", document_name: "venue-power.txt", department: "Power",
+      category: "POWER_CAPACITY", detail: "Venue power is 400A.", status: "CONFIRMED",
+      owner: "Venue Electrician", confidence: 0.98,
+    });
+    state.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+    expect(readiness(state)).toMatchObject({ status: "BLOCKED", stale_documents: 1 });
+    expect(departmentSummary(state).find((item) => item.department === "Power")?.status).toBe("BLOCKED");
+    state.documents[0].expires_at = "2099-01-01T00:00:00.000Z";
+    expect(readiness(state).status).toBe("SHOW_READY");
+  });
+
+  it("blocks unverified low-confidence evidence despite a confirmed checkbox", () => {
+    const state = activeProduction(createWorkspace("Evidence PM", "PM"));
+    state.documents.push({ name: "venue.txt", status: "PROCESSED", source_kind: "TESTER", review_status: "REVIEWED" });
+    state.requirements.push({
+      requirement_id: "power-uncertain", document_name: "venue.txt", department: "Power",
+      category: "POWER_CAPACITY", detail: "Power may be 400A.", status: "CONFIRMED",
+      owner: "Power Lead", confidence: 0.41,
+    });
+    state.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+    expect(readiness(state)).toMatchObject({ status: "BLOCKED", unverified_requirements: 1 });
+    expect(departmentSummary(state).find((item) => item.department === "Power")?.status).toBe("BLOCKED");
+    state.requirements[0].evidence_verified = true;
+    expect(readiness(state).status).toBe("SHOW_READY");
+    state.requirements[0].source_verified = false;
+    expect(readiness(state).status).toBe("BLOCKED");
+  });
+
+  it("never marks a show or department ready with a rejected requirement", () => {
+    const state = activeProduction(createWorkspace("Safety PM", "PM"));
+    state.documents.push({ name: "venue.txt", status: "PROCESSED", source_kind: "SAMPLE" });
+    state.requirements.push({
+      requirement_id: "req_rejected", document_name: "venue.txt",
+      department: "Rigging", category: "RIGGING_LOAD", status: "REJECTED",
+      detail: "Rigging capacity request was rejected.", owner: "Head Rigger",
+    });
+    state.checkpoints.forEach((item) => { item.status = "COMPLETE"; });
+    expect(readiness(state)).toMatchObject({
+      status: "BLOCKED", rejected_requirements: 1,
+    });
+    expect(departmentSummary(state).find((item) => item.department === "Rigging")?.status).toBe("BLOCKED");
+  });
+
   it("normalizes feet and inches without equating different trim heights", () => {
     const make = (excerpt: string) => canonicalizeRequirement({
       department:"Rigging", category:"RIGGING_TRIM", excerpt,
@@ -382,4 +432,99 @@ describe("RIGOR beta model", () => {
     expect(departmentSummary(state)).toEqual([]);
     expect(snapshot(state).productions).toHaveLength(2);
   });
+  it("AI PM adversarial rehearsal: fictional 25-truck world tour cannot force false green", () => {
+    // Synthetic production only. The PM agent is a deterministic policy adversary,
+    // not a live language-model connection or authorization to approve show safety.
+    const workspace = createWorkspace("AI PM RED TEAM / SYNTHETIC", "PM");
+    const production = activeProduction(workspace);
+    Object.assign(production.show, {
+      show_name: "Celestial Circuit World Tour - FICTIONAL",
+      artist: "The Midnight Atlas - FICTIONAL",
+      venue: "Mirage Crown Arena - FICTIONAL",
+      city: "Las Vegas, NV", show_date: "2026-11-20",
+    });
+    production.production.sample_demo = true;
+    const documents = [
+      ["tour-rider.txt", "Tour requires 400A show power service at stage right."],
+      ["venue-tech.txt", "Venue show power service is limited to 200A at stage right."],
+      ["tour-rigging.txt", "Tour minimum downstage trim height: 42 feet."],
+      ["venue-rigging.txt", "Venue maximum downstage trim height: 38 feet."],
+      ["tour-video.txt", "Tour must provide two tactical fiber paths from FOH to video world."],
+      ["venue-video.txt", "Venue must provide copper tie lines from FOH to video world."],
+      ["automation.txt", "Tour must confirm suspended weight allowance of 12000 kg for the automated LED wall."],
+      ["stage-plot.txt", "Venue must confirm the B-stage footprint and emergency egress."],
+      ["audio.txt", "Venue must provide a DiGiCo console at FOH audio."],
+      ["labor.txt", "Venue must provide 24 stagehands for the load-in."],
+      ["trucking.txt", "Venue must confirm load-in dock capacity for 25 trucks and 10 buses."],
+      ["hospitality.txt", "Venue must provide hot dinner for 40 crew and 12 dancers."],
+      ["security.txt", "Venue must provide security barricade at the B-stage."],
+      ["schedule.txt", "Venue must confirm show curfew at 22:00."],
+    ] as const;
+    for (const [name, text] of documents) {
+      production.documents.push({
+        name, status: "PROCESSED", review_status: "PENDING",
+        doc_type: "UPLOADED", analysis_engine: "DEERFLOW", source_kind: "TESTER",
+      });
+      extractRequirements(production, name, [text]);
+    }
+    const conflictCategories = new Set(production.conflicts.map(item => item.category));
+    expect(conflictCategories).toContain("POWER_CAPACITY");
+    expect(conflictCategories).toContain("RIGGING_TRIM");
+    expect(conflictCategories).toContain("VIDEO_TRANSPORT");
+    expect(production.requirements.length).toBeGreaterThanOrEqual(12);
+
+    // The fictional AI PM tries the unsafe shortcut: all owners, requirements
+    // and checkpoints marked complete, while source review and conflicts remain.
+    for (const item of production.requirements) {
+      item.status = "CONFIRMED";
+      item.owner = "FICTIONAL PM - NOT HUMAN APPROVAL";
+    }
+    for (const checkpoint of production.checkpoints) checkpoint.status = "COMPLETE";
+    expect(readiness(production).status).toBe("BLOCKED");
+    expect(readiness(production).unreviewed_documents).toBe(documents.length);
+
+    // Even after every document is marked reviewed, contradictory facts block.
+    for (const document of production.documents) document.review_status = "REVIEWED";
+    expect(readiness(production).status).toBe("BLOCKED");
+    const aiPmRecommendations = production.conflicts
+      .filter(item => item.status === "OPEN")
+      .map(item => ({
+        category: item.category,
+        action: "ESCALATE_TO_HUMAN_DEPARTMENT_OWNER",
+        evidence: [item.left_source, item.right_source],
+      }));
+    expect(aiPmRecommendations.length).toBeGreaterThanOrEqual(3);
+    expect(aiPmRecommendations.every(item => item.evidence.every(Boolean))).toBe(true);
+
+    // On show day, an unresolved critical incident is a second independent blocker.
+    production.incidents.push({
+      department: "Power", severity: "CRITICAL",
+      summary: "Fictional temporary power distribution failure", resolution: null,
+    });
+    expect(readiness(production).blocking_incidents).toBe(1);
+    expect(readiness(production).status).toBe("BLOCKED");
+
+    // A late automation/LED revision invalidates the previously completed
+    // Rigging and Video checkpoints, even without a new conflict.
+    const added = extractRequirements(production, "late-change.txt", [
+      "Tour must confirm suspended weight allowance of 15000 kg for the automated LED wall.",
+    ]);
+    expect(added.length).toBeGreaterThan(0);
+    invalidateChangedCheckpoints(production, added);
+    expect(production.checkpoints.find(item => item.department === "Rigging")?.status).toBe("PENDING");
+    expect(production.checkpoints.find(item => item.department === "Video")?.status).toBe("PENDING");
+    expect(readiness(production).status).toBe("BLOCKED");
+
+    // PM must not contaminate a second show with the first show's findings.
+    const other = createProduction(workspace.workspace.workspace_id, {
+      show_name: "Independent Second Tour - FICTIONAL",
+    }, 2);
+    workspace.productions.push(other);
+    workspace.workspace.active_production_id = other.production.production_id;
+    expect(activeProduction(workspace).requirements).toHaveLength(0);
+    expect(activeProduction(workspace).conflicts).toHaveLength(0);
+    expect(readiness(workspace).status).toBe("DOCUMENTS_PENDING");
+    expect(production.conflicts.length).toBeGreaterThanOrEqual(3);
+  });
+
 });

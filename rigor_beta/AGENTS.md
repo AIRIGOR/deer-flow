@@ -1,5 +1,9 @@
 # RIGOR beta checks
 
+Source provenance comparisons must collapse actual whitespace (`/\s+/g`), not literal backslash-s sequences. Keep the wrapped-source citation regression alongside fabricated-citation rejection in rigor-upload.test.ts.
+
+PDF.js and its direct native canvas dependency must remain external in the Netlify bundle. Import PDF.js inside readPdfPages so parser startup cannot crash all API routes. Verify the packaged function on staging; local PDF tests alone do not prove native modules ship correctly.
+
 This module publishes `app/static` and bundles `netlify/functions/rigor-api.mts`.
 `netlify.toml` explicitly runs `npm run check` before function bundling.
 
@@ -29,3 +33,7 @@ Company action execution uses a bounded pulse context excerpt to satisfy DeerFlo
 Founder commands: `rigor-founder.mts` requires the separate `RIGOR_FOUNDER_TOKEN`; do not reuse tester sessions as Founder authority. Persist each command before dispatch; internal modes only, max 3900 characters. `rigor-founder-command-background.mts` uses an ETag-conditional QUEUED → RUNNING transition and per-command records, saves results/receipt IDs, and fails closed on invalid gateway output. Run `founder.test.ts` for auth, reserved-mode rejection, persistence order, dispatch failure, and duplicate worker coverage. A command receipt is not proof of specialist delegation or release clearance. Do not create or change credentials as part of code installation.
 
 RIGOR CI runs both full and production-only dependency audits. A clean runtime audit must not mask vulnerable development tooling. Full audit is expected to block until upstream braces/node-forge remediation is verified.
+
+John authorization: use johnStagingAuthorized(context), never context.deploy.context as an environment boundary. Allow only the exact isolated staging site ID plus an exact true flag. Test production-context staging, Founder/unknown preview sites and missing/malformed flags. Preserve session and synthetic-evidence checks. Current repair must not overwrite the separately staged recovery implementation or live Founder/backend history.
+
+Keep X-RIGOR-Service-Token-SHA256 generation aligned with backend _authorize: lowercase SHA-256 of trimmed UTF-8 bytes. Do not log this credential-equivalent digest. Retain synthetic Unicode transport and wrong-digest rejection regressions.

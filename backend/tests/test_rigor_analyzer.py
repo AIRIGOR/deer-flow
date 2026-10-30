@@ -70,3 +70,69 @@ async def test_rigor_analyzer_rejects_invalid_model_json():
             document_name="Venue Pack.pdf",
             pages=["Venue must provide 200A show power."],
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_page", "source_excerpt", "error_message"),
+    [
+        (None, "Venue must provide 200A show power.", "valid source page"),
+        (99, "Venue must provide 200A show power.", "valid source page"),
+        (1, "Venue must provide 400A show power.", "source excerpt absent"),
+    ],
+)
+async def test_rigor_analyzer_rejects_unverifiable_source_citations(
+    source_page, source_excerpt, error_message
+):
+    import json
+
+    payload = {
+        "requirements": [
+            {
+                "department": "Power",
+                "category": "POWER_CAPACITY",
+                "requirement_text": "Venue show power capacity.",
+                "normalized_value": "200A",
+                "unit": "A",
+                "source_page": source_page,
+                "source_excerpt": source_excerpt,
+                "confidence": 0.99,
+            }
+        ]
+    }
+    analyzer = RigorDocumentAnalyzer(
+        model_factory=lambda: FakeModel(json.dumps(payload))
+    )
+
+    with pytest.raises(RigorAnalysisError, match=error_message):
+        await analyzer.analyze(
+            document_name="Venue Pack.pdf",
+            pages=["Venue must provide 200A show power."],
+        )
+
+
+@pytest.mark.asyncio
+async def test_rigor_analyzer_rejects_excerpt_from_different_page():
+    import json
+
+    payload = {
+        "requirements": [
+            {
+                "department": "Power",
+                "category": "POWER_CAPACITY",
+                "requirement_text": "Venue power capacity.",
+                "source_page": 1,
+                "source_excerpt": "Venue must provide 200A show power.",
+                "confidence": 0.99,
+            }
+        ]
+    }
+    analyzer = RigorDocumentAnalyzer(
+        model_factory=lambda: FakeModel(json.dumps(payload))
+    )
+
+    with pytest.raises(RigorAnalysisError, match="source excerpt absent"):
+        await analyzer.analyze(
+            document_name="Venue Pack.pdf",
+            pages=["Stage depth is 20 feet.", "Venue must provide 200A show power."],
+        )

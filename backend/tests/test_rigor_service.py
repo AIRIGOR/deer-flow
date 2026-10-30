@@ -1,9 +1,99 @@
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 
 from app import rigor_service
+
+
+@pytest.mark.parametrize("provided", ["staging-café-credential", "wrong-ascii-value", "staging-cafè-credential"])
+def test_service_token_comparison_does_not_crash_on_non_ascii_configuration(monkeypatch, provided):
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "staging-café-credential")
+    if provided == "staging-café-credential":
+        rigor_service._authorize(provided)
+    else:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as rejected:
+            rigor_service._authorize(provided)
+        assert rejected.value.status_code == 401
+
+
+def test_non_ascii_credentials_use_a_portable_digest_header(monkeypatch):
+    import hashlib
+
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "staging-café-credential")
+    monkeypatch.setenv("RIGOR_JOHN_STAGING_ENABLED", "true")
+    response = TestClient(rigor_service.app).post(
+        "/api/rigor/agents/john/analyze",
+        headers={"X-RIGOR-Service-Token-SHA256": hashlib.sha256("staging-café-credential".encode()).hexdigest()},
+        json={"synthetic": False, "evidence": [{"source_id": "tour", "text": "Fictional tour."}]},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("digest", ["bad", "0" * 64, "F" * 64])
+def test_wrong_digest_cannot_fall_back_to_a_valid_raw_token(monkeypatch, digest):
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+    with pytest.raises(HTTPException) as rejected:
+        rigor_service._authorize("test-secret", token_sha256=digest)
+    assert rejected.value.status_code == 401
+
+
+@pytest.mark.parametrize("token,expected", [(None, 401), ("wrong", 401), ("test-secret", 200)])
+def test_john_endpoint_requires_auth_and_returns_advisory_only(monkeypatch, token, expected):
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+    monkeypatch.setenv("RIGOR_JOHN_STAGING_ENABLED", "true")
+    calls = []
+
+    class Agent:
+        async def analyze(self, *, evidence):
+            calls.append(evidence)
+            from deerflow.rigor.john_pm import JohnPmResult
+
+            return JohnPmResult(actions=[])
+
+    monkeypatch.setattr(rigor_service, "JohnPmAgent", Agent, raising=False)
+    headers = {"X-RIGOR-Service-Token": token} if token else {}
+    result = TestClient(rigor_service.app).post("/api/rigor/agents/john/analyze", headers=headers, json={"synthetic": True, "evidence": [{"source_id": "tour", "text": "Tour requires 400A."}]})
+    assert result.status_code == expected
+    assert len(calls) == (1 if expected == 200 else 0)
+    if expected == 200:
+        assert result.json()["release_decision"] == "HOLD_SHOW"
+        assert result.json()["autonomous_show_approval"] is False
+
+
+@pytest.mark.parametrize("enabled,synthetic,expected", [(None, True, 403), ("false", True, 403), ("true", False, 422)])
+def test_john_endpoint_rejects_disabled_or_real_input(monkeypatch, enabled, synthetic, expected):
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+    if enabled is None:
+        monkeypatch.delenv("RIGOR_JOHN_STAGING_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("RIGOR_JOHN_STAGING_ENABLED", enabled)
+    response = TestClient(rigor_service.app).post("/api/rigor/agents/john/analyze", headers={"X-RIGOR-Service-Token": "test-secret"}, json={"synthetic": synthetic, "evidence": [{"source_id": "tour", "text": "Tour requires 400A."}]})
+    assert response.status_code == expected
+
+
+def test_john_endpoint_sanitizes_model_failure(monkeypatch):
+    from deerflow.rigor.john_pm import JohnPmError
+
+    class Agent:
+        async def analyze(self, *, evidence):
+            raise JohnPmError("private provider response must not escape")
+
+    monkeypatch.setattr(rigor_service, "JohnPmAgent", Agent)
+    monkeypatch.setenv("RIGOR_SERVICE_TOKEN", "test-secret")
+    monkeypatch.setenv("RIGOR_JOHN_STAGING_ENABLED", "true")
+    response = TestClient(rigor_service.app).post("/api/rigor/agents/john/analyze", headers={"X-RIGOR-Service-Token": "test-secret"}, json={"synthetic": True, "evidence": [{"source_id": "tour", "text": "Tour requires 400A."}]})
+    assert response.status_code == 502
+    assert "private" not in response.text
+
+
+def test_john_endpoint_rejects_missing_auth_configuration(monkeypatch):
+    monkeypatch.delenv("RIGOR_SERVICE_TOKEN", raising=False)
+    monkeypatch.setenv("RIGOR_JOHN_STAGING_ENABLED", "true")
+    response = TestClient(rigor_service.app).post("/api/rigor/agents/john/analyze", json={"synthetic": True, "evidence": [{"source_id": "tour", "text": "Tour requires 400A."}]})
+    assert response.status_code == 503
 
 
 def test_rigor_service_health():

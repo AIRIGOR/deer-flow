@@ -1,13 +1,14 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
 
 export const OPERATING_MOTTO = "Flow like water";
-export type DeerFlowOperation = "document_analysis" | "company_pulse" | "company_action";
+export type DeerFlowOperation = "document_analysis" | "company_pulse" | "company_action" | "john_pm";
 const routes = {
   document_analysis: { path: "/api/rigor/analyze", timeout: 10 * 60 * 1000 },
   company_pulse: { path: "/api/rigor/company/pulse", timeout: 13 * 60 * 1000 },
   company_action: { path: "/api/rigor/company/action/execute", timeout: 10 * 60 * 1000 },
+  john_pm: { path: "/api/rigor/agents/john/analyze", timeout: 45 * 1000 },
 };
 
 function integrationStore(context: Context) {
@@ -42,7 +43,7 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
     if (!baseUrl || !token) throw new DeerFlowIntegrationError("NOT_CONFIGURED");
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}${routes[operation].path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-RIGOR-Service-Token": token, "X-RIGOR-Execution-Id": executionId },
+      headers: { "Content-Type": "application/json", "X-RIGOR-Service-Token-SHA256": createHash("sha256").update(token, "utf8").digest("hex"), "X-RIGOR-Execution-Id": executionId },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(routes[operation].timeout),
     });
@@ -57,6 +58,19 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
         !Number.isInteger(item.source_page) || item.source_page < 1 || item.source_page > pages.length ||
         !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1)) {
         throw new DeerFlowIntegrationError("INVALID_SOURCE_PROVENANCE");
+      }
+    } else if (operation === "john_pm" &&
+      (data.agent !== "John" || data.mode !== "MODEL_ADVISORY_ONLY" || data.release_decision !== "HOLD_SHOW" ||
+        data.autonomous_show_approval !== false || !Array.isArray(data.actions) || data.actions.length > 20 ||
+        data.actions.some((item: any) => !["P0", "P1", "P2"].includes(item.priority) ||
+          typeof item.question !== "string" || !Array.isArray(item.evidence_ids) || !item.evidence_ids.length))) {
+      throw new DeerFlowIntegrationError("INVALID_PM_RESPONSE");
+    } else if (operation === "john_pm") {
+      const allowedIds = new Set(((payload.evidence || []) as Array<{ source_id: string }>).map(item => item.source_id));
+      allowedIds.add("MISSING_EVIDENCE");
+      if (data.actions.some((item: any) => item.evidence_ids.some((id: unknown) =>
+        typeof id !== "string" || !allowedIds.has(id)))) {
+        throw new DeerFlowIntegrationError("INVALID_PM_SOURCE_CITATION");
       }
     } else if (operation === "company_pulse" &&
       (typeof data.current_state !== "string" || !Array.isArray(data.top_priorities) || !Array.isArray(data.state_updates))) {
