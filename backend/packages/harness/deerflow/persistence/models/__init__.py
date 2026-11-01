@@ -23,17 +23,18 @@ from deerflow.persistence.channel_connections.model import (
 )
 from deerflow.persistence.feedback.model import FeedbackRow
 from deerflow.persistence.models.run_event import RunEventRow
-from deerflow.persistence.run.model import RunRow
-from deerflow.persistence.scheduled_task_runs.model import ScheduledTaskRunRow
-from deerflow.persistence.scheduled_tasks.model import ScheduledTaskRow
-from deerflow.persistence.thread_meta.model import ThreadMetaRow
-from deerflow.persistence.user.model import UserRow
+from deerflow.persistence.rigor.audit_model import RigorAuditRow
 from deerflow.persistence.rigor.company_model import RigorCompanyRecordRow
 from deerflow.persistence.rigor.model import (
     RigorDocumentRow,
     RigorRequirementRow,
     RigorShowRow,
 )
+from deerflow.persistence.run.model import RunRow
+from deerflow.persistence.scheduled_task_runs.model import ScheduledTaskRunRow
+from deerflow.persistence.scheduled_tasks.model import ScheduledTaskRow
+from deerflow.persistence.thread_meta.model import ThreadMetaRow
+from deerflow.persistence.user.model import UserRow
 
 __all__ = [
     "AgentRow",
@@ -49,13 +50,8 @@ __all__ = [
     "ThreadMetaRow",
     "UserRow",
     "RigorCompanyRecordRow",
+    "RigorAuditRow",
     "RigorDocumentRow",
     "RigorRequirementRow",
     "RigorShowRow",
-
 ]
-
-
-
-
-

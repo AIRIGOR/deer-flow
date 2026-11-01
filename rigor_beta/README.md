@@ -33,6 +33,24 @@ RIGOR, DeerFlow, and the 3NETRA company operator share one authenticated gateway
 
 The operating motto is **Flow like water**. `/api/health` and `/api/company/health` expose separate durable execution receipts for document analysis, company pulse, and internal company actions. Configured is not verified; receipt IDs connect documents and company results to the shared execution path. External communications and Founder-reserved approvals retain their existing gates.
 
+Session 08 requires company results to carry server-read checkpoint evidence: one
+completed registered worker for an internal action, or five distinct specialists
+plus Chief of Staff for a pulse. Capped, failed, missing or mismatched work blocks
+completion. Pulse findings cite completed workers; the backend binds those names
+to the actual delegation IDs. Contradiction assessments cite two distinct completed
+delegations and remain UNRESOLVED or PROPOSED_FOR_REVIEW with human approval required.
+They do not resolve operational conflicts or change production readiness approvals.
+
+Receipts now retain request/response digests, site/deployment scope and sanitized
+delegation evidence. Existing pulse history, action results and Founder command
+records persist the returned proof and execution receipt ID. Coherent-flow review
+requires current-deployment receipts; earlier deployment evidence cannot satisfy it.
+VERIFIED describes the recorded validation scope, not factual accuracy, synthesis
+timing or readiness. Deploy backend and Netlify changes together on isolated staging;
+older company responses without proof fail closed. Production is not promoted by
+this change. Raw checkpoint report text and authentication values are not copied to
+these receipts; existing company result/context storage retains its prior behavior.
+
 The DeerFlow endpoint treats uploaded document text as untrusted source material, returns structured production requirements with page provenance and confidence, and does not resolve contradictions on its own.
 
 ## Local checks
@@ -134,3 +152,52 @@ The UI accepts up to 20 PDF/TXT files per selection (5 MB each), saves them sequ
 John staging authorization uses the platform-supplied context.site.id for isolated site 96331e39-86a9-45a3-910c-edd321d60bb7 and RIGOR_JOHN_STAGING_ENABLED=true. Netlify production deploy context is allowed only on that exact staging site. Tester authentication, empty fixture state and synthetic-only analysis remain enforced. Unknown sites and Founder production are denied even with the flag. Live verification remains separate from unit tests.
 
 Gateway authentication uses an ASCII digest of the exact trimmed UTF-8 secret so credentials are not re-encoded by HTTP headers. The derived value is credential-equivalent and is never exposed to the browser, persisted in receipts or logged. The backend supports legacy raw-token callers but new gateway traffic uses the digest header.
+
+
+Workspace concurrency: GET /api/workspace and successful workspace writes return
+an ETag. Send that exact value in If-Match for authenticated mutation requests.
+Missing versions receive 428; stale versions or rejected conditional writes receive
+409. Reload the workspace, review the current state and resubmit deliberately;
+clients must not retry automatically. The included browser forwards observed ETags.
+Workspace creation is conditional and existing state is never replaced on collision.
+Analysis workers use the same conditional-save boundary. A conflict may leave a
+saved document pending; a 202 upload is still only acceptance, not completed analysis.
+This is per-workspace protection, not a transaction across uploads, jobs or sessions.
+
+
+Interrupted internal Founder commands: authenticated worker redelivery can mark a
+RUNNING command older than 30 minutes BLOCKED with INTERRUPTED_REVIEW_REQUIRED.
+This requests human review; it does not prove execution failed and does not replay
+the action. Fresh RUNNING commands stay unchanged. Late worker writes cannot replace
+newer command state. The Founder UI displays the blocked reason without polling or
+automatic resubmission. No recovery scanner, rollback, automatic cancellation or
+exactly-once guarantee is provided; existing command/result/receipt writes remain
+separate. No production approval authority is granted by analysis completion.
+
+
+### Session 09 local command dry run
+
+Choose “Local dry run” in the existing Founder Command page when running on loopback
+in the platform dev context. Existing Founder-token access is required; no credential
+is created by installation. This token authenticates internal simulation access,
+not a named human Founder or production approval. The UI submits a REVIEW_EVIDENCE
+plan, uses command text as a draft input reference, and simulates a QA handoff without
+calling a model, agent tools or production actions. A distinct DRY_RUN_COMPLETE status
+and conditional dry-run receipt make that scope explicit. Other intents remain
+BLOCKED. Missing evidence/idempotency keys or hosted contexts are rejected.
+Submission IDs survive uncertain responses; retry deliberately with the same input
+and ID after reviewing status. Receipt/command writes are separate; interruption can
+require manual review. See docs/RIGOR_SESSION09_VS01_EVIDENCE.md for the API contract,
+actual local tests and blocked verified-human/approval capabilities. No hosted or
+independent certification is claimed.
+
+
+### Deployment Train01 staging candidate
+
+The staging Founder page is simulation-only. Its existing token authenticates a dry-run
+capability, not a named human Founder. Exact site96331e39-86a9-45a3-910c-edd321d60bb7
+and explicit Functions flag RIGOR_STAGING_DRY_RUN_ENABLED=true are required for hosted
+simulation. Live agents, staged schedules/company actions/outreach and live John are
+blocked. Existing deterministic draft workflows and reports remain usable; model-backed
+uploads stay blocked rather than claiming analysis. See docs/RIGOR_TRAIN01_RELEASE.md
+for actual verification, cloud rebuild, access blockers and approval-gated acceptance.

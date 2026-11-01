@@ -4,6 +4,20 @@ import { runInNewContext } from "node:vm";
 import { afterEach, expect, it, vi } from "vitest";
 const root = resolve("app/static");
 afterEach(() => vi.useRealTimers());
+it("shows blocked recovery as uncertain completion without polling or replay", () => {
+  const nodes: Record<string, any> = {};
+  const sandbox: any = {
+    document: { getElementById: (id: string) => nodes[id] ||= { value: "", disabled: true, textContent: "", addEventListener: vi.fn() } },
+    fetch: vi.fn(), setTimeout: vi.fn(), clearTimeout: vi.fn(),
+    sessionStorage: { getItem: () => null, setItem: vi.fn() },
+  };
+  runInNewContext(readFileSync(resolve(root, "founder.js"), "utf8"), sandbox);
+  sandbox.show({ command_id: "synthetic", command: "Review", status: "BLOCKED", updated_at: new Date().toISOString(), error_code: "INTERRUPTED_REVIEW_REQUIRED" });
+  expect(nodes["command-result"].textContent).toContain("BLOCKED");
+  expect(nodes["command-evidence"].textContent).toBe("INTERRUPTED_REVIEW_REQUIRED");
+  expect(sandbox.setTimeout).not.toHaveBeenCalled();
+  expect(sandbox.fetch).not.toHaveBeenCalled();
+});
 it("publishes the Founder stylesheet and script at their referenced paths", () => {
   const html = readFileSync(resolve(root, "founder.html"), "utf8");
   for (const path of [...html.matchAll(/(?:src|href)="(\/founder\.(?:css|js))"/g)].map(x => x[1])) expect(existsSync(resolve(root, path.slice(1)))).toBe(true);

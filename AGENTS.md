@@ -127,6 +127,22 @@ Rule of thumb: **root `make` = the full application**; **`backend/Makefile` and 
 
 These apply repo-wide; module guides own the module-specific detail.
 
+### Permanent development protection
+
+Before implementation, follow [docs/CODEX_GUARDRAILS.md](docs/CODEX_GUARDRAILS.md).
+Read the current [build-state checkpoint](docs/RIGOR_BUILD_STATE.md), inspect the
+working-tree diff, and read only the applicable module guides (including
+[rigor_beta/AGENTS.md](rigor_beta/AGENTS.md) for the RIGOR product).
+Record measurable acceptance criteria and likely integration risks before coding.
+Preserve working code and unrelated changes; reuse existing paths and safeguards.
+Run targeted checks before broader regression checks. Allow at most two unsuccessful
+repair attempts per root-cause hypothesis, then record the blocker and reassess
+from new evidence. Maintain durable checkpoints, protect secrets and production,
+and make readiness claims only within the scope of recorded verification.
+Use bounded inspection and risk-based tests; documentation-only work needs
+documentation checks, not application rebuilds. These are development instructions,
+not automated enforcement or certification.
+
 - **Documentation update policy** — keep docs in sync with code: update `README.md` for
   user-facing changes and the relevant `AGENTS.md` for development/architecture changes in
   the same change set.

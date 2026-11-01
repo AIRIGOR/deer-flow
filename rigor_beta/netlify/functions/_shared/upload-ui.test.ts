@@ -11,6 +11,15 @@ function harness() {
   return { nodes, fetch, context };
 }
 describe("upload UI", () => {
+  it("sends the observed workspace ETag and surfaces conflicts without retrying", async () => {
+    const h = harness();
+    h.fetch.mockResolvedValueOnce(Response.json({}, { headers: { etag: '"observed"' } }))
+      .mockResolvedValueOnce(Response.json({ detail: "Workspace changed. Reload /api/workspace" }, { status: 409 }));
+    await runInContext('api("/api/workspace")', h.context);
+    await expect(runInContext('api("/api/productions", { method: "POST", body: "{}" })', h.context)).rejects.toThrow("Reload /api/workspace");
+    expect(h.fetch.mock.calls[1][1].headers["If-Match"]).toBe('"observed"');
+    expect(h.fetch).toHaveBeenCalledTimes(2);
+  });
   it("shows a persistent error and restores controls after a timeout response", async () => {
     const h = harness(); h.fetch.mockResolvedValue(new Response(JSON.stringify({ detail: "Request failed (504)" }), { status: 504, headers: { "content-type": "application/json" } }));
     h.context.testEvent = { target: { files: [new File(["Tour"], "tour.txt")], value: "file" } };

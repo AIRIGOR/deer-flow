@@ -1,3 +1,4 @@
+import { restrictedStaging } from "./_shared/staging-policy.js";
 import { coherentFlowCheck, deerFlowRequest, integrationHealth } from "./_shared/deerflow.js";
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
@@ -355,6 +356,7 @@ async function trimHistory(store: ReturnType<typeof getStore>) {
 }
 
 export default async (request: Request, context: Context) => {
+  if (restrictedStaging(context)) return new Response(null, { status: 403 });
   const expected = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim() || "";
   const provided =
     request.headers.get("x-rigor-automation-token")?.trim() || "";

@@ -18,6 +18,13 @@ import {
 } from "./model.js";
 
 describe("RIGOR beta model", () => {
+  it("never represents tester role or workspace readiness as authoritative approval", () => {
+    const workspace = createWorkspace("Draft PM", "PM");
+    loadSampleProduction(workspace);
+    const result = snapshot(workspace);
+    expect(result.authority).toEqual({ state_scope: "WORKSPACE_DRAFT", authoritative_approval: false, production_release_authorized: false, sql_synchronized: false });
+    expect(result.tester.role).toBe("PM");
+  });
   it("detects all four guided-sample contradictions", () => {
     const workspace = createWorkspace("Comparison PM", "PM");
     loadSampleProduction(workspace);

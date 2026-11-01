@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -107,6 +108,7 @@ async def test_disconnect_runtime_channel_does_not_block_event_loop(tmp_path) ->
     }
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits do not verify Windows ACL isolation")
 async def test_runtime_config_store_file_is_owner_only(tmp_path) -> None:
     path = tmp_path / "channels" / "runtime-config.json"
     store = await asyncio.to_thread(ChannelRuntimeConfigStore, path)
@@ -121,6 +123,7 @@ async def test_runtime_config_store_file_is_owner_only(tmp_path) -> None:
     assert mode == 0o600
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits do not verify Windows ACL isolation")
 async def test_runtime_config_store_overwrites_loose_existing_file(tmp_path) -> None:
     """A pre-existing world-readable file is tightened to 0o600 after a save.
 
@@ -171,5 +174,27 @@ async def test_runtime_config_store_chmod_failure_is_logged_not_fatal(tmp_path, 
 
     assert any("Unable to chmod temporary channel runtime config store" in record.getMessage() for record in caplog.records)
     mode = await asyncio.to_thread(lambda: path.stat().st_mode & 0o777)
-    assert mode == 0o600
+    if os.name != "nt":
+        assert mode == 0o600
     assert await asyncio.to_thread(store.get_provider_config, "slack") == {"enabled": True, "bot_token": "xoxb-ui"}
+
+
+async def test_runtime_config_store_requests_private_mode_on_all_platforms(tmp_path) -> None:
+    """Permission intent is portable; this does not verify Windows ACLs."""
+    path = tmp_path / "channels" / "runtime-config.json"
+    store = await asyncio.to_thread(ChannelRuntimeConfigStore, path)
+    real_chmod = Path.chmod
+    calls = []
+
+    def chmod_spy(self, mode, *args, **kwargs):
+        calls.append((self, mode))
+        return real_chmod(self, mode, *args, **kwargs)
+
+    def save():
+        with mock.patch.object(Path, "chmod", chmod_spy):
+            store.set_provider_config("slack", {"enabled": True, "bot_token": "synthetic"})
+
+    await asyncio.to_thread(save)
+    assert any(p.suffix == ".tmp" and mode == 0o600 for p, mode in calls)
+    assert (path, 0o600) in calls
+    assert await asyncio.to_thread(store.get_provider_config, "slack") == {"enabled": True, "bot_token": "synthetic"}

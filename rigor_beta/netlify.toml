@@ -7,6 +7,14 @@
   node_bundler = "esbuild"
   external_node_modules = ["@netlify/blobs", "pdfjs-dist", "@napi-rs/canvas"]
 
+# PDF.js loads its native canvas dynamically; NFT cannot infer that dependency.
+[functions."rigor-api"]
+  included_files = ["node_modules/@napi-rs/canvas/**", "node_modules/@napi-rs/canvas-*/**"]
+[functions."rigor-document-background"]
+  included_files = ["node_modules/@napi-rs/canvas/**", "node_modules/@napi-rs/canvas-*/**"]
+[functions."rigor-john-background-background"]
+  included_files = ["node_modules/@napi-rs/canvas/**", "node_modules/@napi-rs/canvas-*/**"]
+
 [[headers]]
   for = "/*"
   [headers.values]

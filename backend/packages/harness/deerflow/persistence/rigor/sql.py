@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, date, datetime
 from typing import Any
+from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from deerflow.persistence.rigor.audit import current_audit_context
+from deerflow.persistence.rigor.audit_model import RigorAuditRow
 from deerflow.persistence.rigor.model import (
     DOCUMENT_PROCESSING_STATUSES,
     DOCUMENT_TYPES,
@@ -19,7 +23,6 @@ from deerflow.persistence.rigor.model import (
     RigorShowRow,
 )
 from deerflow.utils.time import coerce_iso
-
 
 _SHOW_UPDATE_FIELDS = frozenset(
     {
@@ -85,7 +88,7 @@ class RigorRepository:
 
     @staticmethod
     def _row_to_dict(
-        row: RigorShowRow | RigorDocumentRow | RigorRequirementRow,
+        row: RigorShowRow | RigorDocumentRow | RigorRequirementRow | RigorAuditRow,
     ) -> dict[str, Any]:
         data = row.to_dict()
         for key, value in data.items():
@@ -99,9 +102,7 @@ class RigorRepository:
     def _validate_choice(name: str, value: str, allowed: tuple[str, ...]) -> None:
         if value not in allowed:
             choices = ", ".join(allowed)
-            raise ValueError(
-                f"Invalid {name}: {value!r}. Expected one of: {choices}"
-            )
+            raise ValueError(f"Invalid {name}: {value!r}. Expected one of: {choices}")
 
     @staticmethod
     def _validate_confidence(value: float | None) -> None:
@@ -122,9 +123,82 @@ class RigorRepository:
         if unknown:
             fields = ", ".join(sorted(unknown))
             raise ValueError(f"Unsupported update fields: {fields}")
+        changed = any(getattr(row, key) != value for key, value in updates.items())
         for key, value in updates.items():
             setattr(row, key, value)
-        row.updated_at = datetime.now(UTC)
+        if changed:
+            row.updated_at = datetime.now(UTC)
+
+    @staticmethod
+    def _redact(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+        if snapshot is None:
+            return None
+        return {key: {"redacted": True, "sha256": hashlib.sha256(str(value).encode()).hexdigest()} if key in {"source_excerpt", "storage_location"} and value is not None else value for key, value in snapshot.items()}
+
+    async def _commit_with_audit(self, session: AsyncSession) -> None:
+        """One transaction: fail either business flush or history insert, roll back both."""
+        types = {RigorShowRow: ("SHOW", "show_id"), RigorDocumentRow: ("DOCUMENT", "document_id"), RigorRequirementRow: ("REQUIREMENT", "requirement_id")}
+        pending = []
+        for row in dict.fromkeys([*session.new, *session.dirty, *session.deleted]):
+            if type(row) not in types:
+                continue
+            current = self._row_to_dict(row)
+            action = "DELETE" if row in session.deleted else "CREATE" if row in session.new else "UPDATE"
+            before = None if action == "CREATE" else dict(current)
+            if action == "UPDATE":
+                for attr in inspect(row).attrs:
+                    history = attr.history
+                    if history.has_changes() and history.deleted:
+                        old = history.deleted[0]
+                        before[attr.key] = coerce_iso(old) if isinstance(old, datetime) else old.isoformat() if isinstance(old, date) else old
+            pending.append((row, action, before))
+        await session.flush()
+        for row, action, _ in pending:
+            if action != "DELETE":
+                await session.refresh(row)
+        actor = current_audit_context()
+        occurred = datetime.now(UTC)
+        for row, action, before in pending:
+            after = None if action == "DELETE" else self._row_to_dict(row)
+            state = after if after is not None else before
+            fields = sorted(key for key in set(before or {}) | set(after or {}) if key not in {"created_at", "updated_at"} and (before or {}).get(key) != (after or {}).get(key))
+            if action == "UPDATE" and not fields:
+                continue
+            entity_type, id_key = types[type(row)]
+            status_changes = {key: {"before": (before or {}).get(key), "after": (after or {}).get(key)} for key in fields if key in {"show_status", "requirement_status", "processing_status"}}
+            session.add(
+                RigorAuditRow(
+                    audit_id=str(uuid4()),
+                    entity_type=entity_type,
+                    entity_id=state[id_key],
+                    show_id=state["show_id"],
+                    action=action,
+                    actor_kind=actor.actor_kind,
+                    actor_id=actor.actor_id,
+                    correlation_id=actor.correlation_id,
+                    source_ref=actor.source_ref,
+                    occurred_at=occurred,
+                    changed_fields=fields,
+                    before_state=self._redact(before),
+                    after_state=self._redact(after),
+                    source_refs={key: state.get(key) for key in ("document_id", "supersedes_document_id", "source_page", "source_location") if key in state},
+                    approval_context={"status_changes": status_changes, "verified_approval": False},
+                )
+            )
+        await session.commit()
+
+    async def list_history(self, show_id: str, *, entity_type: str | None = None, entity_id: str | None = None, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Trusted internal read only; no new public API or authorization grant."""
+        stmt = select(RigorAuditRow).where(or_(RigorAuditRow.show_id == show_id, RigorAuditRow.before_state["show_id"].as_string() == show_id))
+        if entity_type is not None:
+            self._validate_choice("entity_type", entity_type, ("SHOW", "DOCUMENT", "REQUIREMENT"))
+            stmt = stmt.where(RigorAuditRow.entity_type == entity_type)
+        if entity_id is not None:
+            stmt = stmt.where(RigorAuditRow.entity_id == entity_id)
+        limit, offset = self._pagination(limit, offset)
+        stmt = stmt.order_by(RigorAuditRow.occurred_at, RigorAuditRow.audit_id).limit(limit).offset(offset)
+        async with self._sf() as session:
+            return [self._row_to_dict(row) for row in (await session.scalars(stmt)).all()]
 
     async def create_show(
         self,
@@ -166,7 +240,7 @@ class RigorRepository:
         )
         async with self._sf() as session:
             session.add(row)
-            await session.commit()
+            await self._commit_with_audit(session)
             await session.refresh(row)
             return self._row_to_dict(row)
 
@@ -218,7 +292,7 @@ class RigorRepository:
             if row is None:
                 return None
             self._apply_updates(row, updates, _SHOW_UPDATE_FIELDS)
-            await session.commit()
+            await self._commit_with_audit(session)
             await session.refresh(row)
             return self._row_to_dict(row)
 
@@ -227,8 +301,19 @@ class RigorRepository:
             row = await session.get(RigorShowRow, show_id)
             if row is None:
                 return False
+            documents = list((await session.scalars(select(RigorDocumentRow).where(RigorDocumentRow.show_id == show_id))).all())
+            requirements = list((await session.scalars(select(RigorRequirementRow).where(RigorRequirementRow.show_id == show_id))).all())
+            ids = [document.document_id for document in documents]
+            external_requirements = list((await session.scalars(select(RigorRequirementRow).where(RigorRequirementRow.document_id.in_(ids), RigorRequirementRow.show_id != show_id))).all()) if ids else []
+            external_documents = list((await session.scalars(select(RigorDocumentRow).where(RigorDocumentRow.supersedes_document_id.in_(ids), RigorDocumentRow.show_id != show_id))).all()) if ids else []
+            for linked in external_requirements:
+                linked.document_id = None
+            for linked in external_documents:
+                linked.supersedes_document_id = None
+            for child in [*requirements, *documents]:
+                await session.delete(child)
             await session.delete(row)
-            await session.commit()
+            await self._commit_with_audit(session)
             return True
 
     async def create_document(
@@ -274,7 +359,7 @@ class RigorRepository:
         )
         async with self._sf() as session:
             session.add(row)
-            await session.commit()
+            await self._commit_with_audit(session)
             await session.refresh(row)
             return self._row_to_dict(row)
 
@@ -301,15 +386,11 @@ class RigorRepository:
                 DOCUMENT_PROCESSING_STATUSES,
             )
         limit, offset = self._pagination(limit, offset)
-        stmt = select(RigorDocumentRow).where(
-            RigorDocumentRow.show_id == show_id
-        )
+        stmt = select(RigorDocumentRow).where(RigorDocumentRow.show_id == show_id)
         if document_type is not None:
             stmt = stmt.where(RigorDocumentRow.document_type == document_type)
         if processing_status is not None:
-            stmt = stmt.where(
-                RigorDocumentRow.processing_status == processing_status
-            )
+            stmt = stmt.where(RigorDocumentRow.processing_status == processing_status)
         stmt = (
             stmt.order_by(
                 RigorDocumentRow.received_at.desc(),
@@ -345,7 +426,7 @@ class RigorRepository:
             if row is None:
                 return None
             self._apply_updates(row, updates, _DOCUMENT_UPDATE_FIELDS)
-            await session.commit()
+            await self._commit_with_audit(session)
             await session.refresh(row)
             return self._row_to_dict(row)
 
@@ -354,8 +435,14 @@ class RigorRepository:
             row = await session.get(RigorDocumentRow, document_id)
             if row is None:
                 return False
+            requirements = list((await session.scalars(select(RigorRequirementRow).where(RigorRequirementRow.document_id == document_id))).all())
+            revisions = list((await session.scalars(select(RigorDocumentRow).where(RigorDocumentRow.supersedes_document_id == document_id, RigorDocumentRow.document_id != document_id))).all())
+            for linked in requirements:
+                linked.document_id = None
+            for linked in revisions:
+                linked.supersedes_document_id = None
             await session.delete(row)
-            await session.commit()
+            await self._commit_with_audit(session)
             return True
 
     async def create_requirement(
@@ -412,7 +499,7 @@ class RigorRepository:
         )
         async with self._sf() as session:
             session.add(row)
-            await session.commit()
+            await self._commit_with_audit(session)
             await session.refresh(row)
             return self._row_to_dict(row)
 
@@ -440,15 +527,11 @@ class RigorRepository:
                 REQUIREMENT_STATUSES,
             )
         limit, offset = self._pagination(limit, offset)
-        stmt = select(RigorRequirementRow).where(
-            RigorRequirementRow.show_id == show_id
-        )
+        stmt = select(RigorRequirementRow).where(RigorRequirementRow.show_id == show_id)
         if department is not None:
             stmt = stmt.where(RigorRequirementRow.department == department)
         if requirement_status is not None:
-            stmt = stmt.where(
-                RigorRequirementRow.requirement_status == requirement_status
-            )
+            stmt = stmt.where(RigorRequirementRow.requirement_status == requirement_status)
         stmt = (
             stmt.order_by(
                 RigorRequirementRow.created_at.asc(),
@@ -486,7 +569,7 @@ class RigorRepository:
             if row is None:
                 return None
             self._apply_updates(row, updates, _REQUIREMENT_UPDATE_FIELDS)
-            await session.commit()
+            await self._commit_with_audit(session)
             await session.refresh(row)
             return self._row_to_dict(row)
 
@@ -496,5 +579,5 @@ class RigorRepository:
             if row is None:
                 return False
             await session.delete(row)
-            await session.commit()
+            await self._commit_with_audit(session)
             return True

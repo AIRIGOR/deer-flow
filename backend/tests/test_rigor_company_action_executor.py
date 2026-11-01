@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from support.rigor_evidence import checkpoint
 
 from deerflow.rigor import (
     CompanyActionProposal,
@@ -20,6 +21,17 @@ class StubClient:
     def chat(self, message, **kwargs):
         self.calls.append((message, kwargs))
         return self.response
+
+    def get_thread(self, thread_id):
+        return checkpoint(thread_id, ["rigor-partnerships-capital"])
+
+
+@pytest.mark.asyncio
+async def test_action_cannot_complete_without_runtime_delegation_evidence():
+    client = StubClient(json.dumps({"status": "COMPLETE", "result_summary": "Claimed completion"}))
+    client.get_thread = lambda thread_id: {"thread_id": thread_id, "checkpoints": []}
+    with pytest.raises(RigorCompanyActionExecutionError, match="delegation evidence"):
+        await RigorCompanyActionExecutor(client_factory=lambda: client).execute(CompanyActionProposal(action_type=CompanyActionType.INTERNAL_TEST, scope=CompanyActionScope.OBSERVE, title="Synthetic check"))
 
 
 @pytest.mark.asyncio

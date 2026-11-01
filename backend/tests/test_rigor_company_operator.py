@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from support.rigor_evidence import PULSE_AGENTS, checkpoint
 
 from deerflow.rigor import (
     CompanyActionProposal,
@@ -22,11 +23,22 @@ class StubClient:
         self.calls.append((message, kwargs))
         return self.response
 
+    def get_thread(self, thread_id):
+        return checkpoint(thread_id, PULSE_AGENTS)
+
+
+@pytest.mark.asyncio
+async def test_pulse_rejects_findings_without_real_delegation_references():
+    client = StubClient(json.dumps({"current_state": "Claimed", "top_priorities": ["Verify"], "next_actions": ["Review"], "findings": [{"summary": "Claim without evidence", "evidence_ids": ["fabricated-task"]}]}))
+    with pytest.raises(RigorCompanyPulseError, match="evidence"):
+        await RigorCompanyOperator(client_factory=lambda: client).run(objective="Synthetic check")
+
 
 @pytest.mark.asyncio
 async def test_company_operator_returns_structured_pulse():
     payload = {
         "current_state": "RIGOR preview is operational.",
+        "findings": [{"summary": "Synthetic specialist finding", "evidence_ids": ["task-1"]}],
         "top_priorities": ["Deploy company team", "Run first pulse", "Capture feedback"],
         "blockers_risks": ["Dependency remediation remains open."],
         "founder_approvals": ["Approve production promotion when QA passes."],
@@ -147,6 +159,7 @@ async def test_company_cycles_use_isolated_threads():
         json.dumps(
             {
                 "current_state": "Reviewed",
+                "findings": [{"summary": "Synthetic specialist finding", "evidence_ids": ["task-1"]}],
                 "top_priorities": ["Verify"],
                 "next_actions": ["Review evidence"],
             }

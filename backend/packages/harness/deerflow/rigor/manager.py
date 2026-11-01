@@ -28,6 +28,17 @@ class RigorConflictError(Exception):
     """Raised when related RIGOR records do not belong to the same show."""
 
 
+class RigorAuthorityError(PermissionError):
+    """Formal approval is unavailable without verified authority and gates."""
+
+
+def _require_approval_contract(status: str) -> None:
+    # There is currently no trusted assignment/approval/gate persistence contract.
+    # Neither a generic admin nor a service process may manufacture that evidence.
+    if status in {"APPROVED", "SHOW_READY", "SHOW_COMPLETE"}:
+        raise RigorAuthorityError("Production approval/release is blocked: verified assignments, authenticated approval identity and mandatory gate evidence are required")
+
+
 @dataclass(frozen=True)
 class RigorShowSnapshot:
     """Aggregate view of one show and its current source records."""
@@ -75,9 +86,7 @@ class RigorManager:
     async def _require_requirement(self, requirement_id: str) -> dict[str, Any]:
         requirement = await self._repository.get_requirement(requirement_id)
         if requirement is None:
-            raise RigorNotFoundError(
-                f"RIGOR requirement not found: {requirement_id}"
-            )
+            raise RigorNotFoundError(f"RIGOR requirement not found: {requirement_id}")
         return requirement
 
     async def create_show(
@@ -98,6 +107,7 @@ class RigorManager:
         curfew_at: datetime | None = None,
         show_status: ShowStatus | str = ShowStatus.DOCUMENTS_PENDING,
     ) -> dict[str, Any]:
+        _require_approval_contract(self._value(show_status))
         return await self._repository.create_show(
             show_id=show_id or self._id_factory(),
             tour_name=tour_name,
@@ -134,6 +144,7 @@ class RigorManager:
     async def update_show(self, show_id: str, **updates: Any) -> dict[str, Any]:
         if "show_status" in updates:
             updates["show_status"] = self._value(updates["show_status"])
+            _require_approval_contract(updates["show_status"])
         updated = await self._repository.update_show(show_id, updates=updates)
         if updated is None:
             raise RigorNotFoundError(f"RIGOR show not found: {show_id}")
@@ -157,17 +168,14 @@ class RigorManager:
         file_format: str | None = None,
         page_count: int | None = None,
         storage_location: str | None = None,
-        processing_status: DocumentProcessingStatus
-        | str = DocumentProcessingStatus.RECEIVED,
+        processing_status: DocumentProcessingStatus | str = DocumentProcessingStatus.RECEIVED,
         supersedes_document_id: str | None = None,
     ) -> dict[str, Any]:
         await self._require_show(show_id)
         if supersedes_document_id is not None:
             superseded = await self._require_document(supersedes_document_id)
             if superseded["show_id"] != show_id:
-                raise RigorConflictError(
-                    "A document can supersede only a document from the same show"
-                )
+                raise RigorConflictError("A document can supersede only a document from the same show")
         return await self._repository.create_document(
             document_id=document_id or self._id_factory(),
             show_id=show_id,
@@ -199,14 +207,8 @@ class RigorManager:
         await self._require_show(show_id)
         return await self._repository.list_documents(
             show_id,
-            document_type=(
-                None if document_type is None else self._value(document_type)
-            ),
-            processing_status=(
-                None
-                if processing_status is None
-                else self._value(processing_status)
-            ),
+            document_type=(None if document_type is None else self._value(document_type)),
+            processing_status=(None if processing_status is None else self._value(processing_status)),
             limit=limit,
             offset=offset,
         )
@@ -218,13 +220,13 @@ class RigorManager:
     ) -> dict[str, Any]:
         current = await self._require_document(document_id)
         target_show_id = updates.get("show_id", current["show_id"])
+        if target_show_id != current["show_id"]:
+            raise RigorConflictError("An existing document cannot change its owning show")
         await self._require_show(target_show_id)
         if "document_type" in updates:
             updates["document_type"] = self._value(updates["document_type"])
         if "processing_status" in updates:
-            updates["processing_status"] = self._value(
-                updates["processing_status"]
-            )
+            updates["processing_status"] = self._value(updates["processing_status"])
         supersedes_id = updates.get(
             "supersedes_document_id",
             current.get("supersedes_document_id"),
@@ -232,24 +234,18 @@ class RigorManager:
         if supersedes_id is not None:
             superseded = await self._require_document(supersedes_id)
             if superseded["show_id"] != target_show_id:
-                raise RigorConflictError(
-                    "A document can supersede only a document from the same show"
-                )
+                raise RigorConflictError("A document can supersede only a document from the same show")
         updated = await self._repository.update_document(
             document_id,
             updates=updates,
         )
         if updated is None:
-            raise RigorNotFoundError(
-                f"RIGOR document not found: {document_id}"
-            )
+            raise RigorNotFoundError(f"RIGOR document not found: {document_id}")
         return updated
 
     async def delete_document(self, document_id: str) -> None:
         if not await self._repository.delete_document(document_id):
-            raise RigorNotFoundError(
-                f"RIGOR document not found: {document_id}"
-            )
+            raise RigorNotFoundError(f"RIGOR document not found: {document_id}")
 
     async def add_requirement(
         self,
@@ -267,18 +263,16 @@ class RigorManager:
         source_location: str | None = None,
         source_excerpt: str | None = None,
         confidence: float | None = None,
-        requirement_status: RequirementStatus
-        | str = RequirementStatus.EXTRACTED,
+        requirement_status: RequirementStatus | str = RequirementStatus.EXTRACTED,
         owner: str | None = None,
         due_at: datetime | None = None,
     ) -> dict[str, Any]:
+        _require_approval_contract(self._value(requirement_status))
         await self._require_show(show_id)
         if document_id is not None:
             document = await self._require_document(document_id)
             if document["show_id"] != show_id:
-                raise RigorConflictError(
-                    "A requirement source document must belong to the same show"
-                )
+                raise RigorConflictError("A requirement source document must belong to the same show")
         return await self._repository.create_requirement(
             requirement_id=requirement_id or self._id_factory(),
             show_id=show_id,
@@ -314,11 +308,7 @@ class RigorManager:
         return await self._repository.list_requirements(
             show_id,
             department=department,
-            requirement_status=(
-                None
-                if requirement_status is None
-                else self._value(requirement_status)
-            ),
+            requirement_status=(None if requirement_status is None else self._value(requirement_status)),
             limit=limit,
             offset=offset,
         )
@@ -334,9 +324,8 @@ class RigorManager:
         if "origin_type" in updates:
             updates["origin_type"] = self._value(updates["origin_type"])
         if "requirement_status" in updates:
-            updates["requirement_status"] = self._value(
-                updates["requirement_status"]
-            )
+            updates["requirement_status"] = self._value(updates["requirement_status"])
+            _require_approval_contract(updates["requirement_status"])
         target_document_id = updates.get(
             "document_id",
             current.get("document_id"),
@@ -344,24 +333,18 @@ class RigorManager:
         if target_document_id is not None:
             document = await self._require_document(target_document_id)
             if document["show_id"] != target_show_id:
-                raise RigorConflictError(
-                    "A requirement source document must belong to the same show"
-                )
+                raise RigorConflictError("A requirement source document must belong to the same show")
         updated = await self._repository.update_requirement(
             requirement_id,
             updates=updates,
         )
         if updated is None:
-            raise RigorNotFoundError(
-                f"RIGOR requirement not found: {requirement_id}"
-            )
+            raise RigorNotFoundError(f"RIGOR requirement not found: {requirement_id}")
         return updated
 
     async def delete_requirement(self, requirement_id: str) -> None:
         if not await self._repository.delete_requirement(requirement_id):
-            raise RigorNotFoundError(
-                f"RIGOR requirement not found: {requirement_id}"
-            )
+            raise RigorNotFoundError(f"RIGOR requirement not found: {requirement_id}")
 
     async def get_show_snapshot(self, show_id: str) -> RigorShowSnapshot:
         show = await self._require_show(show_id)

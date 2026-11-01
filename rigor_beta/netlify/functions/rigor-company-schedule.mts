@@ -1,6 +1,8 @@
-import type { Config } from "@netlify/functions";
+import { restrictedStaging } from "./_shared/staging-policy.js";
+import type { Config, Context } from "@netlify/functions";
 
-export default async (request: Request) => {
+export default async (request: Request, context: Context) => {
+  if (restrictedStaging(context)) return;
   const token = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
   if (!token) {
     console.error("RIGOR company schedule: RIGOR_DEERFLOW_TOKEN missing");

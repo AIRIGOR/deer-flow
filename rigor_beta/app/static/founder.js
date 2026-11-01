@@ -1,19 +1,21 @@
 "use strict";
 let founderToken = "", activeCommand = sessionStorage.getItem("rigorFounderCommandId"), pollTimer = null;
+let pendingDryRunKey = sessionStorage.getItem("rigorFounderDryRunId");
 const element = id => document.getElementById(id);
 const status = text => { element("command-result").textContent = text; };
 async function call(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", "X-RIGOR-Founder-Token": founderToken } });
+  const response = await fetch(path, { ...options, headers: { ...options.headers, "Content-Type": "application/json", "X-RIGOR-Founder-Token": founderToken } });
   const body = await response.json();
   if (!response.ok && !body.command_id) throw new Error(body.detail || body.error_code || `Request failed (${response.status})`);
   return body;
 }
 function show(record) {
   activeCommand = record.command_id; sessionStorage.setItem("rigorFounderCommandId", activeCommand);
-  status(`${record.status}: ${record.command}`);
+  status(`${record.status}: ${record.command}${record.mode === "LOCAL_DRY_RUN" ? " · Local simulation only; no real agent or production action executed." : ""}`);
   element("command-receipt").textContent = `Command ${record.command_id} · Updated ${record.updated_at}${record.execution_id ? " · Execution " + record.execution_id : ""}`;
-  element("command-evidence").textContent = record.result ? JSON.stringify(record.result, null, 2) : record.error_code || "Awaiting execution evidence.";
-  const terminal = ["COMPLETE", "FAILED"].includes(record.status);
+  element("command-evidence").textContent = record.mode === "LOCAL_DRY_RUN" ? JSON.stringify({ authentication: record.authentication, plan: record.plan, result: record.result, error_code: record.error_code }, null, 2) : record.result ? JSON.stringify(record.result, null, 2) : record.error_code || "Awaiting execution evidence.";
+  const terminal = ["COMPLETE", "FAILED", "BLOCKED", "DRY_RUN_COMPLETE"].includes(record.status);
+  if (terminal && record.mode === "LOCAL_DRY_RUN") { pendingDryRunKey = null; sessionStorage.setItem("rigorFounderDryRunId", ""); }
   pollTimer = null;
   element("submit-command").disabled = !terminal;
   const updatedAt = Date.parse(record.updated_at);
@@ -35,6 +37,20 @@ element("access-form").addEventListener("submit", event => {
 element("command-form").addEventListener("submit", async event => {
   event.preventDefault(); if (!founderToken || element("submit-command").disabled) return;
   element("submit-command").disabled = true; clearTimeout(pollTimer); pollTimer = null; status("Submitting command…");
-  try { show(await call("/api/founder/commands", { method: "POST", body: JSON.stringify({ command: element("command-input").value.trim(), mode: element("command-mode").value }) })); element("connection-status").textContent = "Founder authenticated"; }
-  catch (error) { status(`Submission not confirmed: ${error.message}`); element("submit-command").disabled = false; }
+  try {
+    const command = element("command-input").value.trim(), mode = element("command-mode").value;
+    const body = { command, mode }, headers = {};
+    if (mode === "LOCAL_DRY_RUN") {
+      pendingDryRunKey ||= crypto.randomUUID();
+      sessionStorage.setItem("rigorFounderDryRunId", pendingDryRunKey);
+      sessionStorage.setItem("rigorFounderCommandId", pendingDryRunKey);
+      activeCommand = pendingDryRunKey;
+      headers["Idempotency-Key"] = pendingDryRunKey;
+      body.intent = "REVIEW_EVIDENCE";
+      body.evidence = [{ source_id: "draft-command-input", text: command.slice(0, 2000) }];
+    }
+    show(await call("/api/founder/commands", { method: "POST", headers, body: JSON.stringify(body) }));
+    element("connection-status").textContent = "Internal command access verified";
+  }
+  catch (error) { status(`Submission not confirmed: ${error.message}${pendingDryRunKey ? " · Retain command ID " + pendingDryRunKey + "; inspect status before retrying." : ""}`); element("submit-command").disabled = false; }
 });

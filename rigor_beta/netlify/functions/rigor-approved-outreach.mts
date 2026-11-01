@@ -1,3 +1,4 @@
+import { restrictedStaging } from "./_shared/staging-policy.js";
 import { timingSafeEqual } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import type { Config, Context } from "@netlify/functions";
@@ -130,6 +131,7 @@ async function sendViaCloudflare(email: ApprovedEmail) {
 }
 
 export default async (request: Request, context: Context) => {
+  if (restrictedStaging(context)) return new Response(null, { status: 403 });
   if (request.method !== "GET") {
     return json({ detail: "Method not allowed" }, 405);
   }

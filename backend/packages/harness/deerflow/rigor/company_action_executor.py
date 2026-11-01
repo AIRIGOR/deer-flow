@@ -19,6 +19,7 @@ from .company_actions import (
     CompanyActionProposal,
     decide_company_action,
 )
+from .company_evidence import CompanyEvidenceError, CompanyExecutionEvidence, collect_company_evidence
 
 
 class RigorCompanyActionExecutionError(RuntimeError):
@@ -34,6 +35,7 @@ class RigorCompanyActionExecutionResult(BaseModel):
     result_summary: str = Field(min_length=1, max_length=6000)
     artifact_markdown: str | None = Field(default=None, max_length=30000)
     evidence_refs: list[str] = Field(default_factory=list, max_length=30)
+    execution_evidence: CompanyExecutionEvidence | None = None
 
 
 ClientFactory = Callable[[], DeerFlowClient]
@@ -66,8 +68,10 @@ def _parse_execution(text: str) -> RigorCompanyActionExecutionResult:
     cleaned = strip_markdown_code_fence(strip_think_blocks(text)).strip()
     try:
         payload = json.loads(cleaned)
+        if isinstance(payload, dict) and "execution_evidence" in payload:
+            raise ValueError("Runtime evidence cannot be supplied by the model")
         return RigorCompanyActionExecutionResult.model_validate(payload)
-    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+    except (ValueError, ValidationError, TypeError) as exc:
         raise RigorCompanyActionExecutionError("RIGOR company action executor returned invalid structured JSON") from exc
 
 
@@ -105,13 +109,19 @@ class RigorCompanyActionExecutor:
         context = (context or "").strip()[:20000]
         prompt = f"{_ACTION_PROMPT}\n\n{render_company_handoffs(proposal.owner_agent)}\n\nACTION PROPOSAL:\n{proposal.model_dump_json()}\n\nCOMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
+        thread_id = f"rigor-company-action-{uuid4().hex}"
         text = await asyncio.to_thread(
             client.chat,
             prompt,
-            thread_id=f"rigor-company-action-{uuid4().hex}",
+            thread_id=thread_id,
             subagent_enabled=True,
             max_total_subagents=1,
             max_concurrent_subagents=1,
             recursion_limit=100,
         )
-        return _parse_execution(text)
+        result = _parse_execution(text)
+        try:
+            evidence = await asyncio.to_thread(collect_company_evidence, client, thread_id, text, pulse=False, owner=proposal.owner_agent)
+        except CompanyEvidenceError as exc:
+            raise RigorCompanyActionExecutionError(str(exc)) from exc
+        return result.model_copy(update={"execution_evidence": evidence})

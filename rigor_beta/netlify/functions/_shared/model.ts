@@ -590,6 +590,12 @@ export function snapshot(state: WorkspaceState) {
   });
   return {
     tester: state.tester,
+    authority: {
+      state_scope: "WORKSPACE_DRAFT",
+      authoritative_approval: false,
+      production_release_authorized: false,
+      sql_synchronized: false,
+    },
     workspace: { ...state.workspace, production_count: state.productions.length, production_limit: PRODUCTION_LIMIT },
     productions,
     ...active,

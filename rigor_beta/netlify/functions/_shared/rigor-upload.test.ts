@@ -3,23 +3,32 @@ import { createHash } from "node:crypto";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { Context } from "@netlify/functions";
 import { activeProduction, createProduction, createWorkspace, progress, readiness } from "./model.js";
-const { records, pdf } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn() }));
+const { records, pdf, beforeWorkspaceWrite } = vi.hoisted(() => ({ records: new Map<string, any>(), pdf: vi.fn(), beforeWorkspaceWrite: vi.fn() }));
+const etagFor = (value: any) => `"${createHash("sha256").update(JSON.stringify(value)).digest("hex")}"`;
 vi.mock("@netlify/blobs", () => ({ getStore: () => ({
   get: async (key: string) => records.has(key) ? structuredClone(records.get(key)) : null,
+  getWithMetadata: async (key: string) => records.has(key) ? { data: structuredClone(records.get(key)), etag: etagFor(records.get(key)), metadata: {} } : null,
   set: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
-  setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
+  setJSON: async (key: string, value: any, options: any = {}) => {
+    if (key.startsWith("workspace/")) await beforeWorkspaceWrite(key, value, options);
+    if ((options.onlyIfNew && records.has(key)) || (options.onlyIfMatch && (!records.has(key) || etagFor(records.get(key)) !== options.onlyIfMatch))) return { modified: false };
+    records.set(key, structuredClone(value)); return { modified: true, etag: etagFor(value) };
+  },
   delete: async (key: string) => { records.delete(key); },
 }), getDeployStore: () => ({
   get: async (key: string) => records.has(key) ? structuredClone(records.get(key)) : null,
   setJSON: async (key: string, value: any) => { records.set(key, structuredClone(value)); },
 }) }));
 vi.mock("./pdf-text.js", () => ({ readPdfPages: pdf }));
+import { getStore } from "@netlify/blobs";
+import { createWorkspaceRecord, saveWorkspace, readWorkspace, WorkspaceConflictError } from "./workspace-store.js";
 import handler, { processUpload, processJohnJob } from "../rigor-api.mjs";
+import documentWorker from "../rigor-document-background.mjs";
 let waits: Promise<unknown>[];
 let ctx: Context;
 let workspace: ReturnType<typeof createWorkspace>;
 let fetchMock: ReturnType<typeof vi.fn>;
-const request = (path: string, body?: BodyInit) => new Request(`https://rigor.test${path}`, { method: body ? "POST" : "GET", headers: { cookie: "rigor_beta_session=test-session" }, body });
+const request = (path: string, body?: BodyInit) => new Request(`https://rigor.test${path}`, { method: body ? "POST" : "GET", headers: { cookie: "rigor_beta_session=test-session", "If-Match": etagFor(saved()) }, body });
 async function upload(name = "source.txt", contents = "Lighting requires 400 amps of power.") {
   const form = new FormData(); form.append("file", new File([contents], name));
   return handler(request("/api/documents", form), ctx);
@@ -30,7 +39,7 @@ async function worker() {
 }
 const saved = () => records.get(`workspace/${workspace.tester.tester_id}`);
 const patchRequest = (path: string, data: Record<string, unknown>) => new Request(`https://rigor.test${path}`, {
-  method: "PATCH", headers: { cookie: "rigor_beta_session=test-session", "content-type": "application/json" }, body: JSON.stringify(data),
+  method: "PATCH", headers: { cookie: "rigor_beta_session=test-session", "content-type": "application/json", "If-Match": etagFor(saved()) }, body: JSON.stringify(data),
 });
 function impactFixture() {
   const latest = saved();
@@ -47,7 +56,7 @@ function impactFixture() {
   return { production, other };
 }
 beforeEach(() => {
-  records.clear(); waits = []; pdf.mockReset();
+  records.clear(); waits = []; pdf.mockReset(); beforeWorkspaceWrite.mockReset();
   workspace = createWorkspace("Upload Tester", "PM");
   records.set(`workspace/${workspace.tester.tester_id}`, structuredClone(workspace));
   records.set(`session/${createHash("sha256").update("test-session").digest("hex")}`, { testerId: workspace.tester.tester_id, expiresAt: "2099-01-01" });
@@ -243,58 +252,16 @@ describe("durable document upload", () => {
     expect(production.requirements.some(item => item.analysis_engine === "DEERFLOW")).toBe(true);
   });
 
-  it("runs the fictional tour through the durable John lifecycle", async () => {
-    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" },
-      deploy: { context: "deploy-preview" } } as Context;
+  it("keeps fictional tour briefs while rejecting staged live John execution", async () => {
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
     expect((await handler(request("/api/agents/john/fixture", "{}"), ctx)).status).toBe(200);
     const before = structuredClone(saved());
-    const sourceId = activeProduction(before).requirements[0].requirement_id;
-
-    fetchMock.mockImplementation(async (url: string) =>
-      String(url).includes("gateway.test")
-        ? Response.json({
-            agent: "John", mode: "MODEL_ADVISORY_ONLY",
-            release_decision: "HOLD_SHOW", autonomous_show_approval: false,
-            actions: [{ priority: "P0", department: "Power",
-              question: "Resolve the conflicting venue power capacities.",
-              evidence_ids: [sourceId] }]
-          })
-        : new Response(null, { status: 202 }));
-
-    const started = await handler(request("/api/agents/john/analyze", "{}"), ctx);
-    expect(started.status).toBe(202);
-    const { jobId } = await started.json();
-    expect(jobId).toMatch(/^[a-f0-9]{64}$/);
-
-    const pending = await handler(request(`/api/agents/john/jobs/${jobId}`), ctx);
-    expect(pending.status).toBe(202);
-
-    await processJohnJob(
-      new Request("https://rigor.test/worker", {
-        method: "POST", body: JSON.stringify({ jobId })
-      }), ctx
-    );
-
-    const completed = await handler(request(`/api/agents/john/jobs/${jobId}`), ctx);
-    expect(completed.status).toBe(200);
-    const { result } = await completed.json();
-    expect(result.readiness.status).toBe("BLOCKED");
-    expect(result.release_decision).toBe("HOLD_SHOW");
-    expect(result.autonomous_show_approval).toBe(false);
-    expect(result.actions[0].evidence_ids).toContain(sourceId);
-    expect(result.deterministic_actions.some((x: any) => x.type === "CONFLICT")).toBe(true);
+    expect((await handler(request("/api/agents/john/brief"), ctx)).status).toBe(200);
+    const response = await handler(request("/api/agents/john/analyze", "{}"), ctx);
+    expect(response.status).toBe(403);
+    expect((await response.json()).detail).toContain("LIVE_EXECUTION_DISABLED");
     expect(saved()).toEqual(before);
-
-    const callsBeforeRetry = fetchMock.mock.calls.filter(
-      ([url]) => String(url).includes("gateway.test")).length;
-    await processJohnJob(
-      new Request("https://rigor.test/worker", {
-        method: "POST", body: JSON.stringify({ jobId })
-      }), ctx
-    );
-    const callsAfterRetry = fetchMock.mock.calls.filter(
-      ([url]) => String(url).includes("gateway.test")).length;
-    expect(callsAfterRetry).toBe(callsBeforeRetry);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
   it("loads John's 14-source rehearsal only into an empty staging production", async () => {
     ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
@@ -320,48 +287,17 @@ describe("durable document upload", () => {
   });
 
 
-  it("runs a synthetic John job without changing production readiness", async () => {
+  it("rejects staged John job creation without changing synthetic readiness", async () => {
     const sample = saved();
     const { loadSampleProduction } = await import("./model.js");
     loadSampleProduction(activeProduction(sample));
     records.set(`workspace/${workspace.tester.tester_id}`, sample);
     const before = structuredClone(saved());
-    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" },
-      deploy: { context: "deploy-preview" } } as Context;
-
-    fetchMock.mockImplementation(async (url: string) =>
-      String(url).includes("gateway.test")
-        ? Response.json({
-            agent: "John", mode: "MODEL_ADVISORY_ONLY",
-            release_decision: "HOLD_SHOW", autonomous_show_approval: false,
-            actions: [{ priority: "P0", department: "Power",
-              question: "Verify venue show power before load in.",
-              evidence_ids: [activeProduction(sample).requirements[0].requirement_id] }]
-          })
-        : new Response(null, { status: 202 }));
-
-    const started = await handler(request("/api/agents/john/analyze", "{}"), ctx);
-    expect(started.status).toBe(202);
-    const { jobId } = await started.json();
-
-    await processJohnJob(
-      new Request("https://rigor.test/worker", {
-        method: "POST", body: JSON.stringify({ jobId })
-      }), ctx
-    );
-
-    const response = await handler(request(`/api/agents/john/jobs/${jobId}`), ctx);
-    expect(response.status).toBe(200);
-    const { result } = await response.json();
-    expect(result).toMatchObject({
-      agent: "John", synthetic: true, mode: "MODEL_ADVISORY_ONLY",
-      release_decision: "HOLD_SHOW", autonomous_show_approval: false
-    });
-    expect(result.actions[0].priority).toBe("P0");
+    ctx = { ...ctx, site: { id: "96331e39-86a9-45a3-910c-edd321d60bb7" }, deploy: { context: "deploy-preview" } } as Context;
+    expect((await handler(request("/api/agents/john/analyze", "{}"), ctx)).status).toBe(403);
     expect(saved()).toEqual(before);
-    expect(fetchMock.mock.calls.some(
-      ([url]) => String(url).includes("/api/rigor/agents/john/analyze")
-    )).toBe(true);
+    expect([...records.keys()].some(key => key.startsWith("john-job/"))).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
   it("refuses John model on production deploy or real customer evidence", async () => {
     const production = await handler(request("/api/agents/john/analyze", "{}"), ctx);
@@ -605,4 +541,112 @@ describe("durable document upload", () => {
     expect(readiness(activeProduction(other)).status).not.toBe("SHOW_READY");
   });
 
+});
+
+
+describe("workspace conditional writes", () => {
+  it("starts a session only after conditional workspace creation and returns its version", async () => {
+    const response = await handler(request("/api/start", JSON.stringify({ display_name: "New tester", role: "PM" })), ctx);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("etag")).toBeTruthy();
+    expect(response.headers.get("set-cookie")).toContain("rigor_beta_session=");
+    expect(beforeWorkspaceWrite.mock.calls[0][2]).toEqual({ onlyIfNew: true });
+  });
+
+  it("protects the dispatch-failure workspace save from a competing write", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("Dispatch failed"));
+    let newer: any;
+    beforeWorkspaceWrite.mockImplementationOnce(() => {}).mockImplementationOnce(() => {
+      newer = structuredClone(saved());
+      newer.workspace.concurrent = "dispatch winner";
+      activeProduction(newer).documents[0].status = "PROCESSED";
+      records.set(`workspace/${workspace.tester.tester_id}`, newer);
+    });
+    expect((await upload()).status).toBe(202);
+    const outcomes = await Promise.allSettled(waits);
+    expect(outcomes[0].status).toBe("rejected");
+    expect(saved()).toEqual(newer);
+    expect(beforeWorkspaceWrite).toHaveBeenCalledTimes(2);
+  });
+
+  it("protects the analysis-error workspace save without replaying it", async () => {
+    await upload(); await Promise.all(waits);
+    fetchMock.mockRejectedValueOnce(new Error("Analysis failed"));
+    let newer: any;
+    beforeWorkspaceWrite.mockImplementationOnce(() => {
+      newer = structuredClone(saved());
+      newer.workspace.concurrent = "error winner";
+      activeProduction(newer).documents[0].status = "PROCESSED";
+      records.set(`workspace/${workspace.tester.tester_id}`, newer);
+    });
+    await expect(worker()).rejects.toBeInstanceOf(WorkspaceConflictError);
+    expect(saved()).toEqual(newer);
+  });
+
+  it("creates once and cannot replace an existing workspace on concurrent creation", async () => {
+    const state = createWorkspace("New tester", "PM");
+    const store = getStore("test");
+    const outcomes = await Promise.allSettled([createWorkspaceRecord(store, state), createWorkspaceRecord(store, structuredClone(state))]);
+    expect(outcomes.filter(item => item.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter(item => item.status === "rejected")).toHaveLength(1);
+    expect(records.get(`workspace/${state.tester.tester_id}`)).toEqual(state);
+  });
+
+  it("returns workspace ETags and accepts matching updates without changing IDs", async () => {
+    const read = await handler(request("/api/workspace"), ctx);
+    expect(read.headers.get("etag")).toBe(etagFor(saved()));
+    const id = activeProduction(saved()).production.production_id;
+    const response = await handler(request(`/api/productions/${id}/select`, "{}"), ctx);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("etag")).toBe(etagFor(saved()));
+    expect(activeProduction(saved()).production.production_id).toBe(id);
+  });
+
+  it("rejects missing and stale client versions without changing stored data", async () => {
+    const id = activeProduction(saved()).checkpoints[0].checkpoint_id;
+    const stale = patchRequest(`/api/checkpoints/${id}`, { complete: true });
+    saved().workspace.newer = "preserve";
+    const newer = structuredClone(saved());
+    expect((await handler(stale, ctx)).status).toBe(409);
+    const missing = new Request(stale.url, { method: "PATCH", headers: { cookie: "rigor_beta_session=test-session" }, body: JSON.stringify({ complete: true }) });
+    expect((await handler(missing, ctx)).status).toBe(428);
+    expect(saved()).toEqual(newer);
+  });
+
+  it("allows only one of two writers holding the same original ETag", async () => {
+    const store = getStore("test");
+    const left = (await readWorkspace(store, workspace.tester.tester_id))!;
+    const right = (await readWorkspace(store, workspace.tester.tester_id))!;
+    left.workspace.winner = "left"; right.workspace.winner = "right";
+    await saveWorkspace(store, left);
+    const newer = structuredClone(saved());
+    await expect(saveWorkspace(store, right)).rejects.toBeInstanceOf(WorkspaceConflictError);
+    expect(saved()).toEqual(newer);
+    await expect(saveWorkspace(store, structuredClone(left))).rejects.toMatchObject({ status: 428 });
+    expect(saved()).toEqual(newer);
+  });
+
+  it("returns an explicit HTTP conflict if state changes after the request read", async () => {
+    const id = activeProduction(saved()).checkpoints[0].checkpoint_id;
+    beforeWorkspaceWrite.mockImplementationOnce(() => { saved().workspace.concurrent = "winner"; });
+    const response = await handler(patchRequest(`/api/checkpoints/${id}`, { complete: true }), ctx);
+    expect(response.status).toBe(409);
+    expect((await response.json()).detail).toContain("Reload /api/workspace");
+    expect(saved().workspace.concurrent).toBe("winner");
+    expect(activeProduction(saved()).checkpoints[0].status).toBe("PENDING");
+    expect(beforeWorkspaceWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mark a document failed or retry when its worker save conflicts", async () => {
+    expect((await upload()).status).toBe(202);
+    await Promise.all(waits);
+    const newer = structuredClone(saved());
+    newer.workspace.concurrent = "worker winner";
+    activeProduction(newer).documents[0].status = "PROCESSED";
+    beforeWorkspaceWrite.mockImplementationOnce(() => { records.set(`workspace/${workspace.tester.tester_id}`, newer); });
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const response = await documentWorker(new Request("https://rigor.test/worker", { method: "POST", body: JSON.stringify(payload) }), ctx);
+    expect(response?.status).toBe(409);
+    expect(saved()).toEqual(newer);
+  });
 });

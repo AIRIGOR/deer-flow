@@ -998,6 +998,11 @@ See [docs/rigor-ai-company-team.md](docs/rigor-ai-company-team.md) for the opera
 
 The [agent contract registry](docs/rigor-agent-registry.md) records mission, declared tools, authority, inputs, outputs, handoffs and failure behavior for all 16 repository-declared RIGOR/framework roles. Internal actions reject unregistered or non-company named owners before model-client construction. Company cycles pass a six-delegation cap with three per response; internal action execution passes a one-delegation cap. Registration describes a role; it does not grant permissions or certify live delegation.
 
+[3NETRA integration evidence](docs/rigor-3netra-evidence.md) binds company results to
+the same invocation's checkpoint delegation ledger. Company pulse findings reference
+completed work; contradiction assessments remain human-review proposals. Scoped,
+digest-bound integration receipts retain the proof without granting release approval.
+
 
 RIGOR's AI company layer also includes durable company state for objectives, milestones, relationships, feedback, risks, experiments, and runway. The `rigor-company-operator` skill coordinates five specialist reports plus one Chief of Staff synthesis per operating cycle.
 
@@ -1006,3 +1011,25 @@ RIGOR's AI company layer also includes durable company state for objectives, mil
 The standalone RIGOR Founder page now has a persisted, authenticated internal command path instead of browser-only command/approval simulation. See `rigor_beta/README.md` for supported modes, separate Founder authentication configuration, command receipts, and outstanding live/security verification gates. Company invocations use isolated agent threads while explicit company records preserve continuity.
 
 Backend verification also covers historical pre-RIGOR migration fixtures, current migration-head expectations, registered RIGOR specialists, and deterministic DNS for selected mocked web-client tests. These test corrections preserve runtime network restrictions and migration safety checks.
+
+RIGOR document updates retain their owning show. Cross-show reassignment returns
+a conflict so existing requirements and document revisions cannot acquire foreign
+source links; same-show metadata edits preserve IDs. See the retrospective
+[Sessions 01–02 verification](docs/RIGOR_SESSIONS01_02_VERIFICATION.md) for scoped
+local results and remaining shared-truth/certification gaps.
+
+Core SQL show/document/requirement mutations now retain transactional change
+history, including deletion effects and authenticated gateway actor IDs. Source
+excerpts and storage locators are redacted in history. The additive migration and
+scope limits are documented in [SQL audit history](docs/RIGOR_SQL_AUDIT_HISTORY.md).
+No production migration or deployment is implied by local verification.
+
+
+RIGOR authority policy: SQL is the approved future production system of record once
+integration is implemented and verified; Blob workspaces remain independent drafts.
+Formal SQL APPROVED and SHOW_READY/SHOW_COMPLETE claims currently return 403 because
+verified human assignments and mandatory gate evidence are absent. Generic write
+or administrator access does not grant production approval. Workspace snapshots
+explicitly disclose draft-only authority; readiness scores are not release clearance.
+No public audit endpoint is exposed. See docs/RIGOR_AUTHORITY_CONTRACT.md for the
+Founder-approved policy and remaining implementation prerequisites.

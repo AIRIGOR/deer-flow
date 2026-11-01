@@ -30,11 +30,12 @@ function showToast(message, error = false) {
   toastTimer = setTimeout(() => { toastNode.className = "toast"; }, 2800);
 }
 
+let workspaceVersion = null;
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: options.body instanceof FormData ? {} : { "Content-Type": "application/json" },
     ...options,
+    headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(workspaceVersion ? { "If-Match": workspaceVersion } : {}), ...options.headers },
   });
   if (response.status === 401) {
     state = null;
@@ -46,6 +47,7 @@ async function api(path, options = {}) {
     try { message = (await response.json()).detail || message; } catch (_) { /* no-op */ }
     throw new Error(message);
   }
+  if (response.headers.has("etag")) workspaceVersion = response.headers.get("etag");
   return response.headers.get("content-type")?.includes("application/json") ? response.json() : response;
 }
 

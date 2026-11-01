@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
 import hmac
+import inspect
 import os
+from collections.abc import Awaitable
 from datetime import date, datetime
-from typing import TypeVar
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.gateway.authz import require_permission
 from app.gateway.deps import get_rigor_manager
-from deerflow.rigor.john_pm import JohnEvidence, JohnPmAgent, JohnPmError
-
+from app.gateway.founder_authority import authorize_founder_command
+from deerflow.persistence.rigor.audit import AuditContext, audit_scope
 from deerflow.rigor import (
     DocumentProcessingStatus,
     DocumentType,
@@ -26,15 +27,35 @@ from deerflow.rigor import (
     RigorNotFoundError,
     ShowStatus,
 )
+from deerflow.rigor.john_pm import JohnEvidence, JohnPmAgent, JohnPmError
+from deerflow.rigor.manager import RigorAuthorityError
 
 router = APIRouter(prefix="/api/rigor", tags=["rigor"])
 
-T = TypeVar("T")
+
+@router.get("/founder/authority")
+async def founder_command_authority(request: Request, tenant_id: str = Query(min_length=1, max_length=128), command_permission: str = "LOCAL_DRY_RUN"):
+    """Read-only scope check; no trusted assignment reader is installed by default."""
+    reader = getattr(request.app.state, "rigor_founder_assignments", None)
+    binding = await authorize_founder_command(request, tenant_id, reader, command_permission=command_permission)
+    return binding.receipt_attribution()
 
 
-async def _service_call(operation: Awaitable[T]) -> T:
+async def _service_call[T](operation: Awaitable[T], *, request: Request | None = None) -> T:
     try:
+        if request is not None:
+            auth = getattr(request.state, "auth", None)
+            user_id = getattr(getattr(auth, "user", None), "id", None)
+            if auth is None or not auth.is_authenticated or user_id is None:
+                if inspect.iscoroutine(operation):
+                    operation.close()
+                raise HTTPException(status_code=401, detail="Authenticated audit actor required")
+            route = getattr(request.scope.get("route"), "path", "/api/rigor")
+            with audit_scope(AuditContext("USER", str(user_id), str(uuid4()), f"{request.method} {route}")):
+                return await operation
         return await operation
+    except RigorAuthorityError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except RigorNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RigorConflictError as exc:
@@ -220,7 +241,7 @@ async def list_shows(
 @require_permission("threads", "write")
 async def create_show(request: Request, body: ShowCreateRequest):
     manager = get_rigor_manager(request)
-    return await _service_call(manager.create_show(**body.model_dump()))
+    return await _service_call(manager.create_show(**body.model_dump()), request=request)
 
 
 @router.get("/shows/{show_id}")
@@ -235,14 +256,14 @@ async def get_show(show_id: str, request: Request):
 async def update_show(show_id: str, request: Request, body: ShowUpdateRequest):
     manager = get_rigor_manager(request)
     updates = body.model_dump(exclude_unset=True)
-    return await _service_call(manager.update_show(show_id, **updates))
+    return await _service_call(manager.update_show(show_id, **updates), request=request)
 
 
 @router.delete("/shows/{show_id}")
 @require_permission("threads", "write")
 async def delete_show(show_id: str, request: Request):
     manager = get_rigor_manager(request)
-    await _service_call(manager.delete_show(show_id))
+    await _service_call(manager.delete_show(show_id), request=request)
     return {"id": show_id, "deleted": True}
 
 
@@ -284,7 +305,7 @@ async def list_documents(
 @require_permission("threads", "write")
 async def add_document(show_id: str, request: Request, body: DocumentCreateRequest):
     manager = get_rigor_manager(request)
-    return await _service_call(manager.add_document(show_id, **body.model_dump()))
+    return await _service_call(manager.add_document(show_id, **body.model_dump()), request=request)
 
 
 @router.get("/documents/{document_id}")
@@ -303,14 +324,14 @@ async def update_document(
 ):
     manager = get_rigor_manager(request)
     updates = body.model_dump(exclude_unset=True)
-    return await _service_call(manager.update_document(document_id, **updates))
+    return await _service_call(manager.update_document(document_id, **updates), request=request)
 
 
 @router.delete("/documents/{document_id}")
 @require_permission("threads", "write")
 async def delete_document(document_id: str, request: Request):
     manager = get_rigor_manager(request)
-    await _service_call(manager.delete_document(document_id))
+    await _service_call(manager.delete_document(document_id), request=request)
     return {"id": document_id, "deleted": True}
 
 
@@ -344,9 +365,7 @@ async def add_requirement(
     body: RequirementCreateRequest,
 ):
     manager = get_rigor_manager(request)
-    return await _service_call(
-        manager.add_requirement(show_id, **body.model_dump())
-    )
+    return await _service_call(manager.add_requirement(show_id, **body.model_dump()), request=request)
 
 
 @router.get("/requirements/{requirement_id}")
@@ -365,14 +384,12 @@ async def update_requirement(
 ):
     manager = get_rigor_manager(request)
     updates = body.model_dump(exclude_unset=True)
-    return await _service_call(
-        manager.update_requirement(requirement_id, **updates)
-    )
+    return await _service_call(manager.update_requirement(requirement_id, **updates), request=request)
 
 
 @router.delete("/requirements/{requirement_id}")
 @require_permission("threads", "write")
 async def delete_requirement(requirement_id: str, request: Request):
     manager = get_rigor_manager(request)
-    await _service_call(manager.delete_requirement(requirement_id))
+    await _service_call(manager.delete_requirement(requirement_id), request=request)
     return {"id": requirement_id, "deleted": True}

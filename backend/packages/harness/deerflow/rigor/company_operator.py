@@ -18,6 +18,7 @@ from deerflow.utils.llm_text import (
 
 from .agent_contracts import render_company_handoffs
 from .company_actions import CompanyActionProposal
+from .company_evidence import CompanyEvidenceError, CompanyExecutionEvidence, CompanyFinding, CompanyReconciliation, bind_reasoning_evidence, collect_company_evidence
 
 
 class RigorCompanyPulseError(RuntimeError):
@@ -44,6 +45,9 @@ class CompanyStateUpdate(BaseModel):
 
 class RigorCompanyPulseResult(BaseModel):
     current_state: str = Field(min_length=1, max_length=8000)
+    findings: list[CompanyFinding] = Field(default_factory=list, max_length=12)
+    reconciliations: list[CompanyReconciliation] = Field(default_factory=list, max_length=12)
+    execution_evidence: CompanyExecutionEvidence | None = None
     top_priorities: list[str] = Field(min_length=1, max_length=3)
     blockers_risks: list[str] = Field(default_factory=list, max_length=12)
     founder_approvals: list[str] = Field(default_factory=list, max_length=12)
@@ -152,6 +156,9 @@ facts in the synthesis when material.
 Return ONLY JSON in this exact shape:
 {
   "current_state": "concise evidence-based company state",
+  "findings": [{"summary": "Concise finding supported by a specialist report", "evidence_ids": ["actual task tool-call ID"]}],
+  "reconciliations": [{"topic": "Suspected contradiction", "assessment": "Evidence comparison and proposed next human decision",
+    "evidence_ids": ["rigor-product-ops", "rigor-engineering"], "status": "UNRESOLVED", "approval_required": true}],
   "top_priorities": ["priority 1", "priority 2", "priority 3"],
   "blockers_risks": ["risk or blocker"],
   "founder_approvals": ["approval needed"],
@@ -185,6 +192,13 @@ Return ONLY JSON in this exact shape:
 }
 
 Do not wrap the JSON in Markdown.
+Findings must cite a completed specialist's registered name or its actual task
+tool-call ID, not invented IDs or URLs. The server binds names to that run's unique
+completed delegation IDs; task IDs may not be visible in model context.
+Reconciliations may be empty when no contradiction is identified. Otherwise cite at
+least two different completed specialists or task IDs. Use only UNRESOLVED or PROPOSED_FOR_REVIEW,
+always approval_required=true. Never automatically resolve production contradictions.
+Do not emit execution_evidence; the server reads it from the runtime checkpoint.
 """
 
 
@@ -192,8 +206,10 @@ def _parse_pulse(text: str) -> RigorCompanyPulseResult:
     cleaned = strip_markdown_code_fence(strip_think_blocks(text)).strip()
     try:
         payload = json.loads(cleaned)
+        if isinstance(payload, dict) and "execution_evidence" in payload:
+            raise ValueError("Runtime evidence cannot be supplied by the model")
         return RigorCompanyPulseResult.model_validate(payload)
-    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+    except (ValueError, ValidationError, TypeError) as exc:
         raise RigorCompanyPulseError("RIGOR company operator returned invalid structured JSON") from exc
 
 
@@ -230,13 +246,20 @@ class RigorCompanyOperator:
         context = (context or "").strip()[:30000]
         prompt = f"{_COMPANY_PROMPT}\n\n{render_company_handoffs()}\n\nFOUNDER OBJECTIVE:\n{objective}\n\nCURRENT COMPANY CONTEXT:\n{context or 'No additional context supplied.'}"
         client = self._client_factory()
+        thread_id = f"rigor-company-pulse-{uuid4().hex}"
         text = await asyncio.to_thread(
             client.chat,
             prompt,
-            thread_id=f"rigor-company-pulse-{uuid4().hex}",
+            thread_id=thread_id,
             subagent_enabled=True,
             max_total_subagents=6,
             max_concurrent_subagents=3,
             recursion_limit=180,
         )
-        return _parse_pulse(text)
+        result = _parse_pulse(text)
+        try:
+            evidence = await asyncio.to_thread(collect_company_evidence, client, thread_id, text, pulse=True)
+            bind_reasoning_evidence(evidence, result.findings, result.reconciliations)
+        except CompanyEvidenceError as exc:
+            raise RigorCompanyPulseError(str(exc)) from exc
+        return result.model_copy(update={"execution_evidence": evidence})

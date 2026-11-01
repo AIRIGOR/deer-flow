@@ -1,3 +1,5 @@
+import { restrictedStaging, stagingSimulationEnabled } from "./_shared/staging-policy.js";
+import { readWorkspace, createWorkspaceRecord, saveWorkspace as save, workspaceETag, requireWorkspaceVersion, WorkspaceConflictError } from "./_shared/workspace-store.js";
 import { createHash, randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import type { Context, Config } from "@netlify/functions";
@@ -38,13 +40,13 @@ async function authenticated(request: Request, context: Context) {
   const store = storeFor(context);
   const session = await store.get(`session/${hash(token)}`, { type: "json" }) as { testerId: string; expiresAt: string } | null;
   if (!session || session.expiresAt <= now()) return null;
-  const stored = await store.get(`workspace/${session.testerId}`, { type: "json" }) as WorkspaceState | null;
-  return stored ? { store, state: normalizeWorkspace(stored) } : null;
+  const state = await readWorkspace(store, session.testerId);
+  return state ? { store, state } : null;
 }
 
-async function save(store: ReturnType<typeof getStore>, state: WorkspaceState) {
-  state.workspace.updated_at = now();
-  await store.setJSON(`workspace/${state.tester.tester_id}`, state);
+function workspaceJson(state: WorkspaceState, data: unknown, status = 200, headers: Record<string, string> = {}) {
+  const etag = workspaceETag(state);
+  return json(data, status, { ...headers, ...(etag ? { ETag: etag } : {}) });
 }
 
 async function body(request: Request) {
@@ -313,7 +315,7 @@ async function queueUpload(request: Request, context: Context, state: WorkspaceS
       });
       if (response.status !== 202) throw new Error("Background analysis could not start");
     } catch {
-      const latest = await store.get(`workspace/${state.tester.tester_id}`, { type: "json" }) as WorkspaceState | null;
+      const latest = await readWorkspace(store, state.tester.tester_id);
       const doc = latest?.productions.find(p => p.production.production_id === production.production.production_id)?.documents.find(d => d.document_id === documentId);
       if (latest && doc && doc.status === "PROCESSING") {
         doc.status = "FAILED"; doc.processing_error = "Document saved, but analysis could not start. Retry analysis.";
@@ -331,9 +333,8 @@ export async function processUpload(request: Request, context: Context) {
   const job = await store.get(`document-job/${jobId}`, { type: "json" }) as { testerId: string; productionId: string; documentId: string } | null;
   if (!job) return;
   const load = async () => {
-    const stored = await store.get(`workspace/${job.testerId}`, { type: "json" }) as WorkspaceState | null;
-    if (!stored) throw new Error("Workspace unavailable");
-    const state = normalizeWorkspace(stored);
+    const state = await readWorkspace(store, job.testerId);
+    if (!state) throw new Error("Workspace unavailable");
     const production = state.productions.find(p => p.production.production_id === job.productionId);
     const document = production?.documents.find(d => d.document_id === job.documentId);
     if (!production || !document) throw new Error("Document unavailable");
@@ -364,6 +365,7 @@ export async function processUpload(request: Request, context: Context) {
     event(production, "DOCUMENT_PROCESSED", { document_id: job.documentId, requirements: extracted.length, analysis_engine: document.analysis_engine });
     await save(store, state);
   } catch (error) {
+    if (error instanceof WorkspaceConflictError) throw error;
     const { state, production, document } = await load();
     if (document.status === "PROCESSING") {
       document.status = "FAILED"; document.processing_error = error instanceof DeerFlowIntegrationError ? error.message : "Analysis failed. Retry analysis or upload a readable PDF/TXT.";
@@ -384,6 +386,7 @@ export default async (request: Request, context: Context) => {
       return json({
         status: "ok",
         service: "rigor",
+        capabilities: restrictedStaging(context) ? { founder: stagingSimulationEnabled(context) ? "DRY_RUN_ONLY" : "BLOCKED_NOT_CONFIGURED", live_intelligence: "BLOCKED", operations: "WORKSPACE_DRAFT", production_approval: false } : undefined,
         version: "partner-demo-v1",
         deerflow: { configured: Boolean(deerFlowUrl && deerFlowToken) },
         integration: await integrationHealth(context),
@@ -395,14 +398,16 @@ export default async (request: Request, context: Context) => {
       if (!["TM", "PM", "Video", "Audio", "Lighting", "Rigging", "Backline", "Partner / Investor", "Other"].includes(role)) return fail("Select a valid production role");
       const state = createWorkspace(displayName, role);
       if (data.sample_demo === true) loadSampleProduction(state); const token = randomBytes(36).toString("base64url"); const expiresAt = new Date(Date.now() + 45 * 86400000).toISOString(); const store = storeFor(context);
-      await Promise.all([store.setJSON(`workspace/${state.tester.tester_id}`, state), store.setJSON(`session/${hash(token)}`, { testerId: state.tester.tester_id, expiresAt })]);
-      return json(snapshot(state), 200, { "Set-Cookie": `${COOKIE}=${token}; Max-Age=3888000; Path=/; HttpOnly; Secure; SameSite=Lax` });
+      await createWorkspaceRecord(store, state);
+      await store.setJSON(`session/${hash(token)}`, { testerId: state.tester.tester_id, expiresAt }, { onlyIfNew: true }).then(result => { if (!result.modified) throw new WorkspaceConflictError(); });
+      return workspaceJson(state, snapshot(state), 200, { "Set-Cookie": `${COOKIE}=${token}; Max-Age=3888000; Path=/; HttpOnly; Secure; SameSite=Lax` });
     }
     if (path === "/api/logout" && request.method === "POST") return json({ ok: true }, 200, { "Set-Cookie": `${COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax` });
 
     const auth = await authenticated(request, context); if (!auth) return fail("Start or resume your RIGOR session", 401);
     const { store, state } = auth;
-    if (path === "/api/workspace" && request.method === "GET") { return json(snapshot(state)); }
+    if (["POST", "PATCH", "DELETE", "PUT"].includes(request.method)) requireWorkspaceVersion(request, state);
+    if (path === "/api/workspace" && request.method === "GET") { return workspaceJson(state, snapshot(state)); }
     if (path === "/api/agents/john/brief" && request.method === "GET") { return json(johnPmBrief(state)); }
     if (path === "/api/agents/john/fixture" && request.method === "POST") {
       if (!johnStagingAuthorized(context)) return fail("John fixture is staging-only", 403);
@@ -412,7 +417,7 @@ export default async (request: Request, context: Context) => {
       }
       loadJohnFixture(current);
       await save(store, state);
-      return json(snapshot(state));
+      return workspaceJson(state, snapshot(state));
     }
     const johnJobMatch = path.match(/^\/api\/agents\/john\/jobs\/([a-f0-9]{64})$/);
     if (johnJobMatch && request.method === "GET") {
@@ -446,6 +451,7 @@ export default async (request: Request, context: Context) => {
     }
 
     if (path === "/api/agents/john/analyze" && request.method === "POST") {
+      if (restrictedStaging(context)) return fail("LIVE_EXECUTION_DISABLED: use the deterministic brief on staging", 403);
       if (!johnStagingAuthorized(context)) return fail("John model requires staging", 403);
 
       const current = activeProduction(state);
@@ -524,7 +530,7 @@ export default async (request: Request, context: Context) => {
       recordChangeImpact(production, { entity_type: "SOURCE_REVIEW", entity_id: document.document_id, before, after: { review_status: document.review_status }, affected: candidates, actor: state.tester.display_name, readiness_before: readinessBefore, invalidate_checkpoints: false });
       event(production, "SOURCE_REVIEW_COMPLETED", {document_id: document.document_id, reviewer: document.reviewed_by});
       await save(store, state);
-      return json(snapshot(state));
+      return workspaceJson(state, snapshot(state));
     }
 
     if (path === "/api/productions" && request.method === "POST") {
@@ -541,7 +547,7 @@ export default async (request: Request, context: Context) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(details.show_date)) return fail("Choose a valid show date");
       const created = createProduction(state.workspace.workspace_id, details, state.productions.length + 1);
       state.productions.push(created); state.workspace.active_production_id = created.production.production_id;
-      await save(store, state); return json(snapshot(state), 201);
+      await save(store, state); return workspaceJson(state, snapshot(state), 201);
     }
 
     let match = path.match(/^\/api\/productions\/([^/]+)\/select$/);
@@ -549,7 +555,7 @@ export default async (request: Request, context: Context) => {
       const selected = state.productions.find((item) => item.production.production_id === match![1]);
       if (!selected) return fail("Production not found", 404);
       state.workspace.active_production_id = selected.production.production_id;
-      await save(store, state); return json(snapshot(state));
+      await save(store, state); return workspaceJson(state, snapshot(state));
     }
 
     const production = activeProduction(state);
@@ -565,7 +571,7 @@ export default async (request: Request, context: Context) => {
       if (data.due_at !== undefined) item.due_at = String(data.due_at).slice(0, 40) || null;
       if (previous.department !== item.department) rebuildConflicts(production);
       recordChangeImpact(production, { entity_type: "REQUIREMENT", entity_id: item.requirement_id, before: requirementDecision(previous), after: requirementDecision(item), affected: [previous, item], actor: state.tester.display_name, readiness_before: readinessBefore });
-      event(production, "REQUIREMENT_UPDATED", { requirement_id: item.requirement_id, status: item.status }); await save(store, state); return json(snapshot(state));
+      event(production, "REQUIREMENT_UPDATED", { requirement_id: item.requirement_id, status: item.status }); await save(store, state); return workspaceJson(state, snapshot(state));
     }
     match = path.match(/^\/api\/conflicts\/([^/]+)\/resolve$/);
     if (match && request.method === "POST") {
@@ -577,7 +583,7 @@ export default async (request: Request, context: Context) => {
       Object.assign(item, after);
       const affected = [item, ...production.requirements.filter(req => [item.left_requirement_id, item.right_requirement_id].includes(req.requirement_id))];
       if (recordChangeImpact(production, { entity_type: "CONFLICT", entity_id: item.conflict_id, before, after, affected, actor: state.tester.display_name, readiness_before: readinessBefore })) item.resolved_at = now();
-      event(production, "CONFLICT_RESOLVED", { conflict_id: item.conflict_id }); await save(store, state); return json(snapshot(state));
+      event(production, "CONFLICT_RESOLVED", { conflict_id: item.conflict_id }); await save(store, state); return workspaceJson(state, snapshot(state));
     }
     match = path.match(/^\/api\/checkpoints\/([^/]+)$/);
     if (match && request.method === "PATCH") {
@@ -587,7 +593,7 @@ export default async (request: Request, context: Context) => {
       const readinessBefore = readiness(production).status;
       item.status = data.complete ? "COMPLETE" : "PENDING";
       if (recordChangeImpact(production, { entity_type: "CHECKPOINT", entity_id: item.checkpoint_id, before, after: { status: item.status }, affected: [item, ...production.requirements.filter(req => affectsDepartment(req, item.department))], actor: state.tester.display_name, readiness_before: readinessBefore, invalidate_checkpoints: false })) item.completed_at = data.complete ? now() : null;
-      event(production, "CHECKPOINT_UPDATED", { checkpoint_id: item.checkpoint_id, complete: data.complete }); await save(store, state); return json(snapshot(state));
+      event(production, "CHECKPOINT_UPDATED", { checkpoint_id: item.checkpoint_id, complete: data.complete }); await save(store, state); return workspaceJson(state, snapshot(state));
     }
     if (path === "/api/incidents" && request.method === "POST") {
       const data = await body(request);
@@ -613,7 +619,7 @@ export default async (request: Request, context: Context) => {
       recordChangeImpact(production, { entity_type: "INCIDENT", entity_id: incident.incident_id, before: {}, after: { department: incident.department, severity: incident.severity, summary: incident.summary, resolution: incident.resolution }, affected: [incident, ...production.requirements.filter(req => affectsDepartment(req, incident.department))], actor: state.tester.display_name, readiness_before: readinessBefore });
       event(production, "INCIDENT_LOGGED", { department: data.department, severity: data.severity, resolved: Boolean(resolution) });
       await save(store, state);
-      return json(snapshot(state));
+      return workspaceJson(state, snapshot(state));
     }
     match = path.match(/^\/api\/incidents\/([^/]+)$/);
     if (match && request.method === "PATCH") {
@@ -628,11 +634,11 @@ export default async (request: Request, context: Context) => {
       if (recordChangeImpact(production, { entity_type: "INCIDENT", entity_id: item.incident_id, before, after: { resolution: item.resolution }, affected: [item, ...production.requirements.filter(req => affectsDepartment(req, item.department))], actor: state.tester.display_name, readiness_before: readinessBefore })) item.resolved_at = now();
       event(production, "INCIDENT_RESOLVED", { incident_id: item.incident_id, department: item.department, severity: item.severity });
       await save(store, state);
-      return json(snapshot(state));
+      return workspaceJson(state, snapshot(state));
     }
     if (path === "/api/feedback" && request.method === "POST") {
       const data = await body(request); if (![1, 2, 3].includes(Number(data.session_number)) || Number(data.useful_score) < 1 || Number(data.useful_score) > 5 || Number(data.trust_score) < 1 || Number(data.trust_score) > 5) return fail("Invalid feedback values");
-      production.feedback.push({ feedback_id: newId("feedback"), production_id: production.production.production_id, workspace_id: state.workspace.workspace_id, session_number: Number(data.session_number), useful_score: Number(data.useful_score), trust_score: Number(data.trust_score), comments: String(data.comments ?? "").trim().slice(0, 2000), created_at: now() }); await save(store, state); return json({ ok: true });
+      production.feedback.push({ feedback_id: newId("feedback"), production_id: production.production.production_id, workspace_id: state.workspace.workspace_id, session_number: Number(data.session_number), useful_score: Number(data.useful_score), trust_score: Number(data.trust_score), comments: String(data.comments ?? "").trim().slice(0, 2000), created_at: now() }); await save(store, state); return workspaceJson(state, { ok: true });
     }
     if (path === "/api/documents" && request.method === "POST") {
       const form = await request.formData();
@@ -650,7 +656,7 @@ export default async (request: Request, context: Context) => {
       event(production, "DOCUMENT_SAVED", { document_id: documentId });
       await save(store, state);
       await queueUpload(request, context, state, production, documentId);
-      return json({ result: { document_id: documentId, name: safeName, status: "PROCESSING" }, workspace: snapshot(state) }, 202);
+      return workspaceJson(state, { result: { document_id: documentId, name: safeName, status: "PROCESSING" }, workspace: snapshot(state) }, 202);
     }
     const retryMatch = path.match(/^\/api\/documents\/([^/]+)\/retry$/);
     if (retryMatch && request.method === "POST") {
@@ -661,13 +667,13 @@ export default async (request: Request, context: Context) => {
       document.status = "PROCESSING"; document.review_status = "PENDING"; document.processing_started_at = now(); delete document.processing_error;
       await save(store, state);
       await queueUpload(request, context, state, production, document.document_id);
-      return json(snapshot(state), 202);
+      return workspaceJson(state, snapshot(state), 202);
     }
     if (path === "/api/reports/advance.pdf" && request.method === "GET") {
       const department = url.searchParams.get("department"); if (department && !(DEPARTMENTS as readonly string[]).includes(department)) return fail("Invalid department"); const bytes = await reportPdf(production, department); const pdfBody = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer; const filename = `RIGOR-${production.show.show_name}-${department || "Master"}-Advance-Report.pdf`.replace(/[^A-Za-z0-9.-]+/g, "-"); return new Response(pdfBody, { headers: { ...commonHeaders("application/pdf"), "Content-Disposition": `attachment; filename=\"${filename}\"` } });
     }
     return fail("Not found", 404);
-  } catch (error) { console.error(error); return fail(error instanceof Error ? error.message : "Unexpected server error", 500); }
+  } catch (error) { if (error instanceof WorkspaceConflictError) return fail(error.message, error.status); console.error(error); return fail(error instanceof Error ? error.message : "Unexpected server error", 500); }
 };
 
 export const config: Config = {

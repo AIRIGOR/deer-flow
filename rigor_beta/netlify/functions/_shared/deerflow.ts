@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
+import { restrictedStaging } from "./staging-policy.js";
 
 export const OPERATING_MOTTO = "Flow like water";
 export type DeerFlowOperation = "document_analysis" | "company_pulse" | "company_action" | "john_pm";
@@ -23,20 +24,42 @@ export class DeerFlowIntegrationError extends Error {
   }
 }
 
+function companyEvidence(data: any, operation: DeerFlowOperation, payload: Record<string, any>) {
+  const p = data.execution_evidence;
+  const pulse = operation === "company_pulse";
+  const text = (value: unknown, max = 500) => typeof value === "string" && value.trim().length > 0 && value.length <= max;
+  const digest = (value: unknown) => typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  if (!p || p.source !== "DEERFLOW_CHECKPOINT_LEDGER" || !text(p.thread_id, 200) || !p.thread_id.startsWith(`rigor-company-${pulse ? "pulse" : "action"}-`) || !text(p.checkpoint_id, 200) || !text(p.run_id, 200) || !digest(p.model_output_sha256)
+    || !Array.isArray(p.delegations) || p.delegations.length !== (pulse ? 6 : 1)
+    || p.delegations.some((d: any) => !d || !text(d.id, 200) || !text(d.agent, 128) || !d.agent.startsWith("rigor-") || d.status !== "completed" || d.stop_reason || !digest(d.result_sha256) || !text(d.result_ref))
+    || new Set(p.delegations.map((d: any) => d.id)).size !== p.delegations.length) return null;
+  const agents = p.delegations.map((d: any) => d.agent);
+  if (pulse && (new Set(agents).size !== 6 || agents.filter((name: string) => name === "rigor-chief-of-staff").length !== 1)) return null;
+  if (!pulse && payload.proposal?.owner_agent != null && agents[0] !== payload.proposal.owner_agent) return null;
+  const ids = new Set(p.delegations.map((d: any) => d.id));
+  const validRefs = (refs: any, min: number) => Array.isArray(refs) && refs.length >= min && refs.length <= 6 && new Set(refs).size === refs.length && refs.every(id => typeof id === "string" && ids.has(id));
+  if (pulse && (!Array.isArray(data.findings) || !data.findings.length || data.findings.length > 12 || data.findings.some((item: any) => !item || !text(item.summary, 2000) || !validRefs(item.evidence_ids, 1))
+    || !Array.isArray(data.reconciliations) || data.reconciliations.length > 12 || data.reconciliations.some((item: any) => !item || !text(item.topic, 240) || !text(item.assessment, 2000) || !validRefs(item.evidence_ids, 2) || !["UNRESOLVED", "PROPOSED_FOR_REVIEW"].includes(item.status) || item.approval_required !== true))) return null;
+  return { source: p.source, thread_id: p.thread_id, checkpoint_id: p.checkpoint_id, run_id: p.run_id, model_output_sha256: p.model_output_sha256,
+    delegations: p.delegations.map((d: any) => ({ id: d.id, agent: d.agent, status: d.status, result_sha256: d.result_sha256, result_ref: d.result_ref })) };
+}
+
 // RIGOR product and 3NETRA company operations use the same authenticated gateway,
 // bounded execution, sanitized failures, and durable execution receipts.
 export async function deerFlowRequest(context: Context, operation: DeerFlowOperation, payload: Record<string, unknown>) {
+  if (restrictedStaging(context)) throw new DeerFlowIntegrationError("LIVE_EXECUTION_DISABLED");
   const store = integrationStore(context);
   const executionId = randomUUID();
   const startedAt = new Date().toISOString();
   const started = Date.now();
-  const receipt = { execution_id: executionId, operation, started_at: startedAt, engine: "DEERFLOW" };
+  const requestBody = JSON.stringify(payload);
+  const receipt = { execution_id: executionId, operation, started_at: startedAt, engine: "DEERFLOW", deployment_id: context.deploy.id || null, site_id: context.site?.id || null, request_sha256: createHash("sha256").update(requestBody).digest("hex") };
   const save = async (status: string, extra: Record<string, unknown> = {}) => {
     const record = { ...receipt, status, ...extra };
     await store.setJSON(`execution/${executionId}`, record);
     await store.setJSON(`latest/${operation}`, record);
   };
-  await save("RUNNING");
+  try { await save("RUNNING"); } catch { throw new DeerFlowIntegrationError("RECEIPT_UNAVAILABLE"); }
   try {
     const baseUrl = Netlify.env.get("RIGOR_DEERFLOW_URL")?.trim();
     const token = Netlify.env.get("RIGOR_DEERFLOW_TOKEN")?.trim();
@@ -44,7 +67,7 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
     const response = await fetch(`${baseUrl.replace(/\/$/, "")}${routes[operation].path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-RIGOR-Service-Token-SHA256": createHash("sha256").update(token, "utf8").digest("hex"), "X-RIGOR-Execution-Id": executionId },
-      body: JSON.stringify(payload),
+      body: requestBody,
       signal: AbortSignal.timeout(routes[operation].timeout),
     });
     if (!response.ok) throw new DeerFlowIntegrationError(`HTTP_${response.status}`);
@@ -79,13 +102,20 @@ export async function deerFlowRequest(context: Context, operation: DeerFlowOpera
       throw new DeerFlowIntegrationError("INVALID_RESPONSE");
     }
     if (operation === "company_action" && (data.status !== "COMPLETE" || typeof data.result_summary !== "string" || !data.result_summary.trim())) throw new DeerFlowIntegrationError("INVALID_RESPONSE");
+    const delegationEvidence = ["company_pulse", "company_action"].includes(operation) ? companyEvidence(data, operation, payload) : null;
+    if (["company_pulse", "company_action"].includes(operation) && !delegationEvidence) throw new DeerFlowIntegrationError("INVALID_COMPANY_EVIDENCE");
+    const responseBody = JSON.stringify(data);
     await save("VERIFIED", { completed_at: new Date().toISOString(), duration_ms: Date.now() - started,
+      response_sha256: createHash("sha256").update(responseBody).digest("hex"),
+      verification_scope: delegationEvidence ? "CHECKPOINT_DELEGATION_COMPLETION" : operation === "document_analysis" ? "SOURCE_CITATION_PRESENCE" : "ADVISORY_SOURCE_IDS",
+      ...(delegationEvidence ? { delegation_evidence: delegationEvidence } : {}),
       ...(operation === "document_analysis" ? { pages_submitted: (payload.pages as string[]).length, requirements_returned: data.requirements.length } : {}) });
-    return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json", "X-RIGOR-Execution-Id": executionId } });
+    return new Response(responseBody, { headers: { "Content-Type": "application/json", "X-RIGOR-Execution-Id": executionId } });
   } catch (error) {
     const code = error instanceof DeerFlowIntegrationError ? error.code
       : error instanceof Error && error.name === "TimeoutError" ? "TIMEOUT" : "UNAVAILABLE";
-    await save("FAILED", { completed_at: new Date().toISOString(), duration_ms: Date.now() - started, error_code: code });
+    try { await save("FAILED", { completed_at: new Date().toISOString(), duration_ms: Date.now() - started, error_code: code }); }
+    catch { throw new DeerFlowIntegrationError("RECEIPT_UNAVAILABLE"); }
     throw new DeerFlowIntegrationError(code);
   }
 }
@@ -103,6 +133,8 @@ export function coherentFlowCheck(integration: Awaited<ReturnType<typeof integra
   const analysis = integration.operations.document_analysis;
   const pulse = integration.operations.company_pulse;
   if (analysis?.status !== "VERIFIED" || pulse?.status !== "VERIFIED") return null;
+  if (!deployId || analysis.deployment_id !== deployId || pulse.deployment_id !== deployId || pulse.verification_scope !== "CHECKPOINT_DELEGATION_COMPLETION"
+    || typeof analysis.execution_id !== "string" || !analysis.execution_id.trim() || typeof pulse.execution_id !== "string" || !pulse.execution_id.trim()) return null;
   return {
     action_type: "INTERNAL_TEST" as const,
     scope: "OBSERVE" as const,

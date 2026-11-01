@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/rigor-netlify-beta-v1
+      - feat/rigor-staging-train01
     paths:
       - "rigor_beta/**"
       - "backend/app/gateway/routers/rigor.py"
@@ -20,6 +21,10 @@ on:
       - ".github/workflows/rigor-company-release-gate.yml"
   pull_request:
     paths:
+      - "backend/packages/harness/deerflow/persistence/migrations/versions/*rigor*.py"
+      - "backend/packages/harness/deerflow/persistence/models/__init__.py"
+      - "backend/packages/harness/deerflow/persistence/rigor/**"
+      - "backend/app/gateway/founder_authority.py"
       - "rigor_beta/**"
       - "backend/app/gateway/routers/rigor.py"
       - "backend/app/rigor_service.py"
@@ -88,6 +93,11 @@ jobs:
           uv run pytest -q
           tests/test_rigor_analyzer.py
           tests/test_rigor_manager.py
+          tests/test_rigor_company_evidence.py
+          tests/test_rigor_founder_binding.py
+          tests/test_rigor_authority.py
+          tests/test_rigor_sql_audit.py
+          tests/test_rigor_foundation_verification.py
           tests/test_rigor_repository.py
           tests/test_rigor_router.py
           tests/test_rigor_service.py

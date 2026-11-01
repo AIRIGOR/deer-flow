@@ -1,9 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import { getDeployStore, getStore } from "@netlify/blobs";
 import type { Context } from "@netlify/functions";
+import type { DryRunPlan } from "./founder-dry-run.js";
 export type FounderCommand = {
-  command_id: string; command: string; mode: "INTERNAL_RESEARCH" | "RUN_COMPANY_PULSE";
-  status: "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
+  command_id: string; command: string; mode: "INTERNAL_RESEARCH" | "RUN_COMPANY_PULSE" | "LOCAL_DRY_RUN";
+  status: "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED" | "BLOCKED" | "DRY_RUN_COMPLETE";
+  request_sha256?: string;
+  plan?: DryRunPlan;
+  authentication?: { mechanism: "FOUNDER_TOKEN"; capability: "LOCAL_SIMULATION_ONLY"; human_identity_verified: false; production_authority_verified: false };
   created_at: string; updated_at: string; execution_id?: string | null; result?: unknown; error_code?: string;
   proposal: { action_type: "INTERNAL_RESEARCH"; scope: "INTERNAL_EXECUTE"; title: string; summary: string; reversible: true };
 };

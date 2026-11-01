@@ -1181,6 +1181,18 @@ on blocked handoffs, snapshot immutability and registry drift tests in
 live permission resolution or proof of actual specialist delegation; runtime config
 can override declared skill/turn/timeout defaults.
 
+Session 08: company results must obtain execution_evidence from get_thread on the
+same unique thread, never from model JSON. company_evidence validates the latest
+materialized checkpoint: one completed registered worker for an action (matching
+its explicit owner), or five distinct specialists plus Chief of Staff for a pulse;
+failed/capped, duplicate, missing, foreign-thread and mixed-run evidence fails closed.
+Findings/reconciliations bind completed worker names or tool-call IDs to actual ledger
+IDs. Reconciliations remain UNRESOLVED/PROPOSED_FOR_REVIEW with human approval required.
+Keep tests in test_rigor_company_evidence.py and the operator/executor suites. Ledger
+digests/status are runtime-reported completion evidence, not proof of factual truth,
+full report content or synthesis timing. Netlify and backend require a coordinated
+staged protocol update; legacy success bodies without proof must not pass receipts.
+
 
 ### RIGOR durable company state
 
@@ -1199,3 +1211,45 @@ John endpoint: app.rigor_service wires deerflow.rigor.john_pm. Keep the staging 
 Keep shared-token comparison on UTF-8 bytes with hmac.compare_digest. The string overload raises TypeError for non-ASCII configuration, including otherwise valid requests. Preserve strict equality, missing-config 503, missing/wrong-token 401 and header-level regression tests; never log credential values.
 
 Digest transport is shared by all four authenticated RIGOR routes. Preserve missing-config 503, wrong-digest 401 and no fallback when a digest header is supplied. Never include the token or its digest in logs/receipts. Both sides hash exact trimmed UTF-8 bytes without normalization.
+
+Retrospective Sessions 01–02 verification: RigorManager.update_document must reject
+changing an existing document's owning show before persistence. Otherwise incoming
+requirement and supersession references can silently become cross-show. Same-show
+metadata edits preserve entity IDs. Keep regression coverage for both dependency
+types, same-show edits, service/ORM enum parity and unauthenticated mutation denial
+in test_rigor_foundation_verification.py. The low-level repository is not a separate
+authorization or immutable-audit boundary; do not infer cross-store synchronization
+or production clearance from a stored show_status or passing SQLite tests.
+
+Mission 04 core SQL history: RigorRepository commits entity changes and audit rows
+together. Keep all nine CRUD commits on _commit_with_audit; explicit delete handling
+must audit child deletions and SET NULL dependencies. Do not add a second commit or
+silently skip a failed audit insert. Gateway mutations use middleware-authenticated
+subject IDs via audit_scope; never use body/header actor or approval claims. Trusted
+direct repository callers are labeled SYSTEM:rigor-core unless given an explicit
+process scope. Status transitions are recorded with verified_approval=false.
+History has no source FK and survives deletion; it has no public HTTP endpoint.
+Use test_rigor_sql_audit.py for lifecycle, rollback, actor, redaction and scope checks.
+Current source migration head is d94e7a2c6105 (superseding the earlier c8e7d9a1f203
+head note above). Do not change historical migration parents or fabricate backfill.
+Read docs/RIGOR_SQL_AUDIT_HISTORY.md before changing this path. The guarantee is
+repository-path transactional history, not raw-SQL capture, tamper-proof storage,
+cross-store synchronization, human approval or production certification.
+
+
+Mission 05C authority: docs/RIGOR_AUTHORITY_CONTRACT.md records Founder-approved
+future SQL ownership and scope. RigorManager rejects formal APPROVED requirements
+and SHOW_READY/SHOW_COMPLETE claims on create/update until verified human identity,
+show/department assignments and mandatory gate evidence exist. Never bypass this
+with generic admin/thread permissions, owner labels, body/header claims or system
+actors. RigorAuthorityError maps to 403. Nonapproval review/status CRUD retains
+Mission 04 attribution; no successful approval flow or public audit endpoint exists.
+Use test_rigor_authority.py and affected manager/router/audit-actor checks. No role
+assignments, policy account inference, migration or synchronization is authorized.
+
+
+Mission 06 Windows regression: channel runtime-config POSIX 0600 assertions are
+POSIX-only; the portable test still verifies requested 0600 chmod on temporary and
+final paths, persisted data and failure logging. Do not claim Windows ACL isolation
+from this test or from skipped POSIX assertions. Storage implementation unchanged;
+Windows ACL and Linux execution evidence remain required independently.
