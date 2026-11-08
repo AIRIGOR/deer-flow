@@ -90,7 +90,7 @@ describe("company pulse durable failure reporting", () => {
       return new Response("{}");
     }));
     await pulse(authorized(), context);
-    expect(records.get("pulse/last-attempt")).toMatchObject({status: "FAILED", failure_code: "PULSE_EXECUTION_FAILED"});
+    expect(records.get("pulse/last-attempt")).toMatchObject({status: "FAILED", failure_code: "UNAVAILABLE"});
     expect(JSON.stringify(records.get("pulse/last-attempt"))).not.toContain("private diagnostic text");
   });
 
