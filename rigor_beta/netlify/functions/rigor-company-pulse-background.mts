@@ -488,14 +488,14 @@ export async function runCompanyPulse(request: Request, context: Context, founde
     const message = error instanceof DeerFlowIntegrationError
       ? /^HTTP_\d{3}$/.test(error.code) ? `UPSTREAM_${error.code}` : error.code
       : error instanceof Error ? error.message : "";
-    const failureCode = /^(UPSTREAM_HTTP_\d{3}|DELEGATION_NOT_VERIFIED|COMPANY_CONTEXT_TOO_LARGE|ACTION_QUEUE_UPDATE_CONFLICT)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
+    const failureCode = /^(UPSTREAM_HTTP_\d{3}|NOT_CONFIGURED|UNAVAILABLE|TIMEOUT|INVALID_RESPONSE|DELEGATION_NOT_VERIFIED|COMPANY_CONTEXT_TOO_LARGE|ACTION_QUEUE_UPDATE_CONFLICT)$/.test(message) ? message : "PULSE_EXECUTION_FAILED";
     await store.setJSON("pulse/last-attempt", {
       started_at: startedAt,
       completed_at: new Date().toISOString(),
       status: "FAILED",
       failure_code: failureCode,
     });
-    console.error("RIGOR company pulse execution failed", error instanceof Error ? error.name : "UnknownError");
+    console.error("RIGOR company pulse execution failed", failureCode);
     if (founderObjective) throw new Error(failureCode);
   }
 }
