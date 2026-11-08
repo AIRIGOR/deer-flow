@@ -68,7 +68,7 @@ export default async (request: Request, context: Context) => {
         delegation_verified: true, execution_receipts: result.execution_receipts, external_action_performed: false}});
   } catch (error) {
     const message = error instanceof Error ? error.message : "EXECUTION_FAILED";
-    const safeCode = /^(UPSTREAM_HTTP_\d{3}|SERVICE_NOT_CONFIGURED|PULSE_DID_NOT_COMPLETE|PULSE_EXECUTION_FAILED|INVALID_EXECUTION_RESULT|DELEGATION_NOT_VERIFIED|OUTREACH_DELIVERABLES_MISSING)$/.test(message)
+    const safeCode = /^(UPSTREAM_HTTP_\d{3}|SERVICE_NOT_CONFIGURED|NOT_CONFIGURED|UNAVAILABLE|TIMEOUT|INVALID_RESPONSE|COMPANY_CONTEXT_TOO_LARGE|ACTION_QUEUE_UPDATE_CONFLICT|PULSE_DID_NOT_COMPLETE|PULSE_EXECUTION_FAILED|INVALID_EXECUTION_RESULT|DELEGATION_NOT_VERIFIED|OUTREACH_DELIVERABLES_MISSING)$/.test(message)
       ? message : "EXECUTION_FAILED";
     await store.setJSON(key, {...running, status: "FAILED", failure_code: safeCode, ...(partialResult ? {result: partialResult} : {}), completed_at: new Date().toISOString()});
   }
